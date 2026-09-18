@@ -106,6 +106,56 @@ class PaymentService:
         logger.info(f"Payment cancelled by user: user={user_id}, yookassa_id={pending.yookassa_payment_id}")
         return pending
 
+    async def cancel_stale_payments(self, older_than_minutes: int) -> list[Payment]:
+        """Автоотмена счетов, провисевших в 'pending' дольше таймаута.
+
+        Штатно 'pending' снимает вебхук `payment.canceled` от YooKassa. Если он
+        не дойдёт (магазин не подписан на событие, сеть, зависание VM), счёт
+        висит неограниченно долго — а пока он висит, has_pending_payment не даёт
+        человеку выставить новый счёт ни на подписку, ни на докупку устройств.
+        Этот метод вызывает джоб планировщика, см. scheduler.cancel_stale_payments.
+
+        Отменяем ровно тем же способом, что и cancel_pending_payment, — только
+        локальной отметкой: платежи создаются с capture=True, поэтому Payment.cancel
+        в API YooKassa для них недоступен. Оплату по старой ссылке
+        process_successful_payment всё равно примет ('cancelled' там допустимый
+        статус), так что деньги не «проглотятся» без продления подписки.
+
+        Ошибка на одном счёте не должна срывать весь прогон — идём дальше.
+        """
+        stale = await self._payment_repo.get_pending_older_than(older_than_minutes)
+        if not stale:
+            return []
+
+        cancelled: list[Payment] = []
+        raced = 0
+        for payment in stale:
+            try:
+                # Условная отметка, а не update_status: счёт мог быть оплачен
+                # между выборкой и этой строкой, и тогда трогать его нельзя.
+                marked = await self._payment_repo.cancel_if_pending(payment.yookassa_payment_id)
+            except Exception:
+                logger.exception(
+                    f"Автоотмена счёта не удалась: user={payment.user_id}, "
+                    f"yookassa_id={payment.yookassa_payment_id}"
+                )
+                continue
+
+            if not marked:
+                raced += 1
+                continue
+
+            cancelled.append(payment)
+            logger.info(
+                f"Payment auto-cancelled by timeout ({older_than_minutes} min): "
+                f"user={payment.user_id}, yookassa_id={payment.yookassa_payment_id}"
+            )
+
+        if raced:
+            logger.info(f"Автоотмена счетов: {raced} счетов сменили статус по пути — пропущены.")
+
+        return cancelled
+
     async def process_successful_payment(self, yookassa_payment_id: str,
                                          paid_amount: float,
                                          payment_method=None) -> PaymentResult | None:

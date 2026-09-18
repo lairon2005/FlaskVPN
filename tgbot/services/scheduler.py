@@ -827,6 +827,44 @@ async def _notify_slots_expired(bot: Bot, user, removed: int) -> None:
         logger.error(f"Не удалось уведомить user_id={user.user_id} об отключении устройств: {e}")
 
 
+# --- 4.6 АВТООТМЕНА ЗАВИСШИХ НЕОПЛАЧЕННЫХ СЧЕТОВ ---
+
+# Локальный таймаут неоплаченного счёта, минуты.
+#
+# Штатно статус 'pending' снимает вебхук `payment.canceled` от YooKassa — её
+# собственный таймаут (~30 минут, именно это число обещают тексты в боте и на
+# сайте). Джоб ниже — страховка на случай, когда вебхук не дошёл: магазин не
+# подписан на событие, сетевой сбой, зависание VM. Без неё счёт висит вечно и
+# блокирует человеку создание нового — и на подписку, и на докупку устройств.
+#
+# Дефолт намеренно вдвое больше обещанных 30 минут: мы не соревнуемся с самой
+# YooKassa и не отменяем счёт, который вот-вот оплатят. Отмена всё равно
+# «мягкая» — оплату по старой ссылке вебхук примет и после неё.
+PENDING_PAYMENT_TTL_MINUTES = 60
+
+
+async def cancel_stale_payments():
+    """Помечает 'cancelled' счета, провисевшие в 'pending' дольше таймаута."""
+    # Ленивый импорт — избегаем циклической зависимости на этапе загрузки модулей.
+    from tgbot.services import payment_service
+
+    logger.info("Scheduler job: автоотмена зависших счетов запущена.")
+
+    try:
+        cancelled = await payment_service.cancel_stale_payments(PENDING_PAYMENT_TTL_MINUTES)
+    except Exception as e:
+        logger.error(f"Автоотмена зависших счетов: прогон не удался: {e}")
+        return
+
+    if cancelled:
+        logger.info(
+            f"Автоотмена зависших счетов завершена: отменено {len(cancelled)} "
+            f"(старше {PENDING_PAYMENT_TTL_MINUTES} мин)."
+        )
+    else:
+        logger.info("Автоотмена зависших счетов завершена: зависших счетов нет.")
+
+
 # --- 5. Функция для добавления всех задач в планировщик ---
 
 def schedule_jobs(scheduler: AsyncIOScheduler, bot: Bot):
@@ -895,9 +933,17 @@ def schedule_jobs(scheduler: AsyncIOScheduler, bot: Bot):
         kwargs={'bot': bot}
     )
 
+    # Автоотмена зависших счетов — каждые 15 минут. Задача чисто служебная
+    # (пометка в БД), пользователю и админам писать не о чем, поэтому bot не нужен.
+    scheduler.add_job(
+        cancel_stale_payments,
+        trigger='cron',
+        minute='*/15',
+    )
+
     logger.info(
         "Scheduler jobs added: auto_renew_subscriptions (12:00), check_subscriptions (12:49), "
         "lifecycle_renewal_reminders (10:00), lifecycle_winback (10:15), "
         "lifecycle_activation_drip (10:30), award_referral_leaderboard (1st day 09:00), "
-        "sync_device_limits (каждый час в :20)."
+        "sync_device_limits (каждый час в :20), cancel_stale_payments (каждые 15 мин)."
     )

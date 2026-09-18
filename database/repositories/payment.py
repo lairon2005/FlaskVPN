@@ -121,6 +121,31 @@ class PaymentRepository:
             result = await session.execute(stmt)
             return result.scalars().all()
 
+    async def cancel_if_pending(self, yookassa_payment_id: str) -> bool:
+        """Атомарно помечает счёт 'cancelled' — но только если он ВСЁ ЕЩЁ 'pending'.
+
+        Нужно джобу автоотмены (tgbot/services/scheduler.py): между выборкой
+        зависших счетов и их отметкой вебхук мог принести оплату по старой
+        ссылке, и безусловный update_status затёр бы 'succeeded' вместе с
+        completed_at — платёж пропал бы из выручки. Условие в WHERE закрывает
+        это окно на стороне БД.
+
+        Возвращает False, если строка уже сменила статус (и значит трогать её
+        не надо) либо её нет вовсе.
+        """
+        async with self._session_maker() as session:
+            stmt = (
+                update(Payment)
+                .where(
+                    Payment.yookassa_payment_id == yookassa_payment_id,
+                    Payment.status == 'pending',
+                )
+                .values(status='cancelled', completed_at=None)
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0
+
     async def get_revenue_stats(self, days: int) -> dict:
         async with self._session_maker() as session:
             since = datetime.now() - timedelta(days=days)
