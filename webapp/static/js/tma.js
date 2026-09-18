@@ -10,10 +10,19 @@
     var TOKEN_KEY = 'flaskvpn_tma_token';
     var SCREEN_PARAMS = ['tariffs', 'import', 'support', 'history'];
 
+    // Палитра бренд-бука FLASK — те же значения, что в styles.css
+    var BRAND_CREAM = '#F7F1E8';
+    var BRAND_PAPER = '#FFFCF6';
+
     if (tg) {
         tg.ready();
         tg.expand();
-        // Тёмная тема сайта — не завязываемся на themeParams клиента (см. roadmap фаза 2).
+        // Фирменная светлая тема — не завязываемся на themeParams клиента (см. roadmap фаза 2),
+        // но красим хром Telegram в кремовый, чтобы шапка не спорила с фоном Mini App.
+        // setHeaderColor с hex доступен с 6.9, setBottomBarColor — с 7.10: всё под try/catch.
+        try { tg.setBackgroundColor(BRAND_CREAM); } catch (e) { /* старый клиент */ }
+        try { tg.setHeaderColor(BRAND_CREAM); } catch (e) { /* < 6.9 — останется тема клиента */ }
+        try { tg.setBottomBarColor(BRAND_PAPER); } catch (e) { /* < 7.10 */ }
     }
 
     // ============================================================
@@ -440,6 +449,8 @@
             if (!hasMainButton || !selected) return;
             var price = currentPrice(selected.basePrice);
             tg.MainButton.setText('Оплатить ' + price + ' ₽');
+            // Кнопка в фирменном синем, а не в акцентном цвете клиента
+            try { tg.MainButton.setParams({ color: '#2457C5', text_color: '#FFFFFF' }); } catch (e) { /* старый клиент */ }
             tg.MainButton.show();
             tg.MainButton.enable();
         }

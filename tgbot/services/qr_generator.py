@@ -14,7 +14,9 @@ def create_qr_code(data: str) -> BytesIO:
     qr.add_data(data)
     qr.make(fit=True)
 
-    img = qr.make_image(fill_color="black", back_color="white")
+    # Цвета бренд-бука FLASK: глубокий синий на тёплой бумаге.
+    # В оттенках серого разница ~157/255 — сканеры читают уверенно.
+    img = qr.make_image(fill_color="#2457C5", back_color="#F7F1E8")
     
     # Сохраняем изображение в байтовый поток в памяти
     bio = BytesIO()

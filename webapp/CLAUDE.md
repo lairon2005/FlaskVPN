@@ -12,7 +12,8 @@ FastAPI web dashboard для VPN-сервиса. Регистрация по ema
 - **passlib[argon2]** — хэширование паролей
 - **fastapi-mail** — SMTP email
 - **YooKassa** — приём платежей
-- **Bootstrap 5** + кастомный CSS (dark theme, бирюзовый акцент `#06b6d4`)
+- **Bootstrap 5** + кастомный CSS (светлая тема по бренд-буку FLASK: кремовая бумага `#F7F1E8`,
+  синий `#2457C5`, оранжевый акцент `#FF7627` — см. `docs/brand.md`)
 
 Запуск: `uvicorn webapp.main:app --reload` (порт 8000). В Docker — сервис `flask_site`.
 
@@ -126,7 +127,9 @@ MAIL_TIMEOUT = 15  # секунд, asyncio.wait_for()
 
 **Ошибки:** `MailSendError` — содержит безопасное сообщение для пользователя; техническая ошибка только в логах.
 
-**Функции:** `send_verification_email(email, code)`, `send_reset_code(email, code)`
+**Функции:** `send_verification_email(email, code)`, `send_reset_code(email, code)`.
+Обе собирают HTML через `_brand_code_email()` — таблицы + инлайн-цвета бренда
+(почтовые клиенты режут `<style>` и веб-шрифты).
 
 > ⚠️ Яндекс SMTP блокирует соединения с VPS-IP. Нужен transactional-провайдер (Resend, SendGrid и т.п.).
 
@@ -144,26 +147,41 @@ create_access_token(data: dict, expires_delta?) → str  # JWT HS256
 
 ## CSS (`static/css/styles.css`)
 
-**CSS-переменные:**
+Оформление — бренд-бук FLASK, подробности и список поверхностей в `docs/brand.md`.
+
+**CSS-переменные (бренд + семантические алиасы старых имён):**
 ```css
---primary:        #06b6d4   /* бирюзовый */
---bg-body:        #0e0e0e   /* основной фон */
---bg-card:        #141414   /* карточки */
---text-primary:   #ffffff
---text-secondary: #a0a0a0
+--brand-blue:   #2457C5   /* основной цвет, логотип   → --primary */
+--brand-sky:    #73B9F5   /* фоновые формы, полутон */
+--brand-orange: #FF7627   /* акценты, графика         → --warning */
+--brand-cream:  #F7F1E8   /* фон                      → --bg-body */
+--brand-paper:  #FFFCF6   /* карточки                 → --bg-card */
+--brand-ink:    #17203A   /* текст                    → --text-primary */
+--text-secondary: #5C6A88
+--font-display: Nunito 800/900   --font-body: Inter   --font-mono: JetBrains Mono
 ```
 
+Старые имена (`--primary`, `--bg-body`, `--bg-card`, `--text-*`) сохранены как алиасы —
+шаблоны и `style="..."` в них не переписывались.
+
 **Ключевые классы:**
-- `.btn-accent` / `.btn-accent-outline` / `.btn-loading` — кнопки
-- `.glass-card` / `.section-card` — карточки
-- `.copy-field` — поле с кнопкой копирования
-- `.status-badge`, `.status-badge-active`, `.status-badge-expired` — статусы
+- `.btn-accent` / `.btn-accent-outline` / `.btn-accent-orange` / `.btn-loading` — кнопки
+  (печатный офсет `--shadow-pop`, «вдавливаются» на `:active`)
+- `.glass-card` / `.section-card` (+ `.accent-success` / `.accent-danger` — цветной корешок) — карточки
+- `.panel-outlined` / `.panel-dashed` — внутренние блоки (устройства, докупка слотов, триал)
+- `.copy-field` — поле с кнопкой копирования, `.code-input` — 6-значный код из письма
+- `.status-badge` + `-active` / `-expired` / `-pending` / `-info` / `-muted` — статусы платежей
 - `.alert-custom.alert-error` / `.alert-success` — сообщения об ошибках/успехе
-- `.tariff-card.popular` — выделенный тариф
+- `.tariff-card.popular` — выделенный тариф (синяя рамка + оранжевый бейдж)
+- `.brand-wordmark` (`Flask` + `.vpn` оранжевым), `.eyebrow` — моно-капс надзаголовок
+- `.deco.deco-blob` / `.deco-halftone` / `.deco-stroke`, `.sparkle`, `.brand-underline` — графика бренда
 - `.animate-in`, `.animate-in-delay-{1-4}` — staggered анимация при загрузке
 - `.hero-visual` / `.hero-svg` — SVG-глобус в hero секции
-- `.hv-*` — классы анимаций SVG-глобуса (кольца, ноды, линии, щит)
+- `.hv-*` — классы анимаций SVG-глобуса (кольца, ноды, линии, щит, искры)
 - `.data-table` — таблица истории платежей
+
+Зерно бумаги — `body::before` (SVG-шум `--grain`, `mix-blend-mode: multiply`), поверх всей
+страницы с `pointer-events: none`.
 
 ---
 

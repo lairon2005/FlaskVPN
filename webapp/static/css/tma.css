@@ -2,6 +2,7 @@
    FlaskVPN — Telegram Mini App overrides (docs/tma-roadmap.md фаза 2)
    Поверх styles.css: без navbar/footer сайта, нижний таб-бар,
    safe-area отступы под системные жесты Telegram-клиента.
+   Оформление — бренд-бук FLASK (кремовая бумага + синий/оранжевый).
    ============================================================ */
 
 html, body {
@@ -9,6 +10,7 @@ html, body {
 }
 
 body.tma-body {
+    background-color: var(--brand-cream);
     padding-top: env(safe-area-inset-top, 0);
     /* Место под нижний таб-бар + safe-area (домашний индикатор iOS) */
     padding-bottom: calc(64px + env(safe-area-inset-bottom, 0));
@@ -34,9 +36,10 @@ body.tma-body {
 .tma-header .avatar-placeholder {
     width: 44px;
     height: 44px;
+    border-radius: 14px;
     font-size: 1.1rem;
 }
-.tma-header h5 { margin: 0; font-weight: 700; }
+.tma-header h5 { margin: 0; font-family: var(--font-display); font-weight: 900; letter-spacing: -0.02em; }
 .tma-header p { margin: 0; }
 
 /* ---- Quick actions ---- */
@@ -59,10 +62,10 @@ body.tma-body {
     bottom: 0;
     z-index: 50;
     display: flex;
-    background: rgba(10, 10, 10, 0.94);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border-top: 1px solid var(--border-subtle);
+    background: rgba(255, 252, 246, 0.96);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border-top: 1.5px solid var(--border-card);
     padding-bottom: env(safe-area-inset-bottom, 0);
 }
 .tma-tab {
@@ -75,24 +78,37 @@ body.tma-body {
     padding: 9px 4px 8px;
     background: none;
     border: none;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     text-decoration: none;
     font-size: 0.68rem;
-    font-weight: 500;
+    font-weight: 600;
     line-height: 1.1;
     cursor: pointer;
+    position: relative;
 }
 .tma-tab i { font-size: 1.15rem; }
-.tma-tab.active { color: var(--primary); }
-.tma-tab:hover { color: var(--text-primary); }
-.tma-tab.active:hover { color: var(--primary); }
+.tma-tab.active { color: var(--brand-blue); }
+/* Оранжевый маркер активной вкладки — акцент бренда */
+.tma-tab.active::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 26px;
+    height: 3px;
+    border-radius: 0 0 3px 3px;
+    background: var(--brand-orange);
+}
+.tma-tab:hover { color: var(--brand-blue); }
+.tma-tab.active:hover { color: var(--brand-blue); }
 
 /* ---- "Ещё" bottom sheet ---- */
 .tma-sheet-backdrop {
     display: none;
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.55);
+    background: rgba(23, 32, 58, 0.35);
     z-index: 60;
 }
 .tma-sheet-backdrop.open { display: block; }
@@ -104,18 +120,19 @@ body.tma-body {
     bottom: 0;
     z-index: 61;
     background: var(--bg-card);
-    border: 1px solid var(--border-card);
+    border: 1.5px solid var(--border-card);
     border-bottom: none;
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     padding: 10px 10px calc(18px + env(safe-area-inset-bottom, 0));
+    box-shadow: 0 -12px 34px rgba(23, 32, 58, 0.12);
     transform: translateY(100%);
     transition: transform 0.25s ease;
 }
 .tma-sheet.open { transform: translateY(0); }
 .tma-sheet-handle {
-    width: 36px;
+    width: 40px;
     height: 4px;
-    border-radius: 2px;
+    border-radius: 999px;
     background: var(--border-input);
     margin: 4px auto 12px;
 }
@@ -127,18 +144,20 @@ body.tma-body {
     border-radius: var(--radius-sm);
     color: var(--text-primary);
     text-decoration: none;
-    font-weight: 500;
+    font-weight: 600;
     font-size: 0.95rem;
 }
-.tma-sheet-item i { width: 20px; text-align: center; color: var(--primary); }
-.tma-sheet-item:hover { background: rgba(255, 255, 255, 0.04); color: var(--text-primary); }
+.tma-sheet-item i { width: 20px; text-align: center; color: var(--brand-blue); }
+.tma-sheet-item:hover { background: rgba(115, 185, 245, 0.16); color: var(--text-primary); }
 .tma-sheet-item.disabled {
     opacity: 0.45;
     pointer-events: none;
 }
 .tma-sheet-item .tma-soon {
     margin-left: auto;
-    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.1em;
     color: var(--text-muted);
     text-transform: uppercase;
 }
@@ -154,18 +173,29 @@ body.tma-body {
     padding: 16px;
 }
 .tma-tariffs .tariff-card.selected {
-    border-color: var(--primary);
-    box-shadow: var(--shadow-glow);
+    border-color: var(--brand-blue);
+    border-width: 2px;
+    box-shadow: var(--shadow-pop);
     background: var(--bg-card-hover);
 }
+/* В компактной строке TMA бейдж «Популярный» не влезает поверх цены — ставим его
+   отдельной строкой над названием тарифа. */
+.tma-tariffs .tariff-badge {
+    position: static;
+    display: inline-block;
+    margin-bottom: 8px;
+}
+
 .tma-tariffs .tariff-card .tariff-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
+    position: relative;
+    z-index: 1;
 }
 .tma-tariffs .tariff-price {
-    font-size: 1.6rem;
+    font-size: 1.7rem;
 }
 .tma-tariffs .tariff-radio {
     width: 22px;
@@ -174,16 +204,17 @@ body.tma-body {
     border: 2px solid var(--border-input);
     flex-shrink: 0;
     position: relative;
+    background: #fff;
 }
 .tma-tariffs .tariff-card.selected .tariff-radio {
-    border-color: var(--primary);
+    border-color: var(--brand-blue);
 }
 .tma-tariffs .tariff-card.selected .tariff-radio::after {
     content: '';
     position: absolute;
     inset: 3px;
     border-radius: 50%;
-    background: var(--primary-gradient);
+    background: var(--brand-blue);
 }
 
 /* Спейсер снизу тарифов, чтобы последняя карточка не пряталась под MainButton'ом Telegram */
@@ -198,12 +229,24 @@ body.tma-body {
     padding: 24px;
     text-align: center;
 }
+.tma-splash .tma-splash-logo {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 18px;
+    display: block;
+}
+.tma-splash h1 {
+    font-family: var(--font-display);
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    color: var(--brand-blue);
+}
 .tma-splash .spinner {
     width: 32px;
     height: 32px;
     margin: 0 auto 16px;
-    border: 3px solid rgba(6, 182, 212, 0.2);
-    border-top-color: var(--primary);
+    border: 3px solid rgba(36, 87, 197, 0.2);
+    border-top-color: var(--brand-orange);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
 }

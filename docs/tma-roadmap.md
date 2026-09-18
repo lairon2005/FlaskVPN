@@ -40,7 +40,7 @@
 
 ## Фаза 2 — UI: экраны Mini App (2–3 дня)
 
-1. **`templates/tma/base.html`:** без navbar/footer, подключает `https://telegram.org/js/telegram-web-app.js`; `Telegram.WebApp.ready()` + `expand()`; текущая тёмная тема (`--bg-body: #0e0e0e`, акцент `#06b6d4`) остаётся — она хорошо ложится на TMA; опционально маппинг `themeParams` на CSS-переменные.
+1. **`templates/tma/base.html`:** без navbar/footer, подключает `https://telegram.org/js/telegram-web-app.js`; `Telegram.WebApp.ready()` + `expand()`; тема сайта остаётся общей с вебом — сейчас это светлая тема бренд-бука FLASK (`--bg-body: #F7F1E8`, акцент `#2457C5`, см. `docs/brand.md`); на `themeParams` клиента не завязываемся, вместо этого красим хром Telegram через `setHeaderColor` / `setBackgroundColor` / `setBottomBarColor` в `tma.js`.
 2. **Экраны** (SSR как на сайте, данные из тех же сервисов):
    - **Главная `/tma/`** — статус подписки (`status-badge`), дата окончания, кнопка продления; адаптация `dashboard.html`;
    - **Ключ и импорт `/tma/import`** — VPN-ключ (`copy-field`), определение ОС, кнопка «Добавить в Happ» через `build_import_url()`/`build_deeplink()` из `utils/url.py` (percent-encoding уже починен), ссылки на приложения (iOS/macOS id6783623643, Android com.happproxy), пошаговая инструкция — перенос логики `etc/nginx/static/import.html`;

@@ -42,7 +42,7 @@
 
                 {% if vpn_data.status == 'active' %}
                 <!-- Active Subscription -->
-                <div class="section-card animate-in animate-in-delay-1" style="border-left: 3px solid var(--success);">
+                <div class="section-card animate-in animate-in-delay-1 accent-success">
                     <div class="row align-items-center g-3">
                         <div class="col-12 col-md-8">
                             <h5 class="fw-bold mb-1">
@@ -62,7 +62,7 @@
 
                 {% else %}
                 <!-- Expired Subscription -->
-                <div class="section-card animate-in animate-in-delay-1" style="border-left: 3px solid var(--danger);">
+                <div class="section-card animate-in animate-in-delay-1 accent-danger">
                     <div class="row align-items-center g-3">
                         <div class="col-12 col-md-8">
                             <h5 class="fw-bold mb-1">
@@ -155,7 +155,7 @@
                                         <span class="btn-text"><i class="fas fa-bolt me-1"></i> Открыть страницу подписки</span>
                                     </a>
                                 {% else %}
-                                    <button class="btn btn-sm" disabled style="opacity:0.5;">Ссылка недоступна</button>
+                                    <button class="btn btn-sm btn-accent-outline" disabled style="opacity:0.5;">Ссылка недоступна</button>
                                 {% endif %}
                             </div>
                         </div>
@@ -212,8 +212,8 @@
                                     <td>
                                         {% if p.status == 'succeeded' %}<span class="status-badge status-badge-active">Оплачен</span>
                                         {% elif p.status == 'pending' %}<span class="status-badge status-badge-pending">Ожидает</span>
-                                        {% elif p.status == 'refunded' %}<span class="status-badge" style="background:var(--info-bg);color:var(--info);">Возврат</span>
-                                        {% elif p.status == 'cancelled' %}<span class="status-badge" style="background:rgba(255,255,255,0.05);color:var(--text-muted);">Отменён</span>
+                                        {% elif p.status == 'refunded' %}<span class="status-badge status-badge-info">Возврат</span>
+                                        {% elif p.status == 'cancelled' %}<span class="status-badge status-badge-muted">Отменён</span>
                                         {% else %}<span class="status-badge status-badge-expired">Ошибка</span>{% endif %}
                                     </td>
                                 </tr>
@@ -257,8 +257,7 @@
 
                     <div class="d-flex flex-column gap-2">
                         {% for device in devices.devices %}
-                        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 p-2"
-                             style="border: 1px solid var(--border-card); border-radius: 8px;">
+                        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 p-2 panel-outlined">
                             <div>
                                 <span class="fw-bold">{{ device.title }}</span>
                                 <div class="text-gray small">
@@ -281,8 +280,7 @@
 
                 {% if slot_quote.ok %}
                 <!-- Докупка слотов: цена считается по остатку срока подписки -->
-                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mt-3 p-3"
-                     style="border: 1px dashed var(--border-card); border-radius: 10px;"
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mt-3 p-3 panel-dashed"
                      data-slot-unit-price="{{ slot_quote.price_per_slot }}"
                      data-slot-available="{{ slot_quote.available }}"
                      id="buySlotsBox">
@@ -355,7 +353,7 @@
                 </div>
 
                 {% if tariffs %}
-                <hr class="my-3" style="border-color: rgba(255,255,255,0.08);">
+                <hr class="my-3">
                 <form action="/profile/card/set-tariff" method="post"
                       class="d-flex align-items-center gap-2 flex-wrap">
                     <span class="text-gray small">Тариф продления</span>
@@ -387,7 +385,7 @@
 
             {% else %}
                 <!-- Trial Block -->
-                <div class="section-card text-center animate-in animate-in-delay-1" style="border: 1px dashed var(--primary); background: rgba(6, 182, 212, 0.03);">
+                <div class="section-card text-center animate-in animate-in-delay-1 panel-dashed">
                     <div class="feature-icon mx-auto mb-3">
                         <i class="fas fa-gift"></i>
                     </div>
@@ -411,11 +409,11 @@
 <!-- Modal: Extend Subscription -->
 <div class="modal fade" id="extendModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-xl">
-        <div class="modal-content" style="background: var(--bg-card); border: 1px solid var(--border-card);">
+        <div class="modal-content">
 
-            <div class="modal-header" style="border-color: var(--border-subtle);">
+            <div class="modal-header">
                 <h5 class="modal-title fw-bold">Продление подписки</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
 
             <div class="modal-body p-4">
@@ -432,8 +430,7 @@
                 {% if tariffs %}
                 <!-- Доп. устройства: одно количество на все тарифы, цена карточек
                      пересчитывается на лету (updateSlotCount в scripts.js) -->
-                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4 p-3"
-                     style="border: 1px solid var(--border-card); border-radius: 10px;"
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4 p-3 panel-outlined"
                      data-slot-price="{{ device_settings.price }}"
                      data-slot-max="{{ device_settings.max_extra }}"
                      data-base-limit="{{ device_settings.base_limit }}"

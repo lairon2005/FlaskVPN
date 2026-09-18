@@ -4,26 +4,34 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FlaskVPN | Импорт подписки</title>
+    <meta name="theme-color" content="#F7F1E8">
     <!-- Иконки FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
+
     <style>
+        /* Оформление по бренд-буку FLASK — те же значения, что в webapp/static/css/styles.css.
+           Страница отдаётся nginx'ом отдельно от сайта, поэтому стили инлайн. */
         :root {
-            --primary: #06b6d4;
-            --primary-hover: #0891b2;
-            --dark-bg: #121212;
-            --card-bg: rgba(30, 30, 30, 0.75);
-            --text-white: #ffffff;
-            --text-gray: #b0b0b0;
+            --brand-blue: #2457C5;
+            --brand-blue-deep: #1B44A0;
+            --brand-sky: #73B9F5;
+            --brand-sky-soft: #DCEDFD;
+            --brand-orange: #FF7627;
+            --brand-cream: #F7F1E8;
+            --brand-paper: #FFFCF6;
+            --brand-ink: #17203A;
+            --text-gray: #5C6A88;
+            --text-muted: #8D97AE;
+            --border: rgba(36, 87, 197, 0.16);
         }
 
         body {
             font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--dark-bg);
-            /* Красивый фоновый градиент */
-            background-image: radial-gradient(circle at top right, rgba(6, 182, 212, 0.15), transparent 40%),
-                              radial-gradient(circle at bottom left, rgba(0, 0, 0, 1), transparent 40%);
-            color: var(--text-white);
+            background-color: var(--brand-cream);
+            /* Фоновые формы бренда: голубое пятно сверху, тёплый тон снизу */
+            background-image: radial-gradient(circle at 85% -10%, rgba(115, 185, 245, 0.45), transparent 45%),
+                              radial-gradient(circle at 0% 110%, rgba(255, 118, 39, 0.16), transparent 45%);
+            color: var(--brand-ink);
             margin: 0;
             padding: 0;
             min-height: 100vh;
@@ -32,46 +40,66 @@
             justify-content: center;
         }
 
+        /* Бумажное зерно поверх фона */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0.05;
+            mix-blend-mode: multiply;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        }
+
         .container {
             width: 100%;
             max-width: 480px;
             padding: 20px;
+            position: relative;
         }
 
-        /* Эффект стекла */
         .glass-card {
-            background: var(--card-bg);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 20px;
-            padding: 40px 30px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            background: var(--brand-paper);
+            border: 1.5px solid var(--border);
+            border-radius: 24px;
+            padding: 36px 30px;
+            box-shadow: 4px 4px 0 rgba(36, 87, 197, 0.14), 0 18px 40px rgba(23, 32, 58, 0.08);
             text-align: center;
         }
 
         .logo {
-            font-size: 24px;
-            font-weight: 800;
-            margin-bottom: 30px;
             display: inline-flex;
             align-items: center;
+            gap: 10px;
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            color: var(--brand-blue);
+            margin-bottom: 8px;
         }
-        
-        .logo i {
-            color: var(--primary);
-            margin-right: 10px;
+        .logo .vpn { color: var(--brand-orange); }
+        .logo svg { display: block; }
+
+        .tagline {
+            font-family: Consolas, 'Courier New', monospace;
+            font-size: 10px;
+            letter-spacing: 2.4px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 26px;
         }
 
         h2 {
             font-size: 22px;
-            margin-bottom: 15px;
+            font-weight: 800;
+            letter-spacing: -0.4px;
+            margin-bottom: 12px;
         }
 
         p {
             color: var(--text-gray);
             font-size: 15px;
-            line-height: 1.5;
+            line-height: 1.55;
             margin-bottom: 25px;
         }
 
@@ -79,8 +107,8 @@
         .spinner {
             width: 50px;
             height: 50px;
-            border: 4px solid rgba(6, 182, 212, 0.3);
-            border-top: 4px solid var(--primary);
+            border: 4px solid rgba(36, 87, 197, 0.2);
+            border-top: 4px solid var(--brand-orange);
             border-radius: 50%;
             margin: 0 auto 20px auto;
             animation: spin 1s linear infinite;
@@ -94,38 +122,42 @@
         /* Кнопка ручного импорта */
         .btn-main {
             display: inline-block;
-            background: var(--primary);
+            background: var(--brand-blue);
             color: white;
             text-decoration: none;
-            padding: 12px 30px;
-            border-radius: 12px;
-            font-weight: bold;
+            padding: 13px 30px;
+            border-radius: 14px;
+            font-weight: 800;
             font-size: 16px;
-            transition: all 0.2s;
-            box-shadow: 0 4px 15px rgba(6, 182, 212, 0.3);
-            border: none;
+            transition: transform 0.18s, box-shadow 0.18s, background 0.18s;
+            box-shadow: 4px 4px 0 rgba(36, 87, 197, 0.22);
+            border: 2px solid var(--brand-blue);
             cursor: pointer;
             width: 100%;
             box-sizing: border-box;
         }
 
         .btn-main:hover {
-            background: var(--primary-hover);
-            transform: translateY(-2px);
+            background: var(--brand-blue-deep);
+            border-color: var(--brand-blue-deep);
+            transform: translate(-2px, -2px);
+            box-shadow: 6px 6px 0 rgba(36, 87, 197, 0.26);
         }
+        .btn-main:active { transform: translate(2px, 2px); box-shadow: none; }
 
         .divider {
             height: 1px;
-            background: rgba(255, 255, 255, 0.1);
+            background: var(--border);
             margin: 30px 0;
         }
 
         .apps-title {
-            font-size: 14px;
+            font-family: Consolas, 'Courier New', monospace;
+            font-size: 11px;
             text-transform: uppercase;
-            letter-spacing: 1px;
-            color: var(--text-gray);
-            margin-bottom: 20px;
+            letter-spacing: 1.8px;
+            color: var(--text-muted);
+            margin-bottom: 18px;
         }
 
         /* Список приложений */
@@ -138,27 +170,28 @@
         .app-link {
             display: flex;
             align-items: center;
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--brand-sky-soft);
             padding: 12px 20px;
-            border-radius: 10px;
+            border-radius: 12px;
             text-decoration: none;
-            color: var(--text-white);
-            transition: background 0.2s;
-            border: 1px solid transparent;
+            color: var(--brand-ink);
+            transition: background 0.2s, border-color 0.2s;
+            border: 1.5px solid transparent;
         }
 
         .app-link:hover {
-            background: rgba(255, 255, 255, 0.1);
-            border-color: rgba(255, 255, 255, 0.2);
+            background: #fff;
+            border-color: var(--brand-blue);
         }
 
         .app-link i {
             font-size: 20px;
             width: 30px;
+            color: var(--brand-blue);
         }
-        
+
         .app-link span {
-            font-weight: 500;
+            font-weight: 600;
         }
 
         .hidden {
@@ -170,18 +203,28 @@
 
     <div class="container">
         <div class="glass-card">
-            
+
             <!-- Логотип -->
             <div class="logo">
-                <i class="fas fa-shield-alt"></i> FlaskVPN
+                <svg width="34" height="34" viewBox="0 0 2000 2000" fill="none"
+                     xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <!-- Иконка из бренд-бука FLASK (webapp/static/img/logo.svg) без фильтров:
+                         страница отдаётся nginx'ом отдельно, зерно и тени тут не нужны. -->
+                    <rect width="2000" height="2000" rx="248" fill="#2457C5"/>
+                    <path fill="#F7F1E8" d="M1146.19 1478.88C1151.13 1503.55 1147.13 1526.24 1134.17 1546.95C1121.21 1567.65 1103.35 1585.66 1080.58 1600.96C1058.07 1617.24 1031.56 1629.64 1001.06 1638.14C971.723 1646.44 941.986 1650.72 911.853 1650.99C881.719 1651.26 853.257 1646.11 826.467 1635.56C799.922 1625.99 778.518 1610.39 762.256 1588.76C741.973 1560.7 725.617 1531.42 713.187 1500.94C701.67 1469.27 690.853 1437.98 680.736 1407.08C672.507 1378.91 664.522 1351.72 656.781 1325.51C648.796 1298.31 641.268 1270.53 634.196 1242.15L633.464 1239.22C613.049 1181.54 595.526 1123.35 580.894 1064.64C567.418 1005.72 556.256 946.392 547.407 886.65C542.097 850.805 536.788 814.961 531.478 779.116C527.326 743.065 524.329 706.807 522.489 670.344C521.813 653.09 521.838 636.223 522.562 619.742C523.287 603.26 526.446 586.856 532.041 570.528C539.823 543.59 557.043 520.589 583.7 501.526C607.8 481.897 634.366 464.893 663.399 450.516C693.588 435.933 724.265 423.307 755.43 412.637C800.23 398.514 845.884 387.815 892.391 380.54C938.898 373.266 986.349 367.357 1034.74 362.812C1070.17 359.558 1105.6 356.304 1141.03 353.049C1176.46 349.795 1211.68 348.112 1246.68 348C1273.35 348.353 1299.92 350.767 1326.4 355.241C1352.88 359.715 1376.3 368.825 1396.63 382.571C1417.21 397.295 1434.02 416.27 1447.06 439.494C1460.1 462.719 1468.75 487.747 1473.02 514.579C1478.2 540.226 1479.34 566.595 1476.43 593.687C1474.43 619.594 1468.11 642.694 1457.46 662.989C1446.57 682.306 1431.69 697.735 1412.82 709.277C1402.48 716.233 1391.07 721.334 1378.59 724.582C1367.27 727.624 1355.37 730.769 1342.89 734.017C1297.11 744.226 1251.18 751.398 1205.1 755.53C1159.02 759.662 1112.85 765.855 1066.58 774.108C1061.96 774.933 1054.56 776.763 1044.39 779.599C1035.39 782.228 1029.39 784.83 1026.41 787.406C1021.36 791.373 1018.41 796.498 1017.56 802.782C1016.71 809.066 1016.44 815.246 1016.74 821.323C1016.14 848.002 1022.27 875.014 1035.13 902.359C1037.75 908.023 1041.07 914.074 1045.09 920.511C1048.86 925.969 1054.71 930.037 1062.62 932.713C1066.58 934.051 1072.73 934.487 1081.07 934.021C1089.41 933.555 1097.75 933.09 1106.09 932.624C1115.34 930.973 1124.02 929.426 1132.11 927.982C1140.21 926.538 1146.57 925.403 1151.2 924.578C1181.27 919.213 1211.92 913.746 1243.14 908.175C1274.13 901.626 1305.51 899.094 1337.29 900.58C1360.48 901.552 1379.32 906.878 1393.82 916.556C1403.86 922.94 1411.84 930.715 1417.75 939.881C1424.81 948.841 1430.72 958.007 1435.47 967.379C1442.18 984.579 1447.72 1001.99 1452.11 1019.6C1457.66 1037.01 1461.47 1054.72 1463.55 1072.75C1465.07 1083.72 1464.86 1095 1462.92 1106.58C1462.13 1117.97 1458.09 1128.4 1450.79 1137.88C1442.57 1148.54 1431.44 1157.17 1417.38 1163.77C1404.47 1170.16 1391.32 1175.57 1377.93 1180C1335.2 1192.73 1291.41 1203.61 1246.54 1212.64C1201.68 1221.66 1156.45 1229.22 1110.86 1235.31C1108.54 1235.72 1106.11 1235.64 1103.55 1235.08C1101 1234.51 1099.38 1235.31 1098.71 1237.47C1096.77 1249.06 1096.56 1260.34 1098.09 1271.31C1100.53 1281.1 1102.51 1291.47 1104.03 1302.44C1109.04 1332.21 1115.77 1361.67 1124.25 1390.82C1133.88 1419.76 1141.19 1449.11 1146.19 1478.88ZM1325.8 447.329C1331.15 449.439 1336.02 449.592 1340.41 447.788C1344.79 445.985 1347.77 443.409 1349.35 440.061C1352.09 436.506 1352.97 432.772 1352 428.858C1351.02 424.944 1347.85 421.932 1342.5 419.822C1308.95 406.388 1274.09 399.831 1237.93 400.149C1198.97 398.924 1159.95 402.307 1120.87 410.301C1082.95 418.088 1044.29 422.939 1004.91 424.855C998.881 424.908 994.498 426.712 991.76 430.266C989.022 433.821 987.562 437.658 987.381 441.778C988.113 444.714 990.123 447.932 993.411 451.434C997.613 453.75 1002.73 454.882 1008.75 454.829C1044.43 452.553 1080.19 448.218 1116.04 441.822C1151.65 434.447 1187.54 430.601 1223.7 430.282C1260.77 428.779 1294.81 434.461 1325.8 447.329ZM1372.65 468.098C1367.17 475.207 1367.14 482.366 1372.57 489.575C1377.74 495.805 1384.71 497.117 1393.48 493.509C1402.24 489.902 1406.81 483.978 1407.17 475.737C1407.53 467.496 1402.72 462.734 1392.74 461.449C1383.91 459.957 1377.21 462.174 1372.65 468.098Z"/>
+                    <path fill="#FF7627" d="M1456.49 1383.99C1463.87 1379.73 1468.99 1372.84 1470.49 1364.48C1472 1356.13 1469.76 1347.01 1464.51 1339.45C1459.26 1331.89 1451.49 1326.61 1443.14 1325.11C1434.78 1323.6 1426.54 1325.99 1419.97 1331.42C1419.97 1331.42 1419.97 1331.42 1419.97 1331.42C1416.86 1333.99 1413.84 1336.49 1410.73 1339.05C1354.57 1383.51 1297.93 1436.34 1254.52 1494.29C1252 1497.52 1249.61 1500.64 1247.09 1503.92C1245.32 1506.26 1244.53 1509.34 1244.81 1512.38C1245.1 1515.43 1246.42 1518.19 1248.6 1520.16C1250.78 1522.13 1253.66 1523.16 1256.72 1523.14C1259.78 1523.11 1262.76 1522.02 1264.91 1520.01C1264.91 1520.01 1264.91 1520.01 1264.91 1520.01C1267.87 1517.23 1270.71 1514.61 1273.65 1511.89C1326.02 1462.4 1382.63 1425.13 1446.01 1390.03C1449.52 1388.01 1452.95 1386.04 1456.49 1383.99Z"/>
+                    <path fill="#FF7627" d="M1489.27 1534.1C1497.6 1532.13 1504.37 1527 1507.87 1519.25C1511.39 1511.54 1511.36 1501.86 1508 1492.9C1504.65 1483.95 1498.3 1476.63 1490.58 1473.14C1482.85 1469.61 1474.38 1470.19 1466.81 1474.17C1466.81 1474.17 1466.81 1474.17 1466.81 1474.17C1464.41 1475.43 1462.09 1476.65 1459.69 1477.9C1416.96 1499.57 1371.07 1525.44 1333.37 1556.57C1331.2 1558.29 1329.15 1559.96 1326.98 1561.71C1324.79 1563.5 1323.34 1566.27 1322.85 1569.22C1322.36 1572.19 1322.87 1575.11 1324.37 1577.5C1325.87 1579.9 1328.28 1581.63 1331.16 1582.48C1334.03 1583.33 1337.15 1583.23 1339.72 1582.04C1339.72 1582.04 1339.72 1582.04 1339.72 1582.04C1342.18 1580.9 1344.52 1579.84 1346.97 1578.72C1390.57 1558.34 1433.79 1546.79 1481.36 1535.99C1484.02 1535.36 1486.6 1534.75 1489.27 1534.1Z"/>
+                </svg>
+                <span>Flask<span class="vpn">VPN</span></span>
             </div>
+            <div class="tagline">Freedom connects people</div>
 
             <!-- Спиннер загрузки -->
             <div id="loader" class="spinner"></div>
 
             <!-- Заголовок -->
             <h2 id="title">Импорт настроек...</h2>
-            
+
             <!-- Текст статуса -->
             <p id="message">Пожалуйста, подождите. Мы открываем приложение Happ для добавления вашей подписки.</p>
 
@@ -196,22 +239,22 @@
             <!-- Секция скачивания -->
             <div class="download-links">
                 <div class="apps-title">Нет приложения? Скачайте здесь:</div>
-                
+
                 <div class="app-list">
                     <a href="https://play.google.com/store/apps/details?id=com.happproxy" class="app-link">
-                        <i class="fab fa-android" style="color: #a4c639;"></i>
+                        <i class="fab fa-android"></i>
                         <span>Android (Happ)</span>
                     </a>
                     <a href="https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643" class="app-link">
-                        <i class="fab fa-apple" style="color: #ffffff;"></i>
+                        <i class="fab fa-apple"></i>
                         <span>iOS (Happ)</span>
                     </a>
                     <a href="https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe" class="app-link">
-                        <i class="fab fa-windows" style="color: #0078d7;"></i>
+                        <i class="fab fa-windows"></i>
                         <span>Windows (Happ)</span>
                     </a>
                     <a href="https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643" class="app-link">
-                        <i class="fab fa-apple" style="color: #ffffff;"></i>
+                        <i class="fab fa-apple"></i>
                         <span>macOS (Happ)</span>
                     </a>
                 </div>
@@ -224,7 +267,7 @@
     function doRedirect() {
         const params = new URLSearchParams(window.location.search);
         const deepLink = params.get('deeplink');
-        
+
         const loader = document.getElementById('loader');
         const message = document.getElementById('message');
         const title = document.getElementById('title');
@@ -233,10 +276,10 @@
         if (deepLink) {
             // Устанавливаем ссылку на кнопку сразу
             manualBtn.href = deepLink;
-            
+
             // Пытаемся сделать редирект
             window.location.href = deepLink;
-            
+
             // Через 2 секунды меняем текст, если редирект не сработал (например, нет приложения)
             setTimeout(() => {
                 loader.style.display = 'none'; // Скрываем крутилку
@@ -249,7 +292,7 @@
             loader.style.display = 'none';
             title.innerText = "Ошибка ссылки";
             message.innerHTML = "Ссылка для импорта не найдена или повреждена.<br>Вернитесь в личный кабинет FlaskVPN.";
-            message.style.color = "#ff6b6b";
+            message.style.color = "#DF3B22";
         }
     }
     </script>

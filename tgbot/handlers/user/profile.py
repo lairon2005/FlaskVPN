@@ -17,7 +17,7 @@ profile_router = Router()
 
 
 # --- 1. Создаем ОБЩУЮ функцию для показа профиля ---
-async def show_profile_logic(event: Message | CallbackQuery, marzban: RemnawaveClient, bot: Bot,
+async def show_profile_logic(event: Message | CallbackQuery, remnawave: RemnawaveClient, bot: Bot,
                               show_referral_cta: bool = False,
                               target_message: Message | None = None):
     """
@@ -110,11 +110,11 @@ async def show_profile_logic(event: Message | CallbackQuery, marzban: RemnawaveC
 
 # --- 2. Хендлеры для команды и кнопки ---
 @profile_router.message(Command("profile"))
-async def profile_command_handler(message: Message, marzban: RemnawaveClient, bot: Bot):
-    await show_profile_logic(message, marzban, bot)
+async def profile_command_handler(message: Message, remnawave: RemnawaveClient, bot: Bot):
+    await show_profile_logic(message, remnawave, bot)
 
 @profile_router.callback_query(F.data == "my_profile")
-async def my_profile_callback_handler(call: CallbackQuery, marzban: RemnawaveClient, bot: Bot):
+async def my_profile_callback_handler(call: CallbackQuery, remnawave: RemnawaveClient, bot: Bot):
     await call.answer()
     loading_message = await replace_message_text(
         call.message,
@@ -123,7 +123,7 @@ async def my_profile_callback_handler(call: CallbackQuery, marzban: RemnawaveCli
     )
     await show_profile_logic(
         call,
-        marzban,
+        remnawave,
         bot,
         target_message=loading_message,
     )

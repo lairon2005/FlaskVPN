@@ -21,7 +21,7 @@ from tgbot.handlers.webhook_handlers import yookassa_webhook_handler
 from utils import broadcaster
 
 scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
-async def on_startup(bot, marzban): # Добавили marzban в аргументы
+async def on_startup(bot, remnawave):
     """Выполняется при запуске бота."""
     # 1. Инициализируем базу данных
     setup_database_sync()
@@ -43,11 +43,6 @@ async def on_startup(bot, marzban): # Добавили marzban в аргумен
     # ...
     from tgbot.services.scheduler import schedule_jobs
     schedule_jobs(scheduler, bot)
-    # Можно добавить проверку соединения с Marzban
-    # if await marzban.is_online():
-    #     logger.info("Marzban panel is online.")
-    # else:
-    #     logger.error("Could not connect to Marzban panel!")
 
     # 2. Отправляем сообщение админу о запуске
     await broadcaster.broadcast(bot, config.tg_bot.admin_ids, "Бот запущен")
@@ -126,7 +121,7 @@ def register_global_middlewares(dp: Dispatcher):
 
 def main_webhook():
     storage = MemoryStorage()
-    dp = Dispatcher(storage=storage, marzban=remnawave_client)
+    dp = Dispatcher(storage=storage, remnawave=remnawave_client)
     dp.include_routers(*routers_list)
     register_global_middlewares(dp)
     dp.startup.register(on_startup)
@@ -134,7 +129,7 @@ def main_webhook():
     app = web.Application()
     app['bot'] = bot
 
-    app['marzban'] = remnawave_client # Это у вас уже должно быть
+    app['remnawave'] = remnawave_client
     app['config'] = config # <--- ДОБАВЬТЕ ЭТУ СТРОКУ
 
     async def close_external_resources(_app):
@@ -154,7 +149,7 @@ def main_webhook():
     # 2. Регистрируем обработчик для вебхуков YooKassa на отдельный путь
     app.router.add_post('/yookassa', yookassa_webhook_handler)
 
-    setup_application(app, dp, bot=bot, marzban=remnawave_client)
+    setup_application(app, dp, bot=bot, remnawave=remnawave_client)
     
     logger.info("Starting bot in webhook mode...")
     web.run_app(app, host='0.0.0.0', port=8080)
@@ -162,7 +157,7 @@ def main_webhook():
 
 async def main_polling():
     storage = MemoryStorage()
-    dp = Dispatcher(storage=storage, marzban=remnawave_client)
+    dp = Dispatcher(storage=storage, remnawave=remnawave_client)
     dp.include_routers(*routers_list)
     register_global_middlewares(dp)
     try:
@@ -194,7 +189,7 @@ async def start_yookassa_webhook_server(dp: Dispatcher):
     
     # "Внедряем" в приложение все нужные нам объекты
     app['bot'] = bot
-    app['marzban'] = remnawave_client # <--- ВОТ ЭТА СТРОКА РЕШАЕТ ПРОБЛЕМУ
+    app['remnawave'] = remnawave_client
     app['config'] = config         # <--- ЭТА СТРОКА НУЖНА ДЛЯ ОПОВЕЩЕНИЙ АДМИНА
     app['dp'] = dp
     

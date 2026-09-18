@@ -209,7 +209,7 @@ async def enter_promo_callback_handler(call: CallbackQuery, state: FSMContext):
     await _start_promo_input(call, state)
 
 @payment_router.message(PromoApplyFSM.awaiting_code)
-async def process_promo_code(message: Message, state: FSMContext, bot: Bot, marzban: RemnawaveClient):
+async def process_promo_code(message: Message, state: FSMContext, bot: Bot, remnawave: RemnawaveClient):
     """Обрабатывает введенный промокод."""
     code = message.text.upper()
     user_id = message.from_user.id
@@ -234,7 +234,7 @@ async def process_promo_code(message: Message, state: FSMContext, bot: Bot, marz
             await promo_service.apply_bonus_days(user_id, promo, subscription_service)
             await message.answer(f"✅ Промокод успешно применен! Вам начислено <b>{promo.bonus_days} бонусных дней</b>.")
             # Показываем обновленный профиль
-            await show_profile_logic(message, marzban, bot)
+            await show_profile_logic(message, remnawave, bot)
 
         except PromoClaimError:
             await message.answer("❌ Этот промокод уже использован или закончился.")

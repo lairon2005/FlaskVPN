@@ -23,14 +23,14 @@
 {% if user.vpn_username and vpn_data %}
 
     {% if vpn_data.status == 'active' %}
-    <div class="section-card animate-in" style="border-left: 3px solid var(--success);">
+    <div class="section-card animate-in accent-success">
         <h5 class="fw-bold mb-1"><i class="fas fa-shield-halved text-success-custom me-2"></i>VPN активен</h5>
         <p class="text-gray small mb-0">
             Истекает: <span class="text-primary fw-bold">{{ expire_display or '—' }}</span>
         </p>
     </div>
     {% else %}
-    <div class="section-card animate-in" style="border-left: 3px solid var(--danger);">
+    <div class="section-card animate-in accent-danger">
         <h5 class="fw-bold mb-1"><i class="fas fa-exclamation-circle text-danger-custom me-2"></i>Подписка истекла</h5>
         <p class="text-gray small mb-0">
             Дата окончания: <span class="text-danger-custom fw-bold">{{ expire_display or '—' }}</span>
@@ -57,7 +57,7 @@
 
 {% else %}
 
-    <div class="section-card text-center animate-in" style="border: 1px dashed var(--primary); background: rgba(6, 182, 212, 0.03);">
+    <div class="section-card text-center animate-in panel-dashed">
         <div class="feature-icon mx-auto mb-3"><i class="fas fa-gift"></i></div>
         <h5 class="fw-bold">Попробуйте бесплатно</h5>
         <p class="text-gray mb-3">7 дней полного доступа без ограничений скорости</p>

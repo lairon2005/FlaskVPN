@@ -22,8 +22,8 @@
                     <td>
                         {% if p.status == 'succeeded' %}<span class="status-badge status-badge-active">Оплачен</span>
                         {% elif p.status == 'pending' %}<span class="status-badge status-badge-pending">Ожидает</span>
-                        {% elif p.status == 'refunded' %}<span class="status-badge" style="background:var(--info-bg);color:var(--info);">Возврат</span>
-                        {% elif p.status == 'cancelled' %}<span class="status-badge" style="background:rgba(255,255,255,0.05);color:var(--text-muted);">Отменён</span>
+                        {% elif p.status == 'refunded' %}<span class="status-badge status-badge-info">Возврат</span>
+                        {% elif p.status == 'cancelled' %}<span class="status-badge status-badge-muted">Отменён</span>
                         {% else %}<span class="status-badge status-badge-expired">Ошибка</span>{% endif %}
                     </td>
                 </tr>

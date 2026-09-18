@@ -53,7 +53,7 @@ tgbot/
 
 | Функция / хендлер | Триггер | Что делает |
 |---|---|---|
-| `show_profile_logic(event, marzban, bot)` | вызывается из payment.py и webhook_handlers | Показывает профиль с QR-кодом и sub_url; используется после оплаты |
+| `show_profile_logic(event, remnawave, bot)` | вызывается из payment.py и webhook_handlers | Показывает профиль с QR-кодом и sub_url; используется после оплаты. `remnawave: RemnawaveClient` приезжает из workflow data диспетчера (`Dispatcher(remnawave=...)`), в вебхуках — из `request.app['remnawave']` |
 | `profile_command_handler` | `/profile` | → `show_profile_logic` |
 | `my_profile_callback_handler` | `my_profile` | → `show_profile_logic` |
 | `my_keys_handler` | `my_keys` | Показывает sub_url для копирования + кнопку импорта в Happ |
@@ -183,45 +183,9 @@ FSM: `EmailLinkFSM` → запрашивает email → отправляет к
 | `channels.py` | CRUD каналов для онбординга |
 | `broadcast.py` | Рассылка: выбор аудитории → текст → опциональный промокод → подтверждение → отправка |
 | `cancel.py` | Универсальная отмена FSM для admin-сценариев |
-| `external_vpn.py` | Управление внешними VPN-конфигами (добавление по URL / raw-вставка, выбор серверов, вкл/выкл, удаление) |
 | `device_settings.py` | Настройки доп. устройств: цена слота, базовый лимит, потолок докупки (таблица `app_settings`) |
 
 Все admin-хендлеры защищены фильтром `IsAdmin` (см. `filters/admin.py`, применяется на уровне `admin_router` в `admin/__init__.py`).
-
-### `handlers/admin/external_vpn.py` — `ext_vpn_router`
-Управление внешними VPN-конфигами из сторонних подписок. Два способа добавления:
-1. **По URL** — бот делает GET-запрос с HWID-заголовками Happ, парсит base64-подписку
-2. **Raw-вставка** — админ вставляет конфиги напрямую (plain-текст или base64)
-
-| Хендлер | Триггер | Что делает |
-|---|---|---|
-| `show_ext_vpn_menu` | вызывается из хендлеров | Показывает главное меню: кол-во источников, кнопки добавления |
-| `ext_vpn_menu_handler` | `admin_ext_vpn` | → `show_ext_vpn_menu` |
-| `ext_vpn_add_start` | `ext_vpn_add` | FSM: запрашивает URL подписки |
-| `ext_vpn_add_raw_start` | `ext_vpn_add_raw` | FSM: запрашивает raw-конфиги |
-| `ext_vpn_receive_url` | `ExternalVpnFSM.waiting_url` | Fetch URL с HWID headers → парсинг → FSM waiting_name |
-| `ext_vpn_receive_raw` | `ExternalVpnFSM.waiting_raw_configs` | Парсинг raw-текста → FSM waiting_name |
-| `ext_vpn_receive_name` | `ExternalVpnFSM.waiting_name` | Сохраняет имя → клавиатура выбора серверов |
-| `ext_vpn_toggle_server` | `ext_vpn_toggle_<idx>` | Переключает чекбокс сервера |
-| `ext_vpn_change_page` | `ext_vpn_page_<page>` | Пагинация (8 серверов на страницу) |
-| `ext_vpn_select_all` | `ext_vpn_select_all` | Выбрать все серверы |
-| `ext_vpn_save` | `ext_vpn_save` | Сохраняет выбранные серверы в БД |
-| `ext_vpn_list_subs` | `ext_vpn_list_subs` | Список источников подписок |
-| `ext_vpn_sub_detail` | `ext_vpn_sub_<id>` | Детали источника (кол-во серверов) |
-| `ext_vpn_configs_list` | `ext_vpn_configs_<sub_id>` | Список серверов с кнопками вкл/выкл |
-| `ext_vpn_toggle_config` | `ext_vpn_cfg_toggle_<id>` | Вкл/выкл конкретного сервера |
-| `ext_vpn_delete_sub` | `ext_vpn_del_sub_<id>` | Удаление источника (каскадное удаление серверов) |
-
-**Флоу добавления:**
-```
-/admin → "🌐 Внешние VPN"
-  → "🔗 Добавить по URL" / "📋 Вставить конфиги"
-    → Ввод URL / raw-конфигов
-    → Ввод названия источника
-    → Клавиатура выбора серверов (✅/⬜, пагинация)
-    → "💾 Сохранить выбранные"
-    → Конфиги сохранены в БД, автоматически добавляются в подписки
-```
 
 ---
 
@@ -231,26 +195,17 @@ FSM: `EmailLinkFSM` → запрашивает email → отправляет к
 
 | Объект | Класс | Зависимости | Ключевые методы |
 |---|---|---|---|
-| `subscription_service` | `SubscriptionService` | `user_repo`, `marzban_client` | `activate_trial(user_id, days)`, `extend(user_id, days)` |
+| `subscription_service` | `SubscriptionService` | `user_repo`, `remnawave_client` | `activate_trial(user_id, days)`, `extend(user_id, days, data_limit_gb)` |
 | `referral_service` | `ReferralService` | `user_repo`, `subscription_service` | `activate_new_user_referral(user_id, referrer_id, days)` |
 | `promo_service` | `PromoCodeService` | `promo_repo`, `user_repo` | `validate(code, user_id)`, `apply(user_id, promo)` |
 | `user_service` | `UserService` | `user_repo`, `stats_repo` | `register_or_get(...)`, `get_user(user_id)`, `get_referral_info(user_id)` |
-| `profile_service` | `ProfileService` | `user_repo`, `marzban_client` | `get_profile(user_id) → ProfileData` |
+| `profile_service` | `ProfileService` | `user_repo`, `remnawave_client` | `get_profile(user_id) → ProfileData(db_user, vpn_user, error)` |
 | `device_service` | `DeviceService` | `user_repo`, `remnawave_client` | `list_devices(user_id) → DeviceList`, `delete_device(user_id, key)` |
 | `device_slot_service` | `DeviceSlotService` | `user_repo`, `settings_repo`, `remnawave_client` | `quote(user_id, slots) → SlotQuote`, `add_slots` / `set_slots`, `sync_limit(user_id) → SyncResult`, `expire_slots` |
 | `key_service` | `KeyService` | `user_repo`, `remnawave_client` | `revoke(user_id) → RevokeResult` — новая ссылка подписки + отвязка всех устройств, кулдаун 10 мин по `subRevokedAt` |
-| `payment_service` | `PaymentService` | `subscription_service`, `referral_service`, `user_repo`, `tariff_repo`, `payment_repo` | `process_payment_succeeded(...)`, `create_payment_record(...)`, `get_pending_payment(user_id)`, `get_user_payments(user_id)` |
-| `admin_stats_service` | `AdminStatsService` | `stats_repo`, `marzban_client`, `payment_repo` | `get_stats()` |
+| `payment_service` | `PaymentService` | `subscription_service`, `referral_service`, `user_repo`, `tariff_repo`, `payment_repo`, `payment_method_service`, `device_slot_service` | `create_payment_record(...)`, `process_successful_payment(...)`, `process_stars_payment(...)`, `process_refund(...)`, `cancel_pending_payment(user_id)`, `cancel_stale_payments(minutes)`, `charge_renewal(user_id)` |
+| `admin_stats_service` | `AdminStatsService` | `stats_repo`, `remnawave_client`, `payment_repo`, `lifecycle_repo` | `get_dashboard_stats()`, `get_cohort_metrics()` |
 | `support_service` | `SupportService` | `user_repo` | управление состоянием чата поддержки |
-| `external_vpn_service` | `ExternalVpnService` | `external_sub_repo`, `external_config_repo` | `fetch_and_parse(url)`, `save_configs(url, name, selected)`, `get_active_links()`, `toggle_config(id)`, `delete_subscription(id)` |
-
-### `services/external_vpn_service.py`
-Работа с внешними VPN-подписками:
-- `parse_subscription(content)` — парсит base64 или plain-текст в `[{name, raw_link}]`. Сначала пробует plain-текст, потом base64 decode
-- `parse_raw_configs(text)` — alias для `parse_subscription`, используется в raw-вставке
-- `ExternalVpnService.fetch_and_parse(url)` — GET-запрос с HWID-заголовками Happ (`x-hwid`, `x-device-os`, `x-ver-os`, `x-device-model`), парсит ответ
-- `ExternalVpnService.get_active_links()` — все `raw_link` активных конфигов (используется в subscription proxy)
-- Поддерживаемые протоколы: `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `hy2://`, `tuic://`
 
 ### `services/payment.py` (не класс, а модуль)
 Низкоуровневая работа с YooKassa API:
@@ -273,7 +228,7 @@ APScheduler задачи:
 
 ### `services/utils.py`
 - `format_traffic(bytes) → str` — форматирование трафика (KB/MB/GB)
-- `get_user_attribute(marzban_user, key, default)` — безопасное получение атрибута из dict Marzban
+- `format_traffic` и `get_user_attribute` — реэкспорт из `utils/formatting.py`; `get_user_attribute(vpn_user, key, default)` безопасно достаёт поле из dict-профиля Remnawave
 - `decline_word(n, forms)` — склонение числительных
 
 ### `services/qr_generator.py`
@@ -312,11 +267,6 @@ APScheduler задачи:
 | `promo_codes_list_keyboard / promo_type_keyboard` | `admin/promocodes.py` |
 | `broadcast_audience_keyboard / broadcast_promo_keyboard / confirm_broadcast_keyboard` | `admin/broadcast.py` |
 | `close_support_chat_keyboard()` | `support.py` |
-| `external_vpn_menu_keyboard(subs_count)` | `admin/external_vpn.py` — главное меню (2 кнопки добавления + управление) |
-| `ext_vpn_server_selection_keyboard(servers, selected, page)` | `admin/external_vpn.py` — выбор серверов с чекбоксами и пагинацией |
-| `ext_vpn_subscriptions_keyboard(subs)` | `admin/external_vpn.py` — список источников |
-| `ext_vpn_sub_manage_keyboard(sub_id, count)` | `admin/external_vpn.py` — управление источником |
-| `ext_vpn_configs_keyboard(configs, sub_id)` | `admin/external_vpn.py` — серверы с вкл/выкл |
 
 **`main_menu_keyboard` логика кнопок:**
 - Всегда: Оплатить, Мои ключи, Рефералы, Поддержка (adjust 1,1,2)
@@ -337,7 +287,6 @@ APScheduler задачи:
 | `promo_states.py` | `PromoFSM` | `awaiting_code`, `awaiting_value`, `awaiting_uses` |
 | `broadcast_states.py` | `BroadcastFSM` | `awaiting_text`, `awaiting_promo` |
 | `channel_states.py` | `ChannelFSM` | `awaiting_channel_id`, `awaiting_title`, `awaiting_invite_link` |
-| `external_vpn_states.py` | `ExternalVpnFSM` | `waiting_url`, `waiting_name`, `selecting_servers`, `waiting_raw_configs` |
 | `device_settings_states.py` | `DeviceSettingsFSM` | `edit_value` |
 
 ---
@@ -353,36 +302,6 @@ APScheduler задачи:
 
 ---
 
-## Внешние VPN — архитектура
-
-Система подмешивания конфигов сторонних VPN-провайдеров в подписки пользователей.
-
-**Таблицы БД** (`db.py`):
-- `ExternalSubscription` — источник (`id`, `name`, `url`, `is_active`, `added_at`)
-- `ExternalConfig` — сервер (`id`, `subscription_id` FK CASCADE, `name`, `raw_link`, `is_active`, `added_at`)
-
-**Репозитории** (`database/repositories/external_vpn.py`):
-- `ExternalSubscriptionRepository` — CRUD источников
-- `ExternalConfigRepository` — `create_many()`, `get_active()` (JOIN с подпиской), `toggle_active()`, `delete()`
-
-**Subscription Proxy** (`webapp/routers/subscription.py`):
-- `GET /sub/{marzban_username}` — nginx направляет сюда вместо Marzban
-- Запрашивает оригинальную подписку из `http://marzban:8002/sub/...`
-- Если `user.subscription_end_date > now()` → добавляет `ExternalConfig.raw_link` активных конфигов
-- Возвращает объединённый base64-список
-- URL для пользователей **не меняется** — `https://domain:8443/sub/username`
-
-**HWID-заголовки** для запросов к внешним подпискам:
-```
-User-Agent: HappProxy/2.1.6 (Linux; Bot)
-x-hwid: <UUID5 from "vpn-bot-fetcher">
-x-device-os: Linux
-x-ver-os: 6.1
-x-device-model: Server
-```
-
----
-
 ## Паттерны, используемые повсеместно
 
 ### Отправка / редактирование сообщений
@@ -394,12 +313,14 @@ except TelegramBadRequest:
     await call.message.answer(text, reply_markup=kb)
 ```
 
-### Получение sub_url из Marzban
+### Получение ссылки подписки
 ```python
+# Remnawave отдаёт в subscriptionUrl уже полный URL — домен и порт не приклеиваем.
 profile_data = await profile_service.get_profile(user_id)
-sub_url = get_user_attribute(profile_data.marzban_user, 'subscription_url', '')
-domain = profile_service._marzban._config.webhook.domain
-full_sub_url = f"https://{domain}:8443{sub_url}" if sub_url else ""
+if profile_data.error or not profile_data.vpn_user:
+    ...  # показать profile_data.error
+connection = build_connection_view(profile_data.vpn_user)  # utils/subscription_view.py
+full_sub_url = connection.subscription_url
 ```
 
 ### Кнопка подключения

@@ -182,13 +182,13 @@ async def delete_user_confirm(call: CallbackQuery):
     )
 
 @admin_users_router.callback_query(F.data.startswith("admin_confirm_delete_user_"))
-async def delete_user_finish(call: CallbackQuery, marzban: RemnawaveClient):
+async def delete_user_finish(call: CallbackQuery, remnawave: RemnawaveClient):
     await call.answer("Удаляю пользователя...")
 
     try:
         user_id = int(call.data.split("_")[4])
 
-        success = await user_service.delete_user(user_id, marzban)
+        success = await user_service.delete_user(user_id, remnawave)
 
         if success:
             await call.message.edit_text(f"✅ Пользователь <code>{user_id}</code> успешно удален.")

@@ -403,7 +403,7 @@ class ProcessPromoCodeClaimRaceBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         state = _fsm_state()
 
-        await module.process_promo_code(message, state, bot=Mock(), marzban=Mock())
+        await module.process_promo_code(message, state, bot=Mock(), remnawave=Mock())
 
         answered_text = message.answer.await_args.args[0]
         self.assertIn("уже использован", answered_text.lower())
@@ -426,7 +426,7 @@ class ProcessPromoCodeClaimRaceBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         state = _fsm_state()
 
-        await module.process_promo_code(message, state, bot=Mock(), marzban=Mock())
+        await module.process_promo_code(message, state, bot=Mock(), remnawave=Mock())
 
         answered_text = message.answer.await_args.args[0]
         self.assertIn("уже использован", answered_text.lower())

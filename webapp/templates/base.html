@@ -1,15 +1,16 @@
 <!DOCTYPE html>
-<html lang="ru" data-bs-theme="dark">
+<html lang="ru" data-bs-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
     <title>{{ title|default('FlaskVPN') }} | FlaskVPN</title>
     <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
-    <meta name="theme-color" content="#06b6d4">
-    <!-- Fonts -->
+    <meta name="theme-color" content="#F7F1E8">
+    <!-- Fonts: Nunito — круглый дисплейный шрифт бренда, Inter — текст, JetBrains Mono — подписи -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Font Awesome -->
@@ -20,11 +21,11 @@
 <body>
 
     <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-dark fixed-top">
+    <nav class="navbar navbar-expand-lg fixed-top">
         <div class="container">
             <a class="navbar-brand d-flex align-items-center" href="/">
-                <img src="/static/img/logo.svg" alt="FlaskVPN" width="32" height="32" onerror="this.style.display='none'">
-                <span class="fw-bold ms-2">FlaskVPN</span>
+                <img src="/static/img/logo.svg" alt="FlaskVPN" width="34" height="34" onerror="this.style.display='none'">
+                <span class="brand-wordmark ms-2">Flask<span class="vpn">VPN</span></span>
             </a>
 
             <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
@@ -70,11 +71,11 @@
     <footer>
         <div class="container">
             <div class="row align-items-center">
-                <div class="col-md-4 text-center text-md-start mb-2 mb-md-0">
-                    <span class="fw-bold text-accent">FlaskVPN</span>
-                    <span class="ms-2 small">Свобода без границ</span>
+                <div class="col-md-4 text-center text-md-start mb-3 mb-md-0">
+                    <div class="brand-wordmark">Flask<span class="vpn">VPN</span></div>
+                    <div class="footer-tagline mt-1">Freedom connects people</div>
                 </div>
-                <div class="col-md-4 text-center mb-2 mb-md-0">
+                <div class="col-md-4 text-center mb-3 mb-md-0">
                     <a href="#" class="me-3 text-decoration-none small"><i class="fab fa-telegram me-1"></i>Telegram-бот</a>
                     <a href="#" class="text-decoration-none small"><i class="fas fa-headset me-1"></i>Поддержка</a>
                 </div>

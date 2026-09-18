@@ -15,7 +15,7 @@ from remnawave.client import RemnawaveClient
 from tgbot.handlers.user.profile import show_profile_logic
 
 
-async def _notify_tg_user(user_id: int, tariff, marzban: RemnawaveClient, bot: Bot, request: web.Request,
+async def _notify_tg_user(user_id: int, tariff, remnawave: RemnawaveClient, bot: Bot, request: web.Request,
                           is_auto: bool = False, payment_method=None):
     """Уведомление ТОЛЬКО для Telegram пользователей."""
     if user_id < 0:
@@ -56,7 +56,7 @@ async def _notify_tg_user(user_id: int, tariff, marzban: RemnawaveClient, bot: B
         )
         # show_referral_cta=True — момент счастья (§7.5): сразу после успешной
         # оплаты/продления показываем кнопку "Поделиться и получить дни".
-        await show_profile_logic(fake_msg, marzban, bot, show_referral_cta=True)
+        await show_profile_logic(fake_msg, remnawave, bot, show_referral_cta=True)
     except Exception as e:
         logger.error(f"Failed to notify TG user {user_id}: {e}")
 
@@ -202,7 +202,7 @@ async def yookassa_webhook_handler(request: web.Request):
         yookassa_payment_id = payment_obj.id
 
         bot: Bot = request.app['bot']
-        marzban: RemnawaveClient = request.app['marzban']
+        remnawave: RemnawaveClient = request.app['remnawave']
 
         # === УСПЕШНАЯ ОПЛАТА ===
         if event_type == 'payment.succeeded':
@@ -243,7 +243,7 @@ async def yookassa_webhook_handler(request: web.Request):
             # Уведомление пользователя (только TG)
             if result.payment.user_id > 0:
                 await _notify_tg_user(
-                    result.payment.user_id, result.tariff, marzban, bot, request,
+                    result.payment.user_id, result.tariff, remnawave, bot, request,
                     is_auto=(result.payment.source == 'auto'),
                     payment_method=payment_method,
                 )
