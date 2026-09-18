@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="FlaskVPN">
+  <defs>
+    <linearGradient id="fv-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#0b1220"/>
+    </linearGradient>
+    <linearGradient id="fv-liquid" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <clipPath id="fv-flask-clip">
+      <path d="M26.5 13 L26.5 26.5 L15.8 45.8 A5.6 5.6 0 0 0 20.7 54 L43.3 54 A5.6 5.6 0 0 0 48.2 45.8 L37.5 26.5 L37.5 13 Z"/>
+    </clipPath>
+  </defs>
+
+  <circle cx="32" cy="32" r="31" fill="url(#fv-bg)"/>
+  <circle cx="32" cy="32" r="30" fill="none" stroke="#06b6d4" stroke-opacity="0.35" stroke-width="1.2"/>
+
+  <!-- жидкость внутри колбы -->
+  <g clip-path="url(#fv-flask-clip)">
+    <path d="M10 40 C 17 36.5, 23 43, 30 40.5 C 37 38, 44 43.5, 54 39.5 L54 58 L10 58 Z" fill="url(#fv-liquid)"/>
+  </g>
+
+  <!-- контур колбы -->
+  <path d="M26.5 13 L26.5 26.5 L15.8 45.8 A5.6 5.6 0 0 0 20.7 54 L43.3 54 A5.6 5.6 0 0 0 48.2 45.8 L37.5 26.5 L37.5 13"
+        fill="none" stroke="#e2f6fb" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="24.5" y1="12.6" x2="39.5" y2="12.6" stroke="#e2f6fb" stroke-width="2.8" stroke-linecap="round"/>
+
+  <!-- пузырьки -->
+  <circle cx="27.5" cy="46" r="2.1" fill="#0b1220" fill-opacity="0.35"/>
+  <circle cx="35.5" cy="49.5" r="1.4" fill="#0b1220" fill-opacity="0.3"/>
+  <circle cx="32.2" cy="43" r="1.1" fill="#e2f6fb" fill-opacity="0.75"/>
+</svg>

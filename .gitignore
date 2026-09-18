@@ -1,0 +1,13 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+.git
+.idea
+.env
+.env.marzban
+/venv
+/.env
+/.env.marzban
+etc/nginx/conf/default.conf
+.claude/
+.DS_Store
+*.pem

@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+.env.*
+.Codex
+.codex
+**/.DS_Store
+**/__pycache__
+*.py[cod]
+*.pem
+.venv
+venv
+certbot
+volumes
+vpn-backups

@@ -1,0 +1,211 @@
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $DOMAIN *.$DOMAIN;
+
+    # 1. Разрешаем проверку сертификата (Let's Encrypt)
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # 2. Всё остальное редиректим на https с портом 8443. Хостовый 443 занят
+    # Xray-ядром ноды (rw-core, REALITY), поэтому nginx публикуется на 8443 —
+    # это относится и к поддомену app.$DOMAIN с Mini App.
+    location / {
+        return 301 https://$host:8443$request_uri;
+    }
+}
+
+server {
+    root /var/www/html;
+    index index.html;
+    listen [::]:443 ssl;
+    listen 443 ssl;
+    listen 127.0.0.1:10000 ssl proxy_protocol;
+    http2 on;
+
+
+    server_name $DOMAIN *.$DOMAIN;
+
+    # Путь через live/-симлинк, а НЕ через /etc/nginx/certs/. Отдельные файлы
+    # монтируются docker'ом с резолвом симлинка на старте: certbot при продлении
+    # создаёт новый archive/fullchainN.pem и переставляет симлинк, а контейнер
+    # продолжает держать старый файл — nginx -s reload перечитывает то же
+    # устаревшее содержимое. Каталог /etc/letsencrypt смонтирован целиком,
+    # поэтому здесь симлинк резолвится внутри контейнера и reload берёт новый серт.
+    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+
+    ssl_session_cache shared:le_nginx_SSL:10m;
+    ssl_session_timeout 1440m;
+    ssl_session_tickets off;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    set_real_ip_from 127.0.0.1;
+    real_ip_header proxy_protocol;
+    
+    location /import {
+        # Указываем, где искать файлы для этого location
+        root /usr/share/nginx/html;
+        # Пытаемся отдать файл import.html
+        try_files /import.html =404;
+    }
+
+    location = /yookassa {
+        # Перенаправляем запрос на сервис 'flask_bot' на порт 8081,
+        # где наш aiohttp сервер слушает вебхуки.
+        proxy_pass http://flask_bot:8081;
+
+        # Передаем важные заголовки.
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Старые ссылки Marzban имеют вид /sub/<token>. Remnawave обрабатывает
+    # тот же legacy-токен в корне subscription-домена, поэтому /sub/ удаляем.
+    # Redirect не зависит от нестабильного соединения между двумя серверами.
+    location ~ ^/sub/(.*)$ {
+        add_header Cache-Control "no-store" always;
+        return 302 https://$REMNAWAVE_SUB_HOST/$1$is_args$args;
+    }
+
+    # Telegram Mini App (docs/tma-roadmap.md фаза 0) — тот же flask_site, отдельный
+    # location на случай будущих специфичных для webview заголовков (фаза 5).
+    location /tma {
+        proxy_pass http://flask_site:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        proxy_pass http://flask_site:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    error_page 404 /custom_404.html;
+    location = /custom_404.html {
+        root /usr/share/nginx/html;
+    }
+
+    error_page 500 502 503 504 /custom_50x.html;
+    location = /custom_50x.html {
+        root /usr/share/nginx/html;
+    }
+}
+
+# === Telegram Mini App: app.$DOMAIN ===
+# Выделенный хост под Mini App. Точное имя app.$DOMAIN имеет приоритет над
+# wildcard *.$DOMAIN в блоке выше, поэтому запросы сюда не попадают в дашборд.
+# Отдельный origin нужен, чтобы webview Telegram не делил куки и CSP с сайтом.
+#
+# Сертификат общий с основным блоком: 2026-07-26 lineage flaskvpn.ru расширен
+# на app.$DOMAIN (certbot --expand --cert-name flaskvpn.ru), SAN теперь
+# app./вершина/www. Отдельный серт под поддомен не нужен.
+server {
+    listen [::]:443 ssl;
+    listen 443 ssl;
+    listen 127.0.0.1:10000 ssl proxy_protocol;
+    http2 on;
+
+    server_name app.$DOMAIN;
+
+    # Путь через live/-симлинк, а НЕ через /etc/nginx/certs/. Отдельные файлы
+    # монтируются docker'ом с резолвом симлинка на старте: certbot при продлении
+    # создаёт новый archive/fullchainN.pem и переставляет симлинк, а контейнер
+    # продолжает держать старый файл — nginx -s reload перечитывает то же
+    # устаревшее содержимое. Каталог /etc/letsencrypt смонтирован целиком,
+    # поэтому здесь симлинк резолвится внутри контейнера и reload берёт новый серт.
+    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+
+    ssl_session_cache shared:le_nginx_SSL:10m;
+    ssl_session_timeout 1440m;
+    ssl_session_tickets off;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    set_real_ip_from 127.0.0.1;
+    real_ip_header proxy_protocol;
+
+    # Голый корень поддомена ведёт на Mini App. Префикс /tma сохраняется:
+    # webapp/templates/tma/* и webapp/static/js/tma.js ссылаются друг на друга
+    # абсолютными путями /tma/..., переезд в корень потребовал бы переписать их все.
+    #
+    # absolute_redirect off обязателен: nginx слушает 443 внутри контейнера и не
+    # знает, что наружу опубликован на 8443, поэтому абсолютный Location получался
+    # без порта — https://app.$DOMAIN/tma/, то есть на хостовый 443, который занят
+    # Xray-ядром ноды. С относительным Location браузер сохраняет исходный порт.
+    absolute_redirect off;
+
+    location = / {
+        return 302 /tma/;
+    }
+
+    location / {
+        proxy_pass http://flask_site:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    error_page 404 /custom_404.html;
+    location = /custom_404.html {
+        root /usr/share/nginx/html;
+    }
+
+    error_page 500 502 503 504 /custom_50x.html;
+    location = /custom_50x.html {
+        root /usr/share/nginx/html;
+    }
+}
+
+# === Remnawave node cover: node-1.flaskvpn.ru ===
+# Сайт-заглушка + локальные endpoint'ы для Xray ноды. Порты 8080/9443
+# публикуются docker-compose только на 127.0.0.1 хоста и недоступны из интернета.
+# Xray ноды (network_mode: host) достаёт их через host loopback.
+
+# HTTP fallback (Xray fallback dest, xver=0)
+server {
+    listen 8080;
+    server_name node-1.flaskvpn.ru;
+
+    root /usr/share/nginx/html/node-cover;
+    index index.html;
+
+    add_header X-Robots-Tag "noindex, nofollow, noarchive, nosnippet, noimageindex" always;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+
+# TLS target для REALITY (Xray REALITY dest/target, xver=0)
+server {
+    listen 9443 ssl;
+    http2 on;
+    server_name node-1.flaskvpn.ru;
+
+    ssl_certificate     /etc/letsencrypt/live/node-1.flaskvpn.ru/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/node-1.flaskvpn.ru/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    root /usr/share/nginx/html/node-cover;
+    index index.html;
+
+    add_header X-Robots-Tag "noindex, nofollow, noarchive, nosnippet, noimageindex" always;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

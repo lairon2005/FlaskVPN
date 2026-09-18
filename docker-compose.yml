@@ -1,0 +1,95 @@
+services:
+  nginx:
+    container_name: flask_nginx
+    image: nginx:1.25-alpine
+    ports:
+      - "80:80"
+      - "8443:443"
+      # node-cover: локальные endpoint'ы для Xray ноды (только host loopback)
+      - "127.0.0.1:8080:8080"   # HTTP fallback
+      - "127.0.0.1:9443:9443"   # TLS target для REALITY
+    networks:
+      - flask_network
+    restart: always
+    environment:
+      DOMAIN: ${DOMAIN}
+      LOCATION: ${SERVER_URL}
+      REMNAWAVE_SUB_HOST: ${REMNAWAVE_SUB_HOST:-sub.flaskvpn.ru}
+      CERT_FULLCHAIN_PATH: "/etc/nginx/certs/fullchain.pem"
+      CERT_KEY_PATH: "/etc/nginx/certs/privkey.pem"
+    volumes:
+      - ./etc/nginx/templates:/etc/nginx/templates:ro
+      - ./etc/nginx/conf:/etc/nginx/conf.d
+      - ./etc/nginx/static:/usr/share/nginx/html:ro
+      - ${CERT_FULLCHAIN_PATH}:/etc/nginx/certs/fullchain.pem
+      - ${CERT_KEY_PATH}:/etc/nginx/certs/privkey.pem
+      # node-cover: серт node-1 (live+archive симлинки резолвятся внутри контейнера)
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./certbot/data:/var/www/certbot
+    depends_on:
+      - flask_site
+      - flask_bot
+
+  postgres:
+    container_name: flask_postgres
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - flask_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  flask_site:
+    image: flask_bot
+    container_name: flask_site
+    command: uvicorn webapp.main:app --host 0.0.0.0 --port 8000
+    restart: always
+    env_file:
+      - ".env"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - flask_network
+
+  flask_bot:
+    image: flask_bot
+    container_name: flask_bot
+    stop_signal: SIGINT
+    build:
+      context: .
+    working_dir: "/usr/src/app"
+    volumes:
+      - .:/usr/src/app
+    command: python3 -m bot
+    restart: always
+    ports:
+      - "8081:8081"
+    env_file:
+      - ".env"
+    networks:
+      - flask_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+networks:
+  flask_network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+    driver: local
