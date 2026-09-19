@@ -8,11 +8,10 @@ server {
         root /var/www/certbot;
     }
 
-    # 2. Всё остальное редиректим на https с портом 8443. Хостовый 443 занят
-    # Xray-ядром ноды (rw-core, REALITY), поэтому nginx публикуется на 8443 —
-    # это относится и к поддомену app.$DOMAIN с Mini App.
+    # 2. Всё остальное редиректим на https (443) — это относится и к
+    # поддомену app.$DOMAIN с Mini App.
     location / {
-        return 301 https://$host:8443$request_uri;
+        return 301 https://$host$request_uri;
     }
 }
 
@@ -138,12 +137,6 @@ server {
     # Голый корень поддомена ведёт на Mini App. Префикс /tma сохраняется:
     # webapp/templates/tma/* и webapp/static/js/tma.js ссылаются друг на друга
     # абсолютными путями /tma/..., переезд в корень потребовал бы переписать их все.
-    #
-    # absolute_redirect off обязателен: nginx слушает 443 внутри контейнера и не
-    # знает, что наружу опубликован на 8443, поэтому абсолютный Location получался
-    # без порта — https://app.$DOMAIN/tma/, то есть на хостовый 443, который занят
-    # Xray-ядром ноды. С относительным Location браузер сохраняет исходный порт.
-    absolute_redirect off;
 
     location = / {
         return 302 /tma/;

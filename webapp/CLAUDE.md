@@ -244,7 +244,7 @@ create_access_token(data: dict, expires_delta?) → str  # JWT HS256
 | `MAIL_FROM` | `noreply@flaskvpn.ru` | Отправитель |
 | `MAIL_FROM_NAME` | `FlaskVPN` | Имя отправителя |
 
-Также используется `config.webhook.domain` для построения subscription URL (`https://domain:8443/sub/...`).
+Также используется `config.webhook.domain` для построения subscription URL (`https://domain/sub/...`).
 
 ---
 

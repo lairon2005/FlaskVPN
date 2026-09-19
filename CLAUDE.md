@@ -96,7 +96,7 @@ python3 -m unittest tests.test_device_pricing -v                # то же че
 ## Architecture
 
 ```
-nginx (host: 80 → HTTP, 8443 → HTTPS, 127.0.0.1:8080/9443 → cover-сайт Xray-ноды)
+nginx (host: 80 → HTTP, 443 → HTTPS, 127.0.0.1:8080/9443 → cover-сайт Xray-ноды)
   $DOMAIN, *.$DOMAIN
   ├── /yookassa  → flask_bot (8081)  — вебхуки YooKassa
   ├── /tma       → flask_site (8000) — экраны Mini App
@@ -220,7 +220,7 @@ Alembic не используется. Таблицы создаются `Base.m
 `docker-compose.yml`, префикс `flask_`:
 - `flask_bot` — бот + приём вебхуков ЮKassa (8081), образ `flask_bot`, код смонтирован volume'ом
 - `flask_site` — веб-кабинет (8000), тот же образ
-- `nginx` — `flask_nginx`, 80 + 8443, плюс `127.0.0.1:8080/9443` для cover-сайта ноды
+- `nginx` — `flask_nginx`, 80 + 443, плюс `127.0.0.1:8080/9443` для cover-сайта ноды
 - `postgres` — `flask_postgres`, 5432 только на localhost, healthcheck `pg_isready`
 
 ## Дополнительные устройства (докупка слотов)

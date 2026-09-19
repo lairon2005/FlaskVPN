@@ -78,7 +78,7 @@ async def create_payment_route(
     if payload.source == "tma" and config.tg_bot.tg_bot_username:
         return_url = f"https://t.me/{config.tg_bot.tg_bot_username}/{config.tg_bot.tma_app_name}?startapp=paid"
     else:
-        return_url = f"https://{config.webhook.domain}:8443/profile/"
+        return_url = f"https://{config.webhook.domain}/profile/"
 
     try:
         payment_url, yookassa_payment_id = create_payment(
@@ -222,7 +222,7 @@ async def create_device_slots_payment(
     if payload.source == "tma" and config.tg_bot.tg_bot_username:
         return_url = f"https://t.me/{config.tg_bot.tg_bot_username}/{config.tg_bot.tma_app_name}?startapp=devices"
     else:
-        return_url = f"https://{config.webhook.domain}:8443/profile/"
+        return_url = f"https://{config.webhook.domain}/profile/"
 
     description = f"Дополнительные устройства ({quote.slots} шт., {quote.remaining_days} дн.)"
 

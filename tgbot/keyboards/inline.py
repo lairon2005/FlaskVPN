@@ -29,12 +29,8 @@ def build_tma_url(path: str = "/tma/") -> str:
     webapp/static/js/tma.js ссылаются друг на друга абсолютными путями
     /tma/..., поэтому переезд Mini App в корень поддомена потребовал бы
     переписать их все. Голый https://app.{domain}/ nginx редиректит на /tma/.
-
-    Порт 8443 обязателен: хостовый 443 занят Xray-ядром ноды (rw-core,
-    REALITY), nginx опубликован на 8443 — поддомен обслуживается тем же
-    nginx, поэтому порт нужен и ему.
     """
-    return f"https://app.{config.webhook.domain}:8443{path}"
+    return f"https://app.{config.webhook.domain}{path}"
 
 
 def tma_web_app_button(text: str, path: str = "/tma/") -> InlineKeyboardButton:
