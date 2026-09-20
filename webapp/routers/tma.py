@@ -13,7 +13,6 @@ from datetime import datetime, timedelta
 from aiogram.types import LabeledPrice
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from config import load_config
@@ -42,9 +41,9 @@ from webapp.core.support import (
 )
 from webapp.core.tma_auth import InvalidInitDataError, validate_init_data
 from webapp.dependencies import get_current_user
+from webapp.templating import templates
 
 router = APIRouter(prefix="/tma")
-templates = Jinja2Templates(directory="webapp/templates")
 logger = logging.getLogger(__name__)
 config = load_config()
 

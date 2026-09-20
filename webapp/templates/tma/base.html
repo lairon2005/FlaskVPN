@@ -1,5 +1,6 @@
+{% import "_icons.html" as ic %}
 <!DOCTYPE html>
-<html lang="ru" data-bs-theme="light">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
@@ -7,66 +8,62 @@
 
     <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
     <meta name="theme-color" content="#F7F1E8">
+    <meta name="robots" content="noindex">
+
     <!-- Telegram WebApp JS SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <!-- Шрифты бренда: Nunito (дисплей), Inter (текст), JetBrains Mono (подписи) -->
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <!-- Bootstrap CSS ТОЛЬКО ради grid/utility-классов (.d-flex, .fw-bold, .row/.col и т.д.),
-         которыми пользуется styles.css и шаблоны сайта — без JS-бандла: модалки/collapse
-         на экранах Mini App не используются (навигация — SSR-переходы между /tma/*). -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 
-    <!-- Тот же CSS, что и у сайта — переиспользуем компоненты (.section-card, .copy-field,
-         .status-badge, .tariff-card, .data-table и т.д.), сверху лёгкий tma.css без navbar/footer. -->
-    <link href="/static/css/styles.css" rel="stylesheet">
-    <link href="/static/css/tma.css" rel="stylesheet">
+    {# Тот же app.css, что у сайта: одни токены, одни компоненты, одна сборка.
+       Bootstrap и Font Awesome отсюда убраны — внутри Telegram трафик и
+       слабые телефоны особенно заметны. #}
+    <script>document.documentElement.classList.add('js');</script>
+    <link href="/static/css/app.css" rel="stylesheet">
 </head>
 <body class="tma-body" data-tma-root="{{ 'true' if tma_root else 'false' }}">
 
-    <div id="toast-container" class="toast-container"></div>
+{% include "_icons.html" %}
 
-    <div class="tma-content">
-        {% block content %}{% endblock %}
-    </div>
+<div id="toast-container" class="fixed top-3 inset-x-3 z-[9999] flex flex-col gap-2"></div>
 
-    <!-- Нижняя таб-навигация -->
-    <nav class="tma-tabbar">
-        <a href="/tma/" class="tma-tab {% if active_tab == 'home' %}active{% endif %}">
-            <i class="fas fa-house"></i><span>Главная</span>
-        </a>
-        <a href="/tma/import" class="tma-tab {% if active_tab == 'import' %}active{% endif %}">
-            <i class="fas fa-bolt"></i><span>Подключить</span>
-        </a>
-        <a href="/tma/tariffs" class="tma-tab {% if active_tab == 'tariffs' %}active{% endif %}">
-            <i class="fas fa-tags"></i><span>Тарифы</span>
-        </a>
-        <button type="button" class="tma-tab {% if active_tab in ('referral', 'history', 'support', 'devices') %}active{% endif %}" id="tmaMoreBtn">
-            <i class="fas fa-ellipsis"></i><span>Ещё</span>
-        </button>
-    </nav>
+<main class="tma-content">
+    {% block content %}{% endblock %}
+</main>
 
-    <!-- Шторка "Ещё" -->
-    <div class="tma-sheet-backdrop" id="tmaSheetBackdrop"></div>
-    <div class="tma-sheet" id="tmaSheet">
-        <div class="tma-sheet-handle"></div>
-        <a href="/tma/referral" class="tma-sheet-item">
-            <i class="fas fa-users"></i> Реферальная программа
-        </a>
-        <a href="/tma/devices" class="tma-sheet-item">
-            <i class="fas fa-mobile-alt"></i> Мои устройства
-        </a>
-        <a href="/tma/history" class="tma-sheet-item">
-            <i class="fas fa-receipt"></i> История платежей
-        </a>
-        <a href="/tma/support" class="tma-sheet-item">
-            <i class="fas fa-headset"></i> Поддержка
-        </a>
-    </div>
+<!-- Нижняя таб-навигация -->
+<nav class="tma-tabbar" aria-label="Разделы">
+    <a href="/tma/" class="tma-tab {% if active_tab == 'home' %}active{% endif %}"
+       {% if active_tab == 'home' %}aria-current="page"{% endif %}>
+        {{ ic.icon('home', 'w-5 h-5') }}<span>Главная</span>
+    </a>
+    <a href="/tma/import" class="tma-tab {% if active_tab == 'import' %}active{% endif %}"
+       {% if active_tab == 'import' %}aria-current="page"{% endif %}>
+        {{ ic.icon('zap', 'w-5 h-5') }}<span>Подключить</span>
+    </a>
+    <a href="/tma/tariffs" class="tma-tab {% if active_tab == 'tariffs' %}active{% endif %}"
+       {% if active_tab == 'tariffs' %}aria-current="page"{% endif %}>
+        {{ ic.icon('tag', 'w-5 h-5') }}<span>Тарифы</span>
+    </a>
+    <button type="button" id="tmaMoreBtn"
+            class="tma-tab {% if active_tab in ('referral', 'history', 'support', 'devices') %}active{% endif %}"
+            aria-haspopup="true" aria-expanded="false" aria-controls="tmaSheet">
+        {{ ic.icon('dots', 'w-5 h-5') }}<span>Ещё</span>
+    </button>
+</nav>
 
-    <script src="/static/js/tma.js"></script>
+<!-- Шторка «Ещё» -->
+<div class="tma-sheet-backdrop" id="tmaSheetBackdrop"></div>
+<div class="tma-sheet" id="tmaSheet" role="dialog" aria-label="Дополнительные разделы">
+    <div class="tma-sheet-handle"></div>
+    <a href="/tma/referral" class="tma-sheet-item">{{ ic.icon('gift', 'w-5 h-5') }} Реферальная программа</a>
+    <a href="/tma/devices" class="tma-sheet-item">{{ ic.icon('devices', 'w-5 h-5') }} Мои устройства</a>
+    <a href="/tma/history" class="tma-sheet-item">{{ ic.icon('receipt', 'w-5 h-5') }} История платежей</a>
+    <a href="/tma/support" class="tma-sheet-item">{{ ic.icon('help', 'w-5 h-5') }} Поддержка</a>
+</div>
+
+<script src="/static/js/tma.js"></script>
 </body>
 </html>

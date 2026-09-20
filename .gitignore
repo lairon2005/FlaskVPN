@@ -11,3 +11,6 @@ etc/nginx/conf/default.conf
 .claude/
 .DS_Store
 *.pem
+
+# Tailwind standalone-бинарник (скачивается ./tools/tailwind.sh)
+tools/bin/

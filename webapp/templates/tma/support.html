@@ -1,22 +1,25 @@
 {% extends "tma/base.html" %}
+{% import "_icons.html" as ic %}
 
 {% block content %}
-<h5 class="fw-bold mb-3 animate-in"><i class="fas fa-headset text-accent me-2"></i>Поддержка</h5>
+<h1 class="font-display font-black text-xl mb-3 flex items-center gap-2 animate-in">
+    {{ ic.icon('help', 'w-5 h-5 text-orange') }} Поддержка
+</h1>
 
-<div class="section-card animate-in">
-    <p class="text-gray small mb-3">
+<section class="sticker p-5 animate-in">
+    <p class="text-sm text-subtle">
         Опишите проблему или вопрос — сообщение уйдёт нашим операторам.
-        Ответ придёт вам в личные сообщения от бота в Telegram.
+        Ответ придёт в личные сообщения от бота.
     </p>
 
-    <label class="form-label small fw-bold" for="tmaSupportText">Ваше сообщение</label>
-    <textarea id="tmaSupportText" class="form-control" rows="5" maxlength="2000"
-              placeholder="Опишите, что случилось..."></textarea>
+    <label class="field-label mt-4" for="tmaSupportText">Ваше сообщение</label>
+    <textarea id="tmaSupportText" class="input" rows="5" maxlength="2000"
+              placeholder="Опишите, что случилось…"></textarea>
 
-    <div id="tmaSupportResult" class="small mt-2"></div>
+    <div id="tmaSupportResult" class="text-sm mt-2"></div>
 
-    <button type="button" class="btn btn-accent w-100 mt-3" id="tmaSupportSendBtn" onclick="tmaSendSupportMessage()">
-        <span class="btn-text"><i class="fas fa-paper-plane me-1"></i> Отправить</span>
+    <button type="button" class="btn-pop w-full mt-3" id="tmaSupportSendBtn" onclick="tmaSendSupportMessage()">
+        <span class="btn-text">Отправить</span>
     </button>
-</div>
+</section>
 {% endblock %}

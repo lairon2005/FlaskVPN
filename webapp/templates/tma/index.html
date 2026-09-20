@@ -1,84 +1,93 @@
 {% extends "tma/base.html" %}
+{% import "_icons.html" as ic %}
 
 {% block content %}
-<div class="tma-header animate-in">
-    <div class="avatar-placeholder">{{ user.full_name[0]|upper if user.full_name else '?' }}</div>
-    <div class="flex-grow-1">
-        <h5 class="text-truncate">{{ user.full_name }}</h5>
-        <p class="text-gray small">FlaskVPN — личный кабинет</p>
+{% set is_active = vpn_data and vpn_data.status == 'active' %}
+
+<header class="flex items-center gap-3 mb-4 animate-in">
+    <div class="avatar !w-11 !h-11 !text-lg !rounded-2xl">
+        {{ user.full_name[0] | upper if user.full_name else '?' }}
+    </div>
+    <div class="min-w-0 flex-1">
+        <h1 class="font-display font-black text-lg truncate">{{ user.full_name }}</h1>
+        <p class="text-xs text-muted">Личный кабинет</p>
     </div>
     {% if user.vpn_username and vpn_data %}
-        {% if vpn_data.status == 'active' %}
-            <span class="status-badge status-badge-active">
-                <span class="pulse-dot pulse-dot-green"></span> Активен
-            </span>
-        {% else %}
-            <span class="status-badge status-badge-expired">
-                <span class="pulse-dot pulse-dot-red"></span> Истёк
-            </span>
-        {% endif %}
+        <span class="badge {{ 'badge-active' if is_active else 'badge-expired' }}">
+            <span class="dot {{ 'dot-green' if is_active else 'dot-red' }}"></span>
+            {{ 'Активен' if is_active else 'Истёк' }}
+        </span>
     {% endif %}
-</div>
+</header>
 
 {% if user.vpn_username and vpn_data %}
 
-    {% if vpn_data.status == 'active' %}
-    <div class="section-card animate-in accent-success">
-        <h5 class="fw-bold mb-1"><i class="fas fa-shield-halved text-success-custom me-2"></i>VPN активен</h5>
-        <p class="text-gray small mb-0">
-            Истекает: <span class="text-primary fw-bold">{{ expire_display or '—' }}</span>
+    <!-- Главный блок: состояние подписки -->
+    <section class="sticker p-5 animate-in [animation-delay:0.05s]
+                    {% if is_active %}border-[3px] border-blue{% else %}border-[3px] border-danger{% endif %}">
+        <p class="font-display font-black text-2xl leading-tight">
+            {{ 'Защита включена' if is_active else 'Подписка истекла' }}
         </p>
-    </div>
-    {% else %}
-    <div class="section-card animate-in accent-danger">
-        <h5 class="fw-bold mb-1"><i class="fas fa-exclamation-circle text-danger-custom me-2"></i>Подписка истекла</h5>
-        <p class="text-gray small mb-0">
-            Дата окончания: <span class="text-danger-custom fw-bold">{{ expire_display or '—' }}</span>
+        <p class="mt-1 text-sm text-subtle">
+            {{ 'Действует до' if is_active else 'Закончилась' }}
+            <span class="font-bold tabular-nums {{ 'text-blue' if is_active else 'text-danger' }}">
+                {{ expire_display or '—' }}
+            </span>
         </p>
-        <div class="alert-custom alert-warning-custom mt-3 text-start mb-0">
-            <i class="fas fa-info-circle me-1"></i> Доступ приостановлен. Пополните подписку.
-        </div>
-    </div>
-    {% endif %}
+        {% if not is_active %}
+            <div class="alert alert-warn mt-3 mb-0">
+                {{ ic.icon('alert', 'w-5 h-5 shrink-0') }}
+                <span>Доступ приостановлен. Продлите подписку, чтобы включить VPN.</span>
+            </div>
+        {% endif %}
+    </section>
 
-    <div class="tma-quick-actions animate-in animate-in-delay-1">
-        <a href="/tma/import" class="btn btn-accent-outline"><i class="fas fa-bolt me-1"></i> Подключить</a>
-        <a href="/tma/tariffs" class="btn btn-accent">
-            <i class="fas fa-sync-alt me-1"></i> {% if vpn_data.status == 'active' %}Продлить{% else %}Возобновить{% endif %}
+    <div class="grid grid-cols-2 gap-2.5 mt-3 animate-in [animation-delay:0.1s]">
+        <a href="/tma/import" class="btn-pop btn-pop-outline w-full">
+            {{ ic.icon('zap', 'w-4 h-4') }} Подключить
+        </a>
+        <a href="/tma/tariffs" class="btn-pop w-full">
+            {{ ic.icon('rotate', 'w-4 h-4') }} {{ 'Продлить' if is_active else 'Возобновить' }}
         </a>
     </div>
 
 {% elif user.vpn_username %}
 
-    <div class="alert-custom alert-error animate-in">{{ vpn_error }}</div>
-    <div class="tma-quick-actions single animate-in">
-        <a href="/tma/tariffs" class="btn btn-accent"><i class="fas fa-tags me-1"></i> Тарифы</a>
+    <div class="alert alert-error animate-in">
+        {{ ic.icon('alert', 'w-5 h-5 shrink-0') }}<span>{{ vpn_error }}</span>
     </div>
+    <a href="/tma/tariffs" class="btn-pop w-full animate-in">{{ ic.icon('tag', 'w-4 h-4') }} Тарифы</a>
 
 {% else %}
 
-    <div class="section-card text-center animate-in panel-dashed">
-        <div class="feature-icon mx-auto mb-3"><i class="fas fa-gift"></i></div>
-        <h5 class="fw-bold">Попробуйте бесплатно</h5>
-        <p class="text-gray mb-3">7 дней полного доступа без ограничений скорости</p>
-        <button type="button" class="btn btn-accent w-100 py-2 fw-bold" onclick="tmaActivateTrial(this)">
-            <span class="btn-text">Активировать тест <i class="fas fa-arrow-right ms-1"></i></span>
+    <section class="sticker panel-dashed !bg-paper p-6 text-center animate-in">
+        <div class="w-14 h-14 mx-auto rounded-2xl bg-orange-soft text-orange grid place-items-center">
+            {{ ic.icon('gift', 'w-7 h-7') }}
+        </div>
+        <h2 class="mt-3 font-display font-black text-xl">Попробуйте бесплатно</h2>
+        <p class="mt-1.5 text-sm text-subtle">7 дней полного доступа без ограничений скорости</p>
+        <button type="button" class="btn-pop btn-pop-orange w-full mt-4" onclick="tmaActivateTrial(this)">
+            <span class="btn-text">Активировать пробный период</span>
         </button>
-    </div>
-    <div class="tma-quick-actions single animate-in animate-in-delay-1">
-        <a href="/tma/tariffs" class="btn btn-accent-outline"><i class="fas fa-tags me-1"></i> Посмотреть тарифы</a>
-    </div>
+    </section>
+    <a href="/tma/tariffs" class="btn-pop btn-pop-outline w-full mt-3 animate-in [animation-delay:0.1s]">
+        {{ ic.icon('tag', 'w-4 h-4') }} Посмотреть тарифы
+    </a>
 
 {% endif %}
 
-<!-- Referral teaser -->
-<div class="section-card animate-in animate-in-delay-2">
-    <div class="d-flex align-items-center justify-content-between gap-3">
-        <div>
-            <h6 class="fw-bold mb-1"><i class="fas fa-users text-accent me-2"></i>Реферальная программа</h6>
-            <p class="text-gray small mb-0">Приглашайте друзей — получайте бонусные дни</p>
-        </div>
-        <a href="/tma/referral" class="btn btn-accent-outline btn-sm">Открыть</a>
-    </div>
-</div>
+<!-- Реферальная программа -->
+<a href="/tma/referral"
+   class="sticker sticker-hover p-4 mt-3 flex items-center justify-between gap-3 animate-in [animation-delay:0.15s]">
+    <span class="flex items-center gap-3 min-w-0">
+        <span class="w-10 h-10 shrink-0 rounded-xl bg-orange-soft text-orange grid place-items-center">
+            {{ ic.icon('gift', 'w-5 h-5') }}
+        </span>
+        <span class="min-w-0">
+            <span class="block font-display font-extrabold">Приглашайте друзей</span>
+            <span class="block text-xs text-muted">Бонусные дни за каждую их оплату</span>
+        </span>
+    </span>
+    {{ ic.icon('arrow-right', 'w-5 h-5 text-blue shrink-0') }}
+</a>
 {% endblock %}

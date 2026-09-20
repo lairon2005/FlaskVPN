@@ -1,19 +1,17 @@
 <!DOCTYPE html>
-<html lang="ru" data-bs-theme="light">
+<html lang="ru">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>FlaskVPN</title>
 <meta name="theme-color" content="#F7F1E8">
+<meta name="robots" content="noindex">
 <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
-<!-- Telegram WebApp JS SDK -->
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-<link href="/static/css/styles.css" rel="stylesheet">
-<link href="/static/css/tma.css" rel="stylesheet">
+<link href="/static/css/app.css" rel="stylesheet">
 </head>
 <body class="tma-body" style="padding-bottom:0;">
     <!-- Общий сплэш для ЛЮБОГО GET /tma/* без валидной cookie/сессии: пользователь мог
@@ -22,10 +20,10 @@
          просто перезагружаем ту же страницу — роут отдаст уже настоящий экран. -->
     <div class="tma-splash">
         <div>
-            <img src="/static/img/logo.svg" alt="FlaskVPN" class="tma-splash-logo" width="64" height="64">
-            <h1 id="tmaSplashTitle" class="brand-wordmark" style="font-size:22px;margin:0 0 14px;">Flask<span class="vpn">VPN</span></h1>
-            <div class="spinner" id="tmaSplashSpinner"></div>
-            <div class="status text-gray" id="tmaSplashStatus" style="font-size:15px;margin-top:12px;">Авторизация…</div>
+            <img src="/static/img/logo.svg" alt="" class="w-16 h-16 mx-auto mb-4 rounded-2xl" width="64" height="64">
+            <p id="tmaSplashTitle" class="wordmark text-2xl mb-4">Flask<span class="vpn">VPN</span></p>
+            <div class="tma-spinner" id="tmaSplashSpinner"></div>
+            <p class="text-[15px] mt-3 text-muted" id="tmaSplashStatus">Авторизация…</p>
         </div>
     </div>
 

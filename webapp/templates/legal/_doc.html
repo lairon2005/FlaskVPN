@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% import "_icons.html" as ic %}
+
+{# Общая обёртка юридических страниц: шапка документа, реквизиты, контент.
+   Блок `document` заполняют offer.html / privacy.html / refund.html. #}
+
+{% block meta_title %}{{ title }} | FlaskVPN{% endblock %}
+{% block meta_description %}{{ title }} сервиса FlaskVPN.{% endblock %}
+
+{% block content %}
+<section class="relative overflow-hidden">
+    <div class="pointer-events-none absolute -top-28 -right-24 w-80 h-72 blob bg-sky/25" aria-hidden="true"></div>
+
+    <div class="relative mx-auto max-w-3xl px-4 py-12 lg:py-16">
+        <a href="/" class="inline-flex items-center gap-1.5 text-sm font-semibold text-blue hover:text-orange transition">
+            <span class="rotate-180">{{ ic.icon('arrow-right', 'w-4 h-4') }}</span> На главную
+        </a>
+
+        <span class="eyebrow block mt-8">Документы</span>
+        <h1 class="mt-2 font-lettering font-black text-[clamp(1.9rem,6vw,2.8rem)] leading-tight">{{ title }}</h1>
+
+        {% if not site.has_legal %}
+            {# Видно только администратору по смыслу: пока реквизиты не заданы,
+               документ не является публичной офертой и это честно сказано. #}
+            <div class="mt-6 sticker !border-orange p-4 text-sm">
+                <strong class="text-orange">Черновик.</strong>
+                Реквизиты продавца не заполнены (<code class="font-mono text-xs">LEGAL_NAME</code>,
+                <code class="font-mono text-xs">LEGAL_INN</code>,
+                <code class="font-mono text-xs">LEGAL_EMAIL</code> в <code class="font-mono text-xs">.env</code>).
+                До их заполнения документ не имеет силы оферты.
+            </div>
+        {% endif %}
+
+        <div class="doc mt-8">
+            {% block document %}{% endblock %}
+        </div>
+
+        <div class="mt-12 pt-8 border-t-2 border-blue/10 text-sm text-muted">
+            <p class="font-mono text-xs tracking-[0.14em] uppercase text-blue mb-2">Реквизиты</p>
+            <p>{{ site.legal_name or '—' }}</p>
+            <p>ИНН: {{ site.legal_inn or '—' }}</p>
+            {% if site.legal_ogrnip %}<p>ОГРНИП: {{ site.legal_ogrnip }}</p>{% endif %}
+            {% if site.legal_address %}<p>Адрес: {{ site.legal_address }}</p>{% endif %}
+            <p>E-mail: {{ site.legal_email or '—' }}</p>
+            <p class="mt-3">Сайт: <a href="{{ site.base_url }}" class="text-blue font-semibold">{{ site.domain }}</a></p>
+        </div>
+    </div>
+</section>
+{% endblock %}

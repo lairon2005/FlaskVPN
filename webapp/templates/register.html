@@ -1,64 +1,64 @@
-{% extends "base.html" %}
+{% extends "auth_base.html" %}
+{% import "_icons.html" as ic %}
 
-{% block content %}
-<div class="container d-flex align-items-center justify-content-center" style="min-height: 85vh;">
-    <div class="col-12 col-md-6 col-lg-4">
+{% block meta_title %}Регистрация | FlaskVPN{% endblock %}
+{% block meta_description %}Создайте аккаунт FlaskVPN и получите бесплатный пробный период без привязки карты.{% endblock %}
 
-        <div class="card glass-card p-4 animate-in">
-            <div class="card-body">
-                <div class="text-center mb-4">
-                    <span class="brand-wordmark">Flask<span class="vpn">VPN</span></span>
-                    <h3 class="fw-bold mt-2 mb-0">Регистрация</h3>
-                </div>
+{% block auth_title %}Регистрация{% endblock %}
+{% block auth_subtitle %}Пробный период — без карты{% endblock %}
 
-                {% if error %}
-                    <div class="alert-custom alert-error">{{ error }}</div>
-                {% endif %}
+{% block auth_body %}
+<form action="/register" method="post" id="registerForm" class="space-y-4">
+    {% if ref %}<input type="hidden" name="ref" value="{{ ref }}">{% endif %}
 
-                <form action="/register" method="post" id="registerForm">
-                    {% if ref %}<input type="hidden" name="ref" value="{{ ref }}">{% endif %}
-
-                    <!-- Имя -->
-                    <div class="mb-3">
-                        <label class="form-label">Ваше имя</label>
-                        <div class="input-icon-wrapper">
-                            <i class="fas fa-user input-icon"></i>
-                            <input type="text" name="full_name" class="form-control" placeholder="Иван Иванов" required>
-                        </div>
-                    </div>
-
-                    <!-- Email -->
-                    <div class="mb-3">
-                        <label class="form-label">Email</label>
-                        <div class="input-icon-wrapper">
-                            <i class="fas fa-envelope input-icon"></i>
-                            <input type="email" name="email" class="form-control" placeholder="name@example.com" required>
-                        </div>
-                    </div>
-
-                    <!-- Пароль -->
-                    <div class="mb-4">
-                        <label class="form-label">Пароль</label>
-                        <div class="input-icon-wrapper">
-                            <i class="fas fa-lock input-icon"></i>
-                            <input type="password" name="password" id="registerPassword" class="form-control" placeholder="Минимум 6 символов" required minlength="6">
-                        </div>
-                        <div class="password-strength mt-1">
-                            <div class="bar" id="passwordStrengthBar"></div>
-                        </div>
-                    </div>
-
-                    <button type="submit" class="btn btn-accent w-100 py-2 fw-bold">
-                        <span class="btn-text">Создать аккаунт</span>
-                    </button>
-                </form>
-
-                <div class="mt-4 text-center">
-                    <span class="text-gray">Уже есть аккаунт?</span>
-                    <a href="/login" class="text-accent fw-bold text-decoration-none ms-1">Войти</a>
-                </div>
-            </div>
+    <div>
+        <label class="field-label" for="regName">Ваше имя</label>
+        <div class="input-wrap">
+            <span class="input-icon">{{ ic.icon('user', 'w-5 h-5') }}</span>
+            <input type="text" id="regName" name="full_name" class="input"
+                   placeholder="Иван Иванов" required autocomplete="name">
         </div>
     </div>
-</div>
+
+    <div>
+        <label class="field-label" for="regEmail">Email</label>
+        <div class="input-wrap">
+            <span class="input-icon">{{ ic.icon('mail', 'w-5 h-5') }}</span>
+            <input type="email" id="regEmail" name="email" class="input"
+                   placeholder="name@example.com" required
+                   autocomplete="email" inputmode="email">
+        </div>
+        <p class="mt-1.5 text-xs text-muted">На него придёт код подтверждения.</p>
+    </div>
+
+    <div>
+        <label class="field-label" for="registerPassword">Пароль</label>
+        <div class="input-wrap">
+            <span class="input-icon">{{ ic.icon('lock', 'w-5 h-5') }}</span>
+            <input type="password" id="registerPassword" name="password" class="input"
+                   placeholder="Минимум 6 символов" required minlength="6"
+                   autocomplete="new-password">
+        </div>
+        <div class="strength-track mt-2">
+            <div class="bar" id="passwordStrengthBar"></div>
+        </div>
+    </div>
+
+    <button type="submit" class="btn-pop w-full">
+        <span class="btn-text">Создать аккаунт</span>
+    </button>
+</form>
+
+<p class="mt-4 text-xs text-muted text-center">
+    Создавая аккаунт, вы соглашаетесь с
+    <a href="/offer" class="text-blue font-semibold hover:text-orange transition">офертой</a> и
+    <a href="/privacy" class="text-blue font-semibold hover:text-orange transition">политикой конфиденциальности</a>.
+</p>
+{% endblock %}
+
+{% block auth_footer %}
+<p class="mt-6 text-center text-sm text-subtle">
+    Уже есть аккаунт?
+    <a href="/login" class="font-bold text-blue hover:text-orange transition">Войти</a>
+</p>
 {% endblock %}

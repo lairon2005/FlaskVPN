@@ -1,44 +1,51 @@
 {% extends "tma/base.html" %}
+{% import "_icons.html" as ic %}
 
 {% block content %}
-<h5 class="fw-bold mb-3 animate-in"><i class="fas fa-users text-accent me-2"></i>Реферальная программа</h5>
+<h1 class="font-display font-black text-xl mb-3 flex items-center gap-2 animate-in">
+    {{ ic.icon('gift', 'w-5 h-5 text-orange') }} Реферальная программа
+</h1>
 
-<div class="section-card animate-in">
-    <p class="text-gray small mb-3">
-        Приглашайте друзей — получайте <b class="text-primary">30 бонусных дней</b> за каждую их первую оплату.
+<section class="sticker p-5 animate-in">
+    <p class="text-sm text-subtle">
+        Приглашайте друзей — получайте <span class="font-bold text-blue">30 бонусных дней</span>
+        за каждую их первую оплату.
     </p>
 
     {% if ref_link %}
-        <div class="copy-field mb-3">
+        <div class="copy-field mt-4">
+            <label class="sr-only" for="refLink">Реферальная ссылка</label>
             <input type="text" id="refLink" value="{{ ref_link }}" readonly>
-            <button class="copy-btn" type="button" onclick="tmaCopy('refLink', 'Ссылка скопирована!')" title="Копировать">
-                <i class="fas fa-copy"></i>
+            <button class="copy-btn" type="button"
+                    onclick="tmaCopy('refLink', 'Ссылка скопирована!')" aria-label="Скопировать ссылку">
+                {{ ic.icon('copy', 'w-5 h-5') }}
             </button>
         </div>
 
-        <button type="button" class="btn btn-accent w-100" id="tmaShareRefBtn"
+        <button type="button" class="btn-pop w-full mt-3" id="tmaShareRefBtn"
                 data-ref-link="{{ ref_link }}"
                 data-share-text="Заходи в FlaskVPN — быстрый и безопасный VPN. Тебе бонус за переход по ссылке!">
-            <i class="fab fa-telegram me-1"></i> Поделиться в Telegram
+            {{ ic.icon('telegram', 'w-5 h-5') }} Поделиться в Telegram
         </button>
     {% else %}
-        <div class="alert-custom alert-info">
-            Реферальные ссылки пока недоступны — администратору нужно задать переменную
-            <code>TG_BOT_USERNAME</code> в конфиге бота.
+        <div class="alert alert-info mt-4 mb-0">
+            {{ ic.icon('alert', 'w-5 h-5 shrink-0') }}
+            <span>Реферальные ссылки пока недоступны — администратору нужно задать
+                  <code class="font-mono text-xs">TG_BOT_USERNAME</code> в конфиге бота.</span>
         </div>
     {% endif %}
-</div>
+</section>
 
-<div class="section-card animate-in animate-in-delay-1">
-    <div class="d-flex gap-4">
+<section class="sticker p-5 mt-3 animate-in [animation-delay:0.1s]">
+    <dl class="flex gap-8">
         <div>
-            <div class="stat-label">Приглашено</div>
-            <div class="stat-value">{{ referral_count }}</div>
+            <dt class="font-mono text-[0.66rem] tracking-[0.14em] uppercase text-muted">Приглашено</dt>
+            <dd class="font-display font-black text-2xl tabular-nums">{{ referral_count }}</dd>
         </div>
         <div>
-            <div class="stat-label">Бонусные дни</div>
-            <div class="stat-value text-accent">{{ referral_bonus }}</div>
+            <dt class="font-mono text-[0.66rem] tracking-[0.14em] uppercase text-muted">Бонусных дней</dt>
+            <dd class="font-display font-black text-2xl text-orange tabular-nums">{{ referral_bonus }}</dd>
         </div>
-    </div>
-</div>
+    </dl>
+</section>
 {% endblock %}

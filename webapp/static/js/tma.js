@@ -10,7 +10,7 @@
     var TOKEN_KEY = 'flaskvpn_tma_token';
     var SCREEN_PARAMS = ['tariffs', 'import', 'support', 'history'];
 
-    // Палитра бренд-бука FLASK — те же значения, что в styles.css
+    // Палитра бренд-бука FLASK — те же значения, что в src/app.css
     var BRAND_CREAM = '#F7F1E8';
     var BRAND_PAPER = '#FFFCF6';
 
@@ -100,8 +100,8 @@
         function showError(message) {
             if (spinnerEl) spinnerEl.style.display = 'none';
             statusEl.textContent = message;
-            statusEl.classList.add('text-danger-custom');
-            statusEl.classList.remove('text-gray');
+            statusEl.classList.add('text-danger');
+            statusEl.classList.remove('text-muted');
         }
 
         var initData = tg && tg.initData;
@@ -127,7 +127,7 @@
                 setToken(result.data.token);
                 if (spinnerEl) spinnerEl.style.display = 'none';
                 statusEl.textContent = 'Готово!';
-                statusEl.classList.add('text-success-custom');
+                statusEl.classList.add('text-success');
                 // Перезагружаем ТУ ЖЕ страницу — теперь cookie/сессия валидны,
                 // роут отдаст настоящий экран вместо сплэша.
                 location.reload();
@@ -337,10 +337,10 @@
         var code = input.value.trim();
 
         if (!code) {
-            resultDiv.innerHTML = '<span class="text-danger-custom">Введите промокод</span>';
+            resultDiv.innerHTML = '<span class="text-danger">Введите промокод</span>';
             return;
         }
-        resultDiv.innerHTML = '<span class="text-gray">Проверяю...</span>';
+        resultDiv.innerHTML = '<span class="text-muted">Проверяю...</span>';
 
         tmaFetch('/payment/validate-promo', {
             method: 'POST',
@@ -352,13 +352,13 @@
                 if (data.valid) {
                     if (data.type === 'discount') {
                         tmaActivePromo = { code: data.code, discount_percent: data.discount_percent };
-                        resultDiv.innerHTML = '<span class="text-success-custom">Скидка ' + data.discount_percent + '% применена!</span>';
+                        resultDiv.innerHTML = '<span class="text-success">Скидка ' + data.discount_percent + '% применена!</span>';
                         showToast('Промокод применён: скидка ' + data.discount_percent + '%', 'success');
                         haptic('light');
                         updateTariffPrices(data.discount_percent);
                         if (typeof onDiscount === 'function') onDiscount(data.discount_percent);
                     } else if (data.type === 'bonus_days') {
-                        resultDiv.innerHTML = '<span class="text-gray">Начисляю бонусные дни...</span>';
+                        resultDiv.innerHTML = '<span class="text-muted">Начисляю бонусные дни...</span>';
                         return tmaFetch('/payment/apply-bonus-promo', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -366,23 +366,23 @@
                         }).then(function (applyResp) {
                             if (applyResp.ok) {
                                 return applyResp.json().then(function (applyData) {
-                                    resultDiv.innerHTML = '<span class="text-success-custom">Начислено ' + applyData.bonus_days + ' бонусных дней!</span>';
+                                    resultDiv.innerHTML = '<span class="text-success">Начислено ' + applyData.bonus_days + ' бонусных дней!</span>';
                                     showToast('+' + applyData.bonus_days + ' бонусных дней!', 'success');
                                     haptic('medium');
                                     setTimeout(function () { location.href = '/tma/'; }, 1500);
                                 });
                             }
-                            resultDiv.innerHTML = '<span class="text-danger-custom">Ошибка при применении промокода</span>';
+                            resultDiv.innerHTML = '<span class="text-danger">Ошибка при применении промокода</span>';
                         });
                     }
                 } else {
                     tmaActivePromo = null;
-                    resultDiv.innerHTML = '<span class="text-danger-custom">' + data.error + '</span>';
+                    resultDiv.innerHTML = '<span class="text-danger">' + data.error + '</span>';
                     resetTariffPrices();
                 }
             })
             .catch(function () {
-                resultDiv.innerHTML = '<span class="text-danger-custom">Ошибка соединения</span>';
+                resultDiv.innerHTML = '<span class="text-danger">Ошибка соединения</span>';
             });
     }
     window.tmaApplyPromo = tmaApplyPromo;
@@ -392,7 +392,7 @@
             var originalPrice = parseInt(el.dataset.originalPrice || el.textContent, 10);
             if (!el.dataset.originalPrice) el.dataset.originalPrice = String(originalPrice);
             var newPrice = Math.round(originalPrice * (1 - discountPercent / 100));
-            el.innerHTML = '<s class="text-gray" style="font-size:0.6em">' + originalPrice + ' ₽</s> ' + newPrice + ' <small class="fs-6">₽</small>';
+            el.innerHTML = '<s class="text-muted text-[0.45em] font-semibold">' + originalPrice + ' ₽</s> ' + newPrice + '<span class="text-[0.5em]"> ₽</span>';
             el.dataset.currentPrice = String(newPrice);
         });
     }
@@ -400,7 +400,7 @@
     function resetTariffPrices() {
         document.querySelectorAll('.tariff-price').forEach(function (el) {
             if (el.dataset.originalPrice) {
-                el.innerHTML = el.dataset.originalPrice + ' <small class="fs-6">₽</small>';
+                el.innerHTML = el.dataset.originalPrice + '<span class="text-[0.5em]"> ₽</span>';
                 el.dataset.currentPrice = el.dataset.originalPrice;
             }
         });
@@ -621,7 +621,7 @@
 
         var text = textarea.value.trim();
         if (!text) {
-            if (resultDiv) resultDiv.innerHTML = '<span class="text-danger-custom">Введите сообщение</span>';
+            if (resultDiv) resultDiv.innerHTML = '<span class="text-danger">Введите сообщение</span>';
             return;
         }
 
@@ -644,17 +644,17 @@
                     haptic('medium');
                     showToast('Сообщение отправлено!', 'success');
                     if (resultDiv) {
-                        resultDiv.innerHTML = '<span class="text-success-custom">Отправлено! Ответ придёт в личные сообщения от бота.</span>';
+                        resultDiv.innerHTML = '<span class="text-success">Отправлено! Ответ придёт в личные сообщения от бота.</span>';
                     }
                 } else if (result.status === 401) {
                     showToast('Сессия истекла, перезагрузите Mini App.', 'error');
                 } else if (result.status === 429) {
                     var msg = (result.data && result.data.detail) || 'Подождите перед отправкой следующего сообщения.';
-                    if (resultDiv) resultDiv.innerHTML = '<span class="text-danger-custom">' + msg + '</span>';
+                    if (resultDiv) resultDiv.innerHTML = '<span class="text-danger">' + msg + '</span>';
                     showToast(msg, 'warning');
                 } else {
                     var errMsg = (result.data && result.data.detail) || 'Не удалось отправить сообщение.';
-                    if (resultDiv) resultDiv.innerHTML = '<span class="text-danger-custom">' + errMsg + '</span>';
+                    if (resultDiv) resultDiv.innerHTML = '<span class="text-danger">' + errMsg + '</span>';
                     showToast(errMsg, 'error');
                 }
             })
@@ -677,32 +677,38 @@
         var appDesc = document.getElementById('appDescription');
         var osIcon = document.getElementById('osIcon');
         var btnTextEl = document.getElementById('btnText');
+
+        // Иконка ОС — символ из SVG-спрайта; Font Awesome с новой базы убран.
+        function setOsIcon(el, name) {
+            var use = el && el.querySelector('use');
+            if (use) use.setAttribute('href', '#i-' + name);
+        }
         if (!downloadBtn) return;
 
         if (/android/i.test(userAgent)) {
             downloadBtn.href = 'https://play.google.com/store/apps/details?id=com.happproxy';
             appDesc.textContent = 'Для Android рекомендуем Happ.';
-            osIcon.className = 'fab fa-android me-1';
+            setOsIcon(osIcon, 'android');
             btnTextEl.textContent = 'Google Play';
         } else if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
             downloadBtn.href = 'https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643';
             appDesc.textContent = 'Для iOS рекомендуем Happ.';
-            osIcon.className = 'fab fa-app-store-ios me-1';
+            setOsIcon(osIcon, 'apple');
             btnTextEl.textContent = 'App Store';
         } else if (/Win/i.test(userAgent)) {
             downloadBtn.href = 'https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe';
             appDesc.textContent = 'Для Windows рекомендуем Happ.';
-            osIcon.className = 'fab fa-windows me-1';
+            setOsIcon(osIcon, 'windows');
             btnTextEl.textContent = 'Скачать для Windows';
         } else if (/Mac/i.test(userAgent)) {
             downloadBtn.href = 'https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643';
             appDesc.textContent = 'Для macOS рекомендуем Happ.';
-            osIcon.className = 'fab fa-apple me-1';
+            setOsIcon(osIcon, 'apple');
             btnTextEl.textContent = 'Скачать для macOS';
         } else {
             downloadBtn.href = 'https://play.google.com/store/apps/details?id=com.happproxy';
             appDesc.textContent = 'Выберите приложение для вашей ОС.';
-            osIcon.className = 'fas fa-download me-1';
+            setOsIcon(osIcon, 'download');
             btnTextEl.textContent = 'Скачать';
         }
     }

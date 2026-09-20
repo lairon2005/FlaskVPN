@@ -12,8 +12,18 @@ FastAPI web dashboard для VPN-сервиса. Регистрация по ema
 - **passlib[argon2]** — хэширование паролей
 - **fastapi-mail** — SMTP email
 - **YooKassa** — приём платежей
-- **Bootstrap 5** + кастомный CSS (светлая тема по бренд-буку FLASK: кремовая бумага `#F7F1E8`,
-  синий `#2457C5`, оранжевый акцент `#FF7627` — см. `docs/brand.md`)
+- **Tailwind CSS v4** (standalone-бинарник, без npm) — **все** страницы: лендинг,
+  юр. документы, вход/регистрация, кабинет и Mini App. Источник
+  `static/css/src/app.css`, сборка `./tools/tailwind.sh`, результат
+  `static/css/app.css` коммитится.
+- **Иконки** — SVG-спрайт `templates/_icons.html` (Lucide). Bootstrap и Font Awesome
+  из проекта удалены полностью, как и `styles.css`, `tma.css`, `base_legacy.html`.
+- Оформление — дофаминовый бренд-бук FLASK (кремовая бумага `#F7F1E8`, синий `#2457C5`,
+  оранжевый акцент `#FF7627`) — см. `docs/brand.md`.
+
+> Один CSS на всё приложение: правка токена в `@theme` меняет и сайт, и Mini App.
+> Не добавляй второй файл стилей — TMA-специфика живёт секцией `.tma-*`
+> в том же `src/app.css`.
 
 Запуск: `uvicorn webapp.main:app --reload` (порт 8000). В Docker — сервис `flask_site`.
 
@@ -23,28 +33,90 @@ FastAPI web dashboard для VPN-сервиса. Регистрация по ema
 
 ```
 webapp/
-├── main.py              # FastAPI app, lifespan, ProxyHeadersMiddleware, jinja2_filter timestamp_to_date
+├── main.py              # FastAPI app, lifespan, ProxyHeadersMiddleware, маршрут "/"
+├── templating.py        # ЕДИНСТВЕННЫЙ Jinja2Templates + фильтр timestamp_to_date + глобалы site/now_year/has_static
 ├── dependencies.py      # get_current_user(request) → User | None  (JWT из cookie)
 ├── core/
 │   ├── security.py      # get_password_hash(), verify_password(), create_access_token()
+│   ├── site.py          # SiteInfo: домен, ссылки на бота/поддержку, реквизиты из .env
 │   └── mail.py          # send_verification_email(), send_reset_code(), MailSendError
 ├── routers/
 │   ├── auth.py          # /login /register /verify-email /logout /forgot-password /reset-password
-│   ├── dashboard.py     # /profile/ /profile/activate_trial
+│   ├── dashboard.py     # /profile/ …
+│   ├── legal.py         # /offer /privacy /refund
 │   └── payment.py       # /payment/create /payment/device-slots /payment/cancel-pending /payment/validate-promo /payment/apply-bonus-promo
 ├── static/
-│   ├── css/styles.css   # 826 строк: CSS variables, компоненты, анимации
-│   └── js/scripts.js    # 285 строк: payment, promo, copy, OS detection, toast
+│   ├── css/src/app.css  # ИСХОДНИК Tailwind: @theme-токены бренда + дофаминовые компоненты
+│   ├── css/app.css      # СБОРКА (коммитится, руками не править)
+│   ├── fonts/matcha-world.woff2  # фирменный леттеринг (латиница, @font-face с unicode-range)
+│   ├── img/collage/     # ретро-коллаж лендинга, рисуется только при наличии файлов (README внутри)
+│   ├── js/site.js       # мобильное меню + модалки <dialog> (сайт)
+│   ├── js/scripts.js    # payment, promo, copy, OS detection, toast (сайт)
+│   └── js/tma.js        # Telegram SDK, MainButton, шторка «Ещё», Stars (Mini App)
 └── templates/
-    ├── base.html         # Layout: navbar (логин/не логин), footer, toast container
-    ├── index.html        # Лендинг: hero SVG-глобус, features, тарифы
-    ├── login.html        # Форма входа
-    ├── register.html     # Форма регистрации + strength bar
-    ├── verify_email.html # Ввод 6-значного кода из email
-    ├── forgot_password.html
-    ├── reset_password.html
-    └── dashboard.html    # Профиль, VPN-ключ, реферальная ссылка, история платежей
+    ├── _icons.html       # SVG-спрайт (Lucide) + макрос icon(name, classes)
+    ├── base.html         # Layout сайта: SEO/OG-метатеги, шапка, подвал с юр. ссылками
+    ├── auth_base.html    # Обёртка экранов авторизации (карточка + alert'ы)
+    ├── index.html        # Лендинг: hero, сценарии, как это работает, фичи, тарифы, CTA
+    ├── dashboard.html    # Кабинет: статус-блок, ключ, устройства, оплата, рефералка, платежи
+    ├── login.html / register.html / verify_email.html
+    ├── forgot_password.html / reset_password.html
+    ├── legal/_doc.html   # обёртка юр. документов + блок реквизитов
+    ├── legal/{offer,privacy,refund}.html
+    └── tma/              # Mini App: base, index, tariffs, devices, import,
+                          #   referral, history, support, _auth_splash
 ```
+
+### Шаблоны: три базы
+
+| База | Кто наследует |
+|---|---|
+| `base.html` | лендинг, юр. документы, кабинет |
+| `auth_base.html` (наследует `base.html`) | вход, регистрация, код из письма, сброс пароля |
+| `tma/base.html` | все экраны Mini App (свой таб-бар, без шапки и подвала сайта) |
+
+Все три подключают один и тот же `app.css` и один спрайт иконок.
+
+### Иерархия кабинета
+
+`dashboard.html` намеренно неровный по весу: сверху единственный доминирующий
+блок состояния подписки с одной главной кнопкой, затем ключ и подключение,
+устройства, и только потом — второстепенное (способ оплаты, рефералка, история)
+в две колонки. Раньше это были восемь одинаковых карточек подряд, где срок
+подписки весил столько же, сколько история платежей.
+
+Часть веток `/profile` отдаёт шаблон с урезанным контекстом (ошибка активации
+триала присылает только `user`/`error`/`tariffs`). Обращение к атрибуту
+неопределённой переменной в Jinja — исключение, поэтому в начале шаблона стоит
+блок `{% set ... | default(...) %}`; **не убирай его**, добавляя новые поля.
+
+### Модальные окна
+
+Bootstrap JS больше нет — окна на нативном `<dialog class="modal">`:
+кнопка `data-modal-open="<id>"`, закрытие `data-modal-close`, клик по затемнению
+и Esc обрабатываются в `site.js::initModals`. Фокус-трап и инертность фона
+даёт сам `<dialog>`.
+
+### Сборка CSS
+
+```bash
+./tools/tailwind.sh            # разовая сборка (minify)
+./tools/tailwind.sh --watch    # пересборка при правке шаблонов
+python3 tools/make_og.py       # перегенерировать og-обложку 1200×630
+```
+
+Иконки добавляются символом в `templates/_icons.html` и вставляются макросом
+`{{ ic.icon('name', 'w-5 h-5') }}`. JS, которому надо сменить иконку на лету
+(определение ОС), переписывает `href` у вложенного `<use>` — см.
+`scripts.js::detectOSAndSetLink`.
+
+Глобал `has_static('img/...')` проверяет наличие файла в `webapp/static` на рендере:
+коллажные картинки бренда докладываются отдельно, и шаблон не должен рисовать
+битые `<img>` до их появления (в hero вместо коллажа отрисуется SVG-глобус).
+
+Бинарник скачивается в `tools/bin/` (gitignored) при первом запуске — npm,
+`package.json` и `node_modules` в проекте не появляются, `Dockerfile` не меняется.
+**Собранный `app.css` обязан быть закоммичен**: контейнер Tailwind не запускает.
 
 ---
 
@@ -85,6 +157,16 @@ webapp/
 | POST | `/payment/cancel-pending` | Без тела → локально помечает висящий счёт `cancelled`, чтобы можно было выставить новый (например, сменить карту на СБП). YooKassa сама отменяет счёт только через ~30 мин, а `Payment.cancel` для `capture=True` недоступен; 404 — счёта нет |
 | POST | `/payment/validate-promo` | JSON: `{code}` → `{valid, type, discount_percent/bonus_days}` |
 | POST | `/payment/apply-bonus-promo` | JSON: `{code}` → применить бонус-дни сразу |
+
+### `legal.py`
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/offer` | Публичная оферта |
+| GET | `/privacy` | Политика конфиденциальности |
+| GET | `/refund` | Оплата и возврат |
+
+Тексты параметризованы реквизитами из `site` (`LEGAL_*` в `.env`). Пока реквизиты
+пусты, `site.has_legal` = False и страница помечается плашкой «Черновик».
 
 ### `main.py`
 | Метод | Путь | Описание |
@@ -145,45 +227,43 @@ create_access_token(data: dict, expires_delta?) → str  # JWT HS256
 
 ---
 
-## CSS (`static/css/styles.css`)
+## CSS (`static/css/src/app.css` → `static/css/app.css`)
 
-Оформление — бренд-бук FLASK, подробности и список поверхностей в `docs/brand.md`.
+Оформление — бренд-бук FLASK, подробности в `docs/brand.md`. Токены объявлены
+в `@theme` (Tailwind v4 CSS-first), поэтому доступны и как CSS-переменные
+(`var(--color-blue)`), и как утилиты (`bg-blue`, `text-orange`).
 
-**CSS-переменные (бренд + семантические алиасы старых имён):**
 ```css
---brand-blue:   #2457C5   /* основной цвет, логотип   → --primary */
---brand-sky:    #73B9F5   /* фоновые формы, полутон */
---brand-orange: #FF7627   /* акценты, графика         → --warning */
---brand-cream:  #F7F1E8   /* фон                      → --bg-body */
---brand-paper:  #FFFCF6   /* карточки                 → --bg-card */
---brand-ink:    #17203A   /* текст                    → --text-primary */
---text-secondary: #5C6A88
---font-display: Nunito 800/900   --font-body: Inter   --font-mono: JetBrains Mono
+--color-blue    #2457C5   основной, логотип, кнопки
+--color-sky     #73B9F5   фоновые формы, полутон
+--color-orange  #FF7627   акценты, «искры», активная вкладка TMA
+--color-cream   #F7F1E8   фон
+--color-paper   #FFFCF6   карточки
+--color-ink     #17203A   текст
+--color-subtle  #4A5878   вторичный текст (6.3:1 на кремовом)
+--color-muted   #616D88   третичный текст (4.6:1 — минимум AA)
+--font-lettering  Matcha World (ТОЛЬКО латиница) → Nunito
+--font-display    Nunito 800/900    --font-body Inter    --font-mono JetBrains Mono
 ```
 
-Старые имена (`--primary`, `--bg-body`, `--bg-card`, `--text-*`) сохранены как алиасы —
-шаблоны и `style="..."` в них не переписывались.
+**Компоненты (`@layer components`):**
+- `.btn-pop` / `.btn-pop-outline` / `.btn-pop-orange` / `.btn-loading` — кнопки с печатным офсетом
+- `.sticker` (+ `.sticker-hover`) — карточка-стикер; `.panel` / `.panel-dashed` — вложенные блоки
+- `.input` / `.input-wrap` + `.input-icon` / `.field-label` / `.code-input` / `.strength-track`
+- `.alert` + `-error` / `-success` / `-warn` / `-info`
+- `.copy-field` — поле с кнопкой копирования
+- `.badge` + `-active` / `-expired` / `-pending` / `-info` / `-muted`, `.dot` — статусы
+- `.data-table` — таблица платежей (табличные цифры)
+- `.modal` / `.modal-head` / `.modal-body` / `.modal-close` — нативный `<dialog>`
+- `.stepper-btn` — ± счётчика устройств, `.avatar`
+- `.wordmark` / `.slogan` / `.eyebrow` / `.marker-underline` / `.halftone` / `.blob` / `.tape` — графика бренда
+- `.doc` — типографика юридических страниц
+- `.tma-*` — таб-бар, шторка «Ещё», карточки тарифов и сплэш Mini App
+- `.animate-in` — появление секции; `opacity: 0` вешается только при `html.js`
 
-**Ключевые классы:**
-- `.btn-accent` / `.btn-accent-outline` / `.btn-accent-orange` / `.btn-loading` — кнопки
-  (печатный офсет `--shadow-pop`, «вдавливаются» на `:active`)
-- `.glass-card` / `.section-card` (+ `.accent-success` / `.accent-danger` — цветной корешок) — карточки
-- `.panel-outlined` / `.panel-dashed` — внутренние блоки (устройства, докупка слотов, триал)
-- `.copy-field` — поле с кнопкой копирования, `.code-input` — 6-значный код из письма
-- `.status-badge` + `-active` / `-expired` / `-pending` / `-info` / `-muted` — статусы платежей
-- `.alert-custom.alert-error` / `.alert-success` — сообщения об ошибках/успехе
-- `.tariff-card.popular` — выделенный тариф (синяя рамка + оранжевый бейдж)
-- `.brand-wordmark` (`Flask` + `.vpn` оранжевым), `.eyebrow` — моно-капс надзаголовок
-- `.deco.deco-blob` / `.deco-halftone` / `.deco-stroke`, `.sparkle`, `.brand-underline` — графика бренда
-- `.animate-in`, `.animate-in-delay-{1-4}` — staggered анимация при загрузке
-- `.hero-visual` / `.hero-svg` — SVG-глобус в hero секции
-- `.hv-*` — классы анимаций SVG-глобуса (кольца, ноды, линии, щит, искры)
-- `.data-table` — таблица истории платежей
-
-Зерно бумаги — `body::before` (SVG-шум `--grain`, `mix-blend-mode: multiply`), поверх всей
-страницы с `pointer-events: none`.
-
----
+Зерно бумаги — `body::before` (SVG-шум, `mix-blend-mode: multiply`, `opacity .11`).
+В Mini App отключено (`.tma-body::before { content: none }`) — на слабых телефонах
+fixed-слой с блендом роняет плавность прокрутки.
 
 ## JavaScript (`static/js/scripts.js`)
 
@@ -243,6 +323,12 @@ create_access_token(data: dict, expires_delta?) → str  # JWT HS256
 | `MAIL_PASSWORD` | `""` | SMTP пароль |
 | `MAIL_FROM` | `noreply@flaskvpn.ru` | Отправитель |
 | `MAIL_FROM_NAME` | `FlaskVPN` | Имя отправителя |
+| `LEGAL_NAME` | — | Продавец в оферте и подвале («ИП …») |
+| `LEGAL_INN` | — | ИНН |
+| `LEGAL_OGRNIP` | — | ОГРНИП (опционально) |
+| `LEGAL_ADDRESS` | — | Адрес (опционально) |
+| `LEGAL_EMAIL` | — | Почта для претензий и возвратов |
+| `TG_BOT_USERNAME` | — | Из него строятся ссылки на бота и поддержку в подвале |
 
 Также используется `config.webhook.domain` для построения subscription URL (`https://domain/sub/...`).
 
@@ -253,7 +339,7 @@ create_access_token(data: dict, expires_delta?) → str  # JWT HS256
 ```bash
 # Обновить файл в контейнере без пересборки:
 docker cp webapp/templates/foo.html flask_site:/usr/src/app/webapp/templates/foo.html
-docker cp webapp/static/css/styles.css flask_site:/usr/src/app/webapp/static/css/styles.css
+docker cp webapp/static/css/app.css flask_site:/usr/src/app/webapp/static/css/app.css
 
 # Перезапуск (если изменился Python-код):
 docker compose restart flask_site

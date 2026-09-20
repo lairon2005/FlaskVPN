@@ -6,7 +6,6 @@ from jose import jwt
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
 from fastapi.responses import RedirectResponse, HTMLResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 
@@ -14,10 +13,10 @@ from db import async_session_maker, User
 from webapp.core.mail import send_reset_code, send_verification_email, MailSendError
 from webapp.core.security import get_password_hash, verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, SECRET_KEY, ALGORITHM
 from webapp.dependencies import get_current_user
+from webapp.templating import templates
 from datetime import timedelta, datetime
 
 router = APIRouter()
-templates = Jinja2Templates(directory="webapp/templates")
 
 # Зависимость для получения сессии БД
 async def get_db():

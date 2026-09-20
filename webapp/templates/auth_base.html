@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% import "_icons.html" as ic %}
+
+{# Общая обёртка экранов авторизации: центрированная карточка-стикер с
+   брендовой графикой. Страницы заполняют блоки auth_icon/auth_title/
+   auth_subtitle/auth_body/auth_footer. #}
+
+{% block content %}
+<section class="relative overflow-hidden">
+    <div class="pointer-events-none absolute -top-28 -left-28 w-96 h-80 blob bg-sky/30 animate-wobble" aria-hidden="true"></div>
+    <div class="pointer-events-none absolute bottom-8 right-[6%] w-32 h-32 halftone opacity-50 hidden sm:block" aria-hidden="true"></div>
+
+    <div class="relative mx-auto max-w-md px-4 py-12 lg:py-20">
+        <div class="sticker p-7 sm:p-8 animate-in">
+
+            <div class="text-center">
+                {% block auth_icon %}{% endblock %}
+                <a href="/" class="wordmark text-2xl inline-block">Flask<span class="vpn">VPN</span></a>
+                <h1 class="mt-2 font-display font-black text-2xl">{% block auth_title %}{% endblock %}</h1>
+                {% set subtitle %}{% block auth_subtitle %}{% endblock %}{% endset %}
+                {% if subtitle | trim %}
+                    <p class="mt-1.5 text-sm text-subtle">{{ subtitle | safe }}</p>
+                {% endif %}
+            </div>
+
+            <div class="mt-6">
+                {% if message %}
+                    <div class="alert alert-success">
+                        {{ ic.icon('check-circle', 'w-5 h-5 shrink-0') }}<span>{{ message }}</span>
+                    </div>
+                {% endif %}
+                {% if error %}
+                    <div class="alert alert-error" role="alert">
+                        {{ ic.icon('alert', 'w-5 h-5 shrink-0') }}<span>{{ error }}</span>
+                    </div>
+                {% endif %}
+
+                {% block auth_body %}{% endblock %}
+            </div>
+
+            {% block auth_footer %}{% endblock %}
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/scripts.js" defer></script>
+{% endblock %}

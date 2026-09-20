@@ -1,93 +1,160 @@
+{% import "_icons.html" as ic %}
 <!DOCTYPE html>
-<html lang="ru" data-bs-theme="light">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
-    <title>{{ title|default('FlaskVPN') }} | FlaskVPN</title>
+
+    <title>{% block meta_title %}{{ title|default('FlaskVPN') }} | FlaskVPN{% endblock %}</title>
+    <meta name="description" content="{% block meta_description %}FlaskVPN — быстрый VPN без ограничений скорости и трафика. Протокол VLESS-Reality, до {{ device_settings.base_limit if device_settings else 5 }} устройств, оплата картой и через Telegram.{% endblock %}">
+    <link rel="canonical" href="{% block canonical %}{{ site.base_url }}{{ request.url.path }}{% endblock %}">
+
+    {# Open Graph: без этих тегов ссылка в Telegram разворачивается голой,
+       а сервис распространяется в том числе через реферальные ссылки. #}
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="FlaskVPN">
+    <meta property="og:locale" content="ru_RU">
+    <meta property="og:title" content="{% block og_title %}{{ self.meta_title() }}{% endblock %}">
+    <meta property="og:description" content="{% block og_description %}{{ self.meta_description() }}{% endblock %}">
+    <meta property="og:url" content="{{ site.base_url }}{{ request.url.path }}">
+    <meta property="og:image" content="{{ site.base_url }}{% block og_image %}/static/img/og-cover.png{% endblock %}">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:card" content="summary_large_image">
+
     <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
     <meta name="theme-color" content="#F7F1E8">
-    <!-- Fonts: Nunito — круглый дисплейный шрифт бренда, Inter — текст, JetBrains Mono — подписи -->
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <!-- Bootstrap 5 CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Font Awesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-    <!-- Custom styles -->
-    <link href="/static/css/styles.css" rel="stylesheet">
+
+    {# Ставится до отрисовки: развязывает стартовый opacity анимаций
+       с наличием JS (см. .animate-in в src/app.css). #}
+    <script>document.documentElement.classList.add('js');</script>
+    <link href="/static/css/app.css" rel="stylesheet">
+    {% block head %}{% endblock %}
 </head>
-<body>
+<body class="min-h-dvh flex flex-col">
 
-    <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg fixed-top">
-        <div class="container">
-            <a class="navbar-brand d-flex align-items-center" href="/">
-                <img src="/static/img/logo.svg" alt="FlaskVPN" width="34" height="34" onerror="this.style.display='none'">
-                <span class="brand-wordmark ms-2">Flask<span class="vpn">VPN</span></span>
-            </a>
+{% include "_icons.html" %}
 
-            <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
-                    aria-controls="navbarNav" aria-expanded="false" aria-label="Menu">
-                <span class="navbar-toggler-icon"></span>
-            </button>
+<a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[10000] focus:btn-pop">
+    К основному содержимому
+</a>
 
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto align-items-center">
-                    {% if user %}
-                    <li class="nav-item me-2">
-                        <a href="/profile/" class="nav-link">
-                            <i class="fas fa-user-circle me-1"></i> Личный кабинет
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a href="/logout" class="nav-link logout-link">
-                            <i class="fas fa-sign-out-alt me-1"></i> Выйти
-                        </a>
-                    </li>
-                    {% else %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="/login">Вход</a>
-                    </li>
-                    <li class="nav-item ms-2">
-                        <a class="btn btn-accent btn-sm px-3" href="/register">Регистрация</a>
-                    </li>
-                    {% endif %}
-                </ul>
-            </div>
+<!-- ============ Шапка ============ -->
+<header class="fixed top-0 inset-x-0 z-50 bg-cream/85 backdrop-blur border-b-2 border-blue/10">
+    <nav class="mx-auto max-w-6xl px-4 h-[68px] flex items-center justify-between" aria-label="Основная навигация">
+        <a href="/" class="flex items-center gap-2 shrink-0">
+            <img src="/static/img/logo.svg" alt="" width="36" height="36" class="rounded-xl">
+            <span class="wordmark text-2xl">Flask<span class="vpn">VPN</span></span>
+        </a>
+
+        <div class="hidden md:flex items-center gap-1">
+            <a href="/#cases" class="px-3 py-2 rounded-full font-semibold text-subtle hover:text-blue hover:bg-sky-soft transition">Зачем нужен</a>
+            <a href="/#how" class="px-3 py-2 rounded-full font-semibold text-subtle hover:text-blue hover:bg-sky-soft transition">Как это работает</a>
+            <a href="/#tariffs" class="px-3 py-2 rounded-full font-semibold text-subtle hover:text-blue hover:bg-sky-soft transition">Тарифы</a>
+            {% if user %}
+                <a href="/profile/" class="btn-pop btn-pop-outline ml-2 !min-h-0 !py-2 !px-4">
+                    {{ ic.icon('user', 'w-4 h-4') }} Кабинет
+                </a>
+                <a href="/logout" class="p-2 ml-1 rounded-full text-muted hover:text-danger transition" title="Выйти" aria-label="Выйти">
+                    {{ ic.icon('logout', 'w-5 h-5') }}
+                </a>
+            {% else %}
+                <a href="/login" class="px-3 py-2 rounded-full font-semibold text-subtle hover:text-blue hover:bg-sky-soft transition">Вход</a>
+                <a href="/register" class="btn-pop ml-2 !min-h-0 !py-2 !px-5">Начать</a>
+            {% endif %}
         </div>
+
+        <button type="button" id="navToggle"
+                class="md:hidden p-2 -mr-2 text-blue rounded-xl"
+                aria-expanded="false" aria-controls="navPanel" aria-label="Открыть меню">
+            <span id="navIconOpen">{{ ic.icon('menu', 'w-7 h-7') }}</span>
+            <span id="navIconClose" hidden>{{ ic.icon('close', 'w-7 h-7') }}</span>
+        </button>
     </nav>
 
-    <!-- Toast container -->
-    <div id="toast-container" class="toast-container"></div>
+    <div id="navPanel" hidden class="md:hidden border-t-2 border-blue/10 bg-cream px-4 py-3 flex flex-col gap-1">
+        <a href="/#cases" class="px-3 py-3 rounded-xl font-semibold text-subtle hover:bg-sky-soft">Зачем нужен</a>
+        <a href="/#how" class="px-3 py-3 rounded-xl font-semibold text-subtle hover:bg-sky-soft">Как это работает</a>
+        <a href="/#tariffs" class="px-3 py-3 rounded-xl font-semibold text-subtle hover:bg-sky-soft">Тарифы</a>
+        {% if user %}
+            <a href="/profile/" class="btn-pop mt-2">Личный кабинет</a>
+            <a href="/logout" class="px-3 py-3 rounded-xl font-semibold text-danger hover:bg-danger/5">Выйти</a>
+        {% else %}
+            <a href="/login" class="px-3 py-3 rounded-xl font-semibold text-subtle hover:bg-sky-soft">Вход</a>
+            <a href="/register" class="btn-pop mt-2">Начать бесплатно</a>
+        {% endif %}
+    </div>
+</header>
 
-    <!-- Main content -->
-    <div class="flex-grow-1" style="margin-top: 72px;">
-        {% block content %}{% endblock %}
+<div id="toast-container" class="fixed top-20 right-4 left-4 sm:left-auto sm:w-80 z-[9999] flex flex-col gap-2"></div>
+
+<main id="main" class="flex-1 pt-[68px]">
+    {% block content %}{% endblock %}
+</main>
+
+<!-- ============ Подвал ============ -->
+<footer class="mt-16 bg-blue text-cream relative overflow-hidden">
+    <div class="absolute -left-16 -bottom-20 w-72 h-72 blob bg-blue-deep/50 pointer-events-none" aria-hidden="true"></div>
+
+    <div class="relative mx-auto max-w-6xl px-4 py-12 grid gap-10 md:grid-cols-4">
+        <div class="md:col-span-2">
+            <span class="wordmark text-3xl !text-cream">Flask<span class="vpn !text-orange">VPN</span></span>
+            <p class="font-mono text-xs tracking-[0.18em] uppercase text-sky mt-2">Freedom connects people</p>
+            <p class="text-sky-soft/80 text-sm mt-4 max-w-sm">
+                Быстрый доступ к интернету без ограничений. Работает на iOS, Android, Windows и macOS.
+            </p>
+        </div>
+
+        <div>
+            <h3 class="font-mono text-xs tracking-[0.16em] uppercase text-sky mb-3">Сервис</h3>
+            <ul class="space-y-2 text-sm">
+                <li><a href="/#cases" class="hover:text-orange transition">Зачем нужен VPN</a></li>
+                <li><a href="/#how" class="hover:text-orange transition">Как это работает</a></li>
+                <li><a href="/#tariffs" class="hover:text-orange transition">Тарифы</a></li>
+                {% if site.bot_url %}
+                    <li>
+                        <a href="{{ site.bot_url }}" target="_blank" rel="noopener"
+                           class="inline-flex items-center gap-1.5 hover:text-orange transition">
+                            {{ ic.icon('telegram', 'w-4 h-4') }} Telegram-бот
+                        </a>
+                    </li>
+                {% endif %}
+                {% if site.support_url %}
+                    <li>
+                        <a href="{{ site.support_url }}" target="_blank" rel="noopener"
+                           class="inline-flex items-center gap-1.5 hover:text-orange transition">
+                            {{ ic.icon('help', 'w-4 h-4') }} Поддержка
+                        </a>
+                    </li>
+                {% endif %}
+            </ul>
+        </div>
+
+        <div>
+            <h3 class="font-mono text-xs tracking-[0.16em] uppercase text-sky mb-3">Документы</h3>
+            <ul class="space-y-2 text-sm">
+                <li><a href="/offer" class="hover:text-orange transition">Публичная оферта</a></li>
+                <li><a href="/privacy" class="hover:text-orange transition">Политика конфиденциальности</a></li>
+                <li><a href="/refund" class="hover:text-orange transition">Оплата и возврат</a></li>
+            </ul>
+        </div>
     </div>
 
-    <!-- Footer -->
-    <footer>
-        <div class="container">
-            <div class="row align-items-center">
-                <div class="col-md-4 text-center text-md-start mb-3 mb-md-0">
-                    <div class="brand-wordmark">Flask<span class="vpn">VPN</span></div>
-                    <div class="footer-tagline mt-1">Freedom connects people</div>
-                </div>
-                <div class="col-md-4 text-center mb-3 mb-md-0">
-                    <a href="#" class="me-3 text-decoration-none small"><i class="fab fa-telegram me-1"></i>Telegram-бот</a>
-                    <a href="#" class="text-decoration-none small"><i class="fas fa-headset me-1"></i>Поддержка</a>
-                </div>
-                <div class="col-md-4 text-center text-md-end">
-                    <small>&copy; 2026 FlaskVPN</small>
-                </div>
-            </div>
-        </div>
-    </footer>
+    <div class="relative mx-auto max-w-6xl px-4 pb-10 pt-6 border-t border-sky/20 text-sm text-sky-soft/75">
+        {% if site.has_legal %}
+            <p>{{ site.legal_name }}{% if site.legal_inn %} · ИНН {{ site.legal_inn }}{% endif %}{% if site.legal_ogrnip %} · ОГРНИП {{ site.legal_ogrnip }}{% endif %}</p>
+            {% if site.legal_email %}<p class="mt-1">{{ site.legal_email }}</p>{% endif %}
+        {% endif %}
+        <p class="mt-3">&copy; {{ now_year() }} FlaskVPN</p>
+    </div>
+</footer>
 
-    <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="/static/js/scripts.js"></script>
+<script src="/static/js/site.js" defer></script>
+{% block scripts %}{% endblock %}
 </body>
 </html>

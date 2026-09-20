@@ -116,7 +116,7 @@
 |---|---|---|
 | 0 | ✅ | `webapp/routers/tma.py`, `etc/nginx/templates/default.conf.template` (`location /tma`) |
 | 1 | ✅ | `webapp/core/tma_auth.py`, `POST /tma/auth`, Bearer-фолбэк в `webapp/dependencies.py`, `tests/test_tma_auth.py` |
-| 2 | ✅ | `webapp/templates/tma/*` (7 экранов), `webapp/static/{css/tma.css,js/tma.js}` |
+| 2 | ✅ | `webapp/templates/tma/*` (7 экранов), `webapp/static/js/tma.js` |
 | 3.1 | ✅ | `PaymentRequest.source` (`web`/`tma`), `return_url` → `t.me/<bot>/<app>?startapp=paid` |
 | 3.2 | ✅ | `Tariff.price_stars`, `Payment.telegram_payment_charge_id`, `POST /tma/payment/stars-invoice`, `tgbot/handlers/user/stars_payment.py`, `tests/test_stars_payment.py` |
 | 4 | ✅ | `GET/POST /tma/support`, `webapp/core/support.py`, web_app-кнопки в `inline.py` + `scheduler.py`, `tests/test_tma_support.py` |

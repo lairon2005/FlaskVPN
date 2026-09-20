@@ -6,15 +6,15 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI, Request, Depends
-from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware 
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 
 from db import User
-from webapp.routers import auth, dashboard, payment, tma
+from webapp.routers import auth, dashboard, legal, payment, tma
 from webapp.dependencies import get_current_user
+from webapp.templating import templates
 from loader import logger, remnawave_client, shutdown_logging
 from typing import Optional
 from db import Tariff
@@ -44,22 +44,12 @@ if not os.path.exists(static_dir):
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # --- Шаблоны ---
-templates = Jinja2Templates(directory="webapp/templates")
-
-# Фильтр даты (ОБЯЗАТЕЛЕН, иначе дашборд упадет)
-def timestamp_to_date(value):
-    if value:
-        try:
-            return datetime.fromtimestamp(float(value)).strftime('%Y-%m-%d %H:%M')
-        except Exception:
-            return "Err"
-    return "Неограниченно"
-
-templates.env.filters['timestamp_to_date'] = timestamp_to_date
+# Фильтры и глобалы (timestamp_to_date, site, now_year) живут в webapp/templating.py.
 
 # --- Роутеры ---
 app.include_router(auth.router)
 app.include_router(dashboard.router)
+app.include_router(legal.router)
 app.include_router(payment.router)
 app.include_router(tma.router)
 

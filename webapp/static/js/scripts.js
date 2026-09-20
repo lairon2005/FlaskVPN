@@ -198,7 +198,7 @@ async function applyPromo() {
         return;
     }
 
-    resultDiv.innerHTML = '<span class="text-gray">Проверяю...</span>';
+    resultDiv.innerHTML = '<span class="text-muted">Проверяю…</span>';
 
     try {
         const response = await fetch('/payment/validate-promo', {
@@ -216,7 +216,7 @@ async function applyPromo() {
                 showToast(`Промокод применён: скидка ${data.discount_percent}%`, 'success');
                 updateTariffPrices(data.discount_percent);
             } else if (data.type === 'bonus_days') {
-                resultDiv.innerHTML = '<span class="text-gray">Применяю бонусные дни...</span>';
+                resultDiv.innerHTML = '<span class="text-muted">Применяю бонусные дни…</span>';
                 const applyResp = await fetch('/payment/apply-bonus-promo', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -241,6 +241,11 @@ async function applyPromo() {
         resultDiv.innerHTML = '<span class="text-danger-custom">Ошибка соединения</span>';
     }
 }
+
+// Галочка из SVG-спрайта (_icons.html). Раньше здесь подставлялся
+// `<i class="fas fa-check">` — Font Awesome с новой базы убран.
+const CHECK_ICON =
+    '<svg class="w-4 h-4 shrink-0 mt-0.5 text-success" aria-hidden="true"><use href="#i-check"></use></svg>';
 
 // Цена карточки зависит сразу от двух вещей — промокода и количества доп.
 // устройств, — поэтому рисуется в одном месте. Иначе промокод затирал бы
@@ -270,19 +275,20 @@ function renderTariffPrices(discountPercent) {
         const priceEl = card.querySelector('.tariff-price');
         if (priceEl) {
             const struck = discountPercent
-                ? `<s class="text-gray" style="font-size:0.6em">${basePrice + slotsCost} ₽</s> `
+                ? `<s class="text-muted text-[0.45em] font-semibold">${basePrice + slotsCost} ₽</s> `
                 : '';
             priceEl.innerHTML =
-                `${struck}<span class="tariff-price-value">${total}</span> <small class="fs-6">₽</small>`;
+                `${struck}<span class="tariff-price-value">${total}</span>` +
+                `<span class="text-[0.5em]"> ₽</span>`;
         }
 
         const devicesEl = card.querySelector('.tariff-devices-line');
         if (devicesEl) {
             const extra = selectedSlots
-                ? ` <span class="text-gray small">(+${slotsCost} ₽)</span>`
+                ? ` <span class="text-muted">(+${slotsCost} ₽)</span>`
                 : '';
-            devicesEl.innerHTML =
-                `<i class="fas fa-check"></i> ${baseLimit + selectedSlots} устройств${extra}`;
+            devicesEl.innerHTML = CHECK_ICON +
+                `<span>${baseLimit + selectedSlots} устройств${extra}</span>`;
         }
     });
 }
@@ -294,11 +300,11 @@ function legacyUpdateTariffPrices(discountPercent) {
             el.dataset.originalPrice = originalPrice;
         }
         if (!discountPercent) {
-            el.innerHTML = `${originalPrice} <small class="fs-6">₽</small>`;
+            el.innerHTML = `${originalPrice}<span class="text-[0.5em]"> ₽</span>`;
             return;
         }
         const newPrice = Math.round(originalPrice * (1 - discountPercent / 100));
-        el.innerHTML = `<s class="text-gray" style="font-size:0.6em">${originalPrice} ₽</s> ${newPrice} <small class="fs-6">₽</small>`;
+        el.innerHTML = `<s class="text-muted text-[0.45em] font-semibold">${originalPrice} ₽</s> ${newPrice}<span class="text-[0.5em]"> ₽</span>`;
     });
 }
 
@@ -350,32 +356,33 @@ function detectOSAndSetLink() {
 
     if (!downloadBtn) return;
 
+    // Раньше здесь переписывался className классами Font Awesome. Со спрайтом
+    // меняется только ссылка на символ — иконка остаётся тем же <svg>.
+    const setIcon = (name) => {
+        const use = osIcon && osIcon.querySelector('use');
+        if (use) use.setAttribute('href', '#i-' + name);
+    };
+
+    const HAPP_ANDROID = "https://play.google.com/store/apps/details?id=com.happproxy";
+    const HAPP_IOS = "https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643";
+    const HAPP_WIN = "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe";
+
+    let url = HAPP_ANDROID, desc = "Выберите приложение для вашей ОС.", icon = "download", label = "Скачать";
+
     if (/android/i.test(userAgent)) {
-        downloadBtn.href = "https://play.google.com/store/apps/details?id=com.happproxy";
-        appDesc.textContent = "Для Android рекомендуем Happ.";
-        osIcon.className = "fab fa-android me-1";
-        btnTextEl.textContent = "Google Play";
+        url = HAPP_ANDROID; desc = "Для Android рекомендуем Happ."; icon = "android"; label = "Google Play";
     } else if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
-        downloadBtn.href = "https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643";
-        appDesc.textContent = "Для iOS рекомендуем Happ.";
-        osIcon.className = "fab fa-app-store-ios me-1";
-        btnTextEl.textContent = "App Store";
+        url = HAPP_IOS; desc = "Для iOS рекомендуем Happ."; icon = "apple"; label = "App Store";
     } else if (/Win/i.test(userAgent)) {
-        downloadBtn.href = "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe";
-        appDesc.textContent = "Для Windows рекомендуем Happ.";
-        osIcon.className = "fab fa-windows me-1";
-        btnTextEl.textContent = "Скачать для Windows";
+        url = HAPP_WIN; desc = "Для Windows рекомендуем Happ."; icon = "windows"; label = "Скачать для Windows";
     } else if (/Mac/i.test(userAgent)) {
-        downloadBtn.href = "https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643";
-        appDesc.textContent = "Для macOS рекомендуем Happ.";
-        osIcon.className = "fab fa-apple me-1";
-        btnTextEl.textContent = "Скачать для macOS";
-    } else {
-        downloadBtn.href = "https://play.google.com/store/apps/details?id=com.happproxy";
-        appDesc.textContent = "Выберите приложение для вашей ОС.";
-        osIcon.className = "fas fa-download me-1";
-        btnTextEl.textContent = "Скачать";
+        url = HAPP_IOS; desc = "Для macOS рекомендуем Happ."; icon = "apple"; label = "Скачать для macOS";
     }
+
+    downloadBtn.href = url;
+    if (appDesc) appDesc.textContent = desc;
+    if (btnTextEl) btnTextEl.textContent = label;
+    setIcon(icon);
 }
 
 // ============================================================
@@ -425,6 +432,10 @@ function initFormLoading() {
 // ============================================================
 
 function initScrollAnimations() {
+    // Без IntersectionObserver анимации просто отыгрывают сразу: паузить их
+    // здесь означало бы оставить контент с opacity: 0 навсегда.
+    if (!('IntersectionObserver' in window)) return;
+
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (entry.isIntersecting) {

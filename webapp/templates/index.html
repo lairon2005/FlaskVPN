@@ -1,263 +1,425 @@
 {% extends "base.html" %}
+{% import "_icons.html" as ic %}
+
+{% block meta_title %}FlaskVPN — быстрый VPN без ограничений скорости и трафика{% endblock %}
+{% block meta_description %}VPN на протоколе VLESS-Reality: без лимитов скорости и трафика, до {{ device_settings.base_limit }} устройств в тарифе, оплата картой или через Telegram. Пробный период бесплатно.{% endblock %}
 
 {% block content %}
-<!-- Hero Section -->
-<section class="hero-section">
-    <!-- Фоновая графика бренда: голубая форма, полутон, оранжевый контур -->
-    <div class="deco deco-blob" style="top: -90px; left: -120px; width: 420px; height: 380px;"></div>
-    <div class="deco deco-halftone" style="bottom: 40px; left: 4%; width: 150px; height: 150px;"></div>
-    <div class="deco deco-stroke" style="top: 18%; right: 6%; width: 74px; height: 74px;"></div>
 
-    <div class="container">
-        <div class="row align-items-center">
-            <div class="col-lg-5">
-                <span class="eyebrow animate-in">Freedom connects people</span>
-                <h1 class="hero-title animate-in">
-                    Безопасный<br>
-                    <span class="brand-underline text-accent">интернет</span> без границ
-                </h1>
-                <p class="hero-subtitle animate-in animate-in-delay-1">
-                    Быстрый, анонимный и безопасный доступ к любым ресурсам.
-                    Технология VLESS-Reality для максимальной защиты.
-                </p>
-                <div class="d-flex flex-wrap gap-3 mt-4 animate-in animate-in-delay-2">
-                    <a href="/register" class="btn btn-accent btn-lg px-4">
-                        <span class="btn-text">Попробовать бесплатно</span>
-                    </a>
-                    <a href="#tariffs" class="btn btn-accent-outline btn-lg px-4">Тарифы</a>
-                </div>
+<!-- ============================================================
+     Hero
+     ============================================================ -->
+<section class="relative overflow-hidden">
+    {# Фоновая графика бренда: голубая форма и полутон.
+       Коллажные фото подключаются ниже через has_static() —
+       список файлов в webapp/static/img/collage/README.md. #}
+    <div class="pointer-events-none absolute -top-24 -left-32 w-[26rem] h-[22rem] blob bg-sky/30 animate-wobble" aria-hidden="true"></div>
+    <div class="pointer-events-none absolute top-32 right-[6%] w-36 h-36 halftone opacity-60 hidden sm:block" aria-hidden="true"></div>
+    <div class="pointer-events-none absolute bottom-10 left-[8%] w-24 h-24 halftone opacity-40 hidden lg:block" aria-hidden="true"></div>
 
-                <div class="hero-stats animate-in animate-in-delay-3">
-                    <div class="hero-stat">
-                        <div class="hero-stat-value">99.9%</div>
-                        <div class="hero-stat-label">Uptime</div>
-                    </div>
-                    <div class="hero-stat">
-                        <div class="hero-stat-value">{{ device_settings.base_limit }}</div>
-                        <div class="hero-stat-label">Устройств</div>
-                    </div>
-                    <div class="hero-stat">
-                        <div class="hero-stat-value">&infin;</div>
-                        <div class="hero-stat-label">Скорость</div>
-                    </div>
-                </div>
+    <div class="relative mx-auto max-w-6xl px-4 pt-12 pb-16 lg:pt-20 lg:pb-24
+                grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:items-center">
+
+        <div class="text-center lg:text-left">
+            <span class="eyebrow animate-in">Freedom connects people</span>
+
+            <h1 class="animate-in mt-3 font-display font-black leading-[1.04] tracking-[-0.04em]
+                       text-[clamp(2.4rem,9vw,4.2rem)]">
+                Безопасный<br>
+                <span class="marker-underline text-blue">интернет</span> без границ
+            </h1>
+
+            <p class="animate-in [animation-delay:0.1s] mt-5 text-lg text-subtle max-w-xl mx-auto lg:mx-0">
+                Без ограничений скорости и объёма трафика. Протокол VLESS-Reality —
+                провайдер не видит, куда вы ходите, и не режет канал.
+            </p>
+
+            <div class="animate-in [animation-delay:0.2s] mt-8 flex flex-wrap gap-3 justify-center lg:justify-start">
+                <a href="/register" class="btn-pop text-lg">
+                    Попробовать бесплатно {{ ic.icon('arrow-right', 'w-5 h-5') }}
+                </a>
+                <a href="#tariffs" class="btn-pop btn-pop-outline text-lg">Смотреть тарифы</a>
             </div>
 
-            <!-- Hero Visual -->
-            <div class="col-lg-7 d-none d-lg-flex align-items-center pe-0">
-                <div class="hero-visual animate-in animate-in-delay-2">
-                    <svg class="hero-svg" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
-                        <defs>
-                            <pattern id="hv-dots" width="9" height="9" patternUnits="userSpaceOnUse">
-                                <circle cx="4.5" cy="4.5" r="1.7" fill="#73B9F5"/>
-                            </pattern>
-                            <clipPath id="hv-globe-clip">
-                                <circle cx="200" cy="200" r="119"/>
-                            </clipPath>
-                        </defs>
-
-                        <!-- Полутоновое пятно и голубая форма (графика бренда) -->
-                        <circle cx="304" cy="106" r="58" fill="url(#hv-dots)" opacity="0.65"/>
-                        <path d="M96 268 C 62 250, 58 200, 86 176 C 118 150, 160 168, 166 200 C 173 238, 134 289, 96 268 Z"
-                              fill="#73B9F5" opacity="0.28"/>
-
-                        <!-- Кольца вокруг глобуса -->
-                        <circle cx="200" cy="200" r="163" fill="none" stroke="#2457C5" stroke-width="1.4"
-                                stroke-dasharray="2 9" stroke-linecap="round" class="hv-ring-outer"/>
-                        <circle cx="200" cy="200" r="141" fill="none" stroke="#73B9F5" stroke-width="2" class="hv-ring-inner"/>
-
-                        <!-- Глобус -->
-                        <circle cx="200" cy="200" r="120" fill="#2457C5"/>
-                        <circle cx="200" cy="200" r="120" fill="none" stroke="#17203A" stroke-opacity="0.12" stroke-width="2"/>
-
-                        <!-- Сетка меридианов -->
-                        <g clip-path="url(#hv-globe-clip)" stroke="#73B9F5" fill="none" opacity="0.62" stroke-linecap="round">
-                            <ellipse cx="200" cy="200" rx="120" ry="34" stroke-width="1.6"/>
-                            <ellipse cx="200" cy="166" rx="106" ry="25" stroke-width="1.3"/>
-                            <ellipse cx="200" cy="234" rx="106" ry="25" stroke-width="1.3"/>
-                            <ellipse cx="200" cy="134" rx="75" ry="15" stroke-width="1.1"/>
-                            <ellipse cx="200" cy="266" rx="75" ry="15" stroke-width="1.1"/>
-                            <ellipse cx="200" cy="200" rx="40" ry="120" stroke-width="1.3"/>
-                            <ellipse cx="200" cy="200" rx="84" ry="120" stroke-width="1.1"/>
-                            <line x1="200" y1="80" x2="200" y2="320" stroke-width="1.3"/>
-                        </g>
-
-                        <!-- Соединения: край глобуса → нода -->
-                        <g stroke-linecap="round">
-                            <line x1="285" y1="115" x2="328" y2="72"  stroke="#2457C5" stroke-width="2.2" stroke-dasharray="3 7" class="hv-conn hv-c1"/>
-                            <line x1="320" y1="200" x2="362" y2="200" stroke="#2457C5" stroke-width="2.2" stroke-dasharray="3 7" class="hv-conn hv-c2"/>
-                            <line x1="283" y1="284" x2="322" y2="322" stroke="#2457C5" stroke-width="2.2" stroke-dasharray="3 7" class="hv-conn hv-c3"/>
-                            <line x1="115" y1="116" x2="72"  y2="72"  stroke="#2457C5" stroke-width="2" stroke-dasharray="3 7" opacity="0.6" class="hv-conn hv-c4"/>
-                            <line x1="113" y1="283" x2="72"  y2="322" stroke="#2457C5" stroke-width="2" stroke-dasharray="3 7" opacity="0.6" class="hv-conn hv-c5"/>
-                        </g>
-
-                        <!-- Щит: плоский оранжевый, чуть от руки -->
-                        <g class="hv-shield">
-                            <path d="M200 148 L234 161 L234 198 Q234 232 200 252 Q166 232 166 198 L166 161 Z"
-                                  fill="#FF7627" stroke="#FFFCF6" stroke-width="3.5" stroke-linejoin="round"/>
-                            <path d="M186 199 L196 209 L215 188"
-                                  stroke="#FFFCF6" stroke-width="5" fill="none"
-                                  stroke-linecap="round" stroke-linejoin="round"/>
-                        </g>
-
-                        <!-- Оранжевые «искры» из графических элементов бренда -->
-                        <g fill="#FF7627" class="hv-spark">
-                            <path d="M126 92c1.1 0 2 .9 2 2v7.6l5.4-5.4a2 2 0 1 1 2.8 2.8l-5.4 5.4h7.6a2 2 0 1 1 0 4h-7.6l5.4 5.4a2 2 0 0 1-2.8 2.8l-5.4-5.4v7.6a2 2 0 1 1-4 0v-7.6l-5.4 5.4a2 2 0 0 1-2.8-2.8l5.4-5.4h-7.6a2 2 0 1 1 0-4h7.6l-5.4-5.4a2 2 0 0 1 2.8-2.8l5.4 5.4V94c0-1.1.9-2 2-2z"/>
-                        </g>
-                        <g fill="#FF7627" class="hv-spark hv-spark-2" transform="translate(146 286) scale(0.72) translate(-126 -106)">
-                            <path d="M126 92c1.1 0 2 .9 2 2v7.6l5.4-5.4a2 2 0 1 1 2.8 2.8l-5.4 5.4h7.6a2 2 0 1 1 0 4h-7.6l5.4 5.4a2 2 0 0 1-2.8 2.8l-5.4-5.4v7.6a2 2 0 1 1-4 0v-7.6l-5.4 5.4a2 2 0 0 1-2.8-2.8l5.4-5.4h-7.6a2 2 0 1 1 0-4h7.6l-5.4-5.4a2 2 0 0 1 2.8-2.8l5.4 5.4V94c0-1.1.9-2 2-2z"/>
-                        </g>
-
-                        <!-- Ноды -->
-                        <g class="hv-node hv-n1">
-                            <circle cx="328" cy="72" r="16" fill="#FFFCF6" stroke="#2457C5" stroke-width="2.6"/>
-                            <circle cx="328" cy="72" r="6" fill="#FF7627"/>
-                        </g>
-                        <text x="328" y="44" text-anchor="middle" font-size="9" fill="#2457C5" opacity="0.8"
-                              font-family="'JetBrains Mono', monospace" letter-spacing="1.2">EU-01</text>
-
-                        <g class="hv-node hv-n2">
-                            <circle cx="363" cy="200" r="13" fill="#FFFCF6" stroke="#2457C5" stroke-width="2.4"/>
-                            <circle cx="363" cy="200" r="5" fill="#2457C5"/>
-                        </g>
-                        <text x="363" y="226" text-anchor="middle" font-size="9" fill="#2457C5" opacity="0.8"
-                              font-family="'JetBrains Mono', monospace" letter-spacing="1.2">AS-03</text>
-
-                        <g class="hv-node hv-n3">
-                            <circle cx="322" cy="322" r="15" fill="#FFFCF6" stroke="#2457C5" stroke-width="2.5"/>
-                            <circle cx="322" cy="322" r="5.5" fill="#2457C5"/>
-                        </g>
-                        <text x="322" y="350" text-anchor="middle" font-size="9" fill="#2457C5" opacity="0.8"
-                              font-family="'JetBrains Mono', monospace" letter-spacing="1.2">US-07</text>
-
-                        <g class="hv-node hv-n4" opacity="0.85">
-                            <circle cx="72" cy="72" r="12" fill="#FFFCF6" stroke="#2457C5" stroke-width="2.2"/>
-                            <circle cx="72" cy="72" r="4.5" fill="#73B9F5"/>
-                        </g>
-                        <text x="72" y="47" text-anchor="middle" font-size="8.5" fill="#2457C5" opacity="0.6"
-                              font-family="'JetBrains Mono', monospace" letter-spacing="1">UK-02</text>
-
-                        <g class="hv-node hv-n5" opacity="0.85">
-                            <circle cx="72" cy="322" r="12" fill="#FFFCF6" stroke="#2457C5" stroke-width="2.2"/>
-                            <circle cx="72" cy="322" r="4.5" fill="#73B9F5"/>
-                        </g>
-                        <text x="72" y="348" text-anchor="middle" font-size="8.5" fill="#2457C5" opacity="0.6"
-                              font-family="'JetBrains Mono', monospace" letter-spacing="1">JP-05</text>
-
-                        <!-- Статус -->
-                        <rect x="149" y="272" width="102" height="24" rx="12" fill="#FFFCF6" stroke="#2457C5" stroke-width="2"/>
-                        <circle cx="166" cy="284" r="4" fill="#1C9A5B"/>
-                        <text x="205" y="288" text-anchor="middle" font-size="9" fill="#2457C5"
-                              font-family="'JetBrains Mono', monospace" letter-spacing="1.4">PROTECTED</text>
-                    </svg>
+            <dl class="animate-in [animation-delay:0.3s] mt-10 flex flex-wrap gap-x-10 gap-y-5 justify-center lg:justify-start">
+                <div>
+                    <dt class="font-mono text-[0.68rem] tracking-[0.16em] uppercase text-muted">Без лимита</dt>
+                    <dd class="font-display font-black text-3xl text-blue">Скорость</dd>
                 </div>
+                <div>
+                    <dt class="font-mono text-[0.68rem] tracking-[0.16em] uppercase text-muted">Устройств в тарифе</dt>
+                    <dd class="font-display font-black text-3xl text-blue">{{ device_settings.base_limit }}</dd>
+                </div>
+                <div>
+                    <dt class="font-mono text-[0.68rem] tracking-[0.16em] uppercase text-muted">Протокол</dt>
+                    <dd class="font-display font-black text-3xl text-orange">Reality</dd>
+                </div>
+            </dl>
+        </div>
+
+        <!-- Коллаж hero. Показан и на мобилке: раньше иллюстрация пряталась
+             на < 992px, а секция держала min-height — под текстом зиял пустой экран. -->
+        <div class="animate-in [animation-delay:0.2s] relative mx-auto w-full max-w-md lg:max-w-none">
+            {% if has_static('img/collage/crt-vpn.png') %}
+            {# Коллаж бренда: ретро-монитор на скотче поверх голубой формы.
+               Если картинки в static нет — ниже отрисуется SVG-глобус. #}
+            <div class="relative animate-float">
+                <div class="pointer-events-none absolute inset-x-6 top-10 bottom-10 blob bg-sky/45" aria-hidden="true"></div>
+                <img src="/static/img/collage/crt-vpn.png" width="1400" height="1120" loading="eager" fetchpriority="high"
+                     alt="Старый ЭЛТ-монитор с надписью VPN на экране"
+                     class="relative w-full h-auto rotate-[-2.5deg] drop-shadow-[6px_8px_0_rgba(36,87,197,0.14)]">
+                {% if has_static('img/collage/tape-blue.png') %}
+                    <img src="/static/img/collage/tape-blue.png" width="300" height="120" loading="lazy" alt=""
+                         aria-hidden="true"
+                         class="pointer-events-none absolute -top-3 left-[18%] w-28 rotate-[-14deg] opacity-95">
+                    <img src="/static/img/collage/tape-blue.png" width="300" height="120" loading="lazy" alt=""
+                         aria-hidden="true"
+                         class="pointer-events-none absolute bottom-6 right-[6%] w-24 rotate-[8deg] opacity-90">
+                {% endif %}
+                <span class="absolute bottom-[14%] left-1/2 -translate-x-1/2 inline-flex items-center gap-2
+                             px-3 py-1.5 rounded-full bg-paper border-2 border-blue
+                             font-mono text-[0.62rem] tracking-[0.14em] text-blue whitespace-nowrap">
+                    <span class="w-2 h-2 rounded-full bg-success"></span> PROTECTED
+                </span>
+                <span class="pointer-events-none absolute -left-4 top-[12%] text-orange" aria-hidden="true">
+                    {{ ic.icon('spark', 'w-12 h-12') }}
+                </span>
+                <span class="pointer-events-none absolute -right-2 bottom-[28%] text-orange opacity-80" aria-hidden="true">
+                    {{ ic.icon('spark', 'w-8 h-8') }}
+                </span>
             </div>
+            {% else %}
+            <svg viewBox="0 0 400 400" class="w-full h-auto animate-float" role="img"
+                 aria-label="Глобус под защитой: соединения к серверам в разных странах">
+                <defs>
+                    <pattern id="hv-dots" width="9" height="9" patternUnits="userSpaceOnUse">
+                        <circle cx="4.5" cy="4.5" r="1.7" fill="#73B9F5"/>
+                    </pattern>
+                    <clipPath id="hv-globe-clip"><circle cx="200" cy="200" r="119"/></clipPath>
+                </defs>
+
+                <circle cx="304" cy="106" r="58" fill="url(#hv-dots)" opacity="0.65"/>
+                <path d="M96 268 C 62 250, 58 200, 86 176 C 118 150, 160 168, 166 200 C 173 238, 134 289, 96 268 Z"
+                      fill="#73B9F5" opacity="0.3"/>
+
+                <circle cx="200" cy="200" r="163" fill="none" stroke="#2457C5" stroke-width="1.4"
+                        stroke-dasharray="2 9" stroke-linecap="round"/>
+                <circle cx="200" cy="200" r="141" fill="none" stroke="#73B9F5" stroke-width="2"/>
+
+                <circle cx="200" cy="200" r="120" fill="#2457C5"/>
+                <g clip-path="url(#hv-globe-clip)" stroke="#73B9F5" fill="none" opacity="0.62" stroke-linecap="round">
+                    <ellipse cx="200" cy="200" rx="120" ry="34" stroke-width="1.6"/>
+                    <ellipse cx="200" cy="166" rx="106" ry="25" stroke-width="1.3"/>
+                    <ellipse cx="200" cy="234" rx="106" ry="25" stroke-width="1.3"/>
+                    <ellipse cx="200" cy="134" rx="75" ry="15" stroke-width="1.1"/>
+                    <ellipse cx="200" cy="266" rx="75" ry="15" stroke-width="1.1"/>
+                    <ellipse cx="200" cy="200" rx="40" ry="120" stroke-width="1.3"/>
+                    <ellipse cx="200" cy="200" rx="84" ry="120" stroke-width="1.1"/>
+                    <line x1="200" y1="80" x2="200" y2="320" stroke-width="1.3"/>
+                </g>
+
+                <g stroke="#2457C5" stroke-width="2.2" stroke-dasharray="3 7" stroke-linecap="round">
+                    <line x1="285" y1="115" x2="328" y2="72"/>
+                    <line x1="320" y1="200" x2="362" y2="200"/>
+                    <line x1="283" y1="284" x2="322" y2="322"/>
+                    <line x1="115" y1="116" x2="72" y2="72" opacity="0.6"/>
+                    <line x1="113" y1="283" x2="72" y2="322" opacity="0.6"/>
+                </g>
+
+                <g>
+                    <path d="M200 148 L234 161 L234 198 Q234 232 200 252 Q166 232 166 198 L166 161 Z"
+                          fill="#FF7627" stroke="#FFFCF6" stroke-width="3.5" stroke-linejoin="round"/>
+                    <path d="M186 199 L196 209 L215 188" stroke="#FFFCF6" stroke-width="5" fill="none"
+                          stroke-linecap="round" stroke-linejoin="round"/>
+                </g>
+
+                <g fill="#FF7627">
+                    <path d="M126 92c1.1 0 2 .9 2 2v7.6l5.4-5.4a2 2 0 1 1 2.8 2.8l-5.4 5.4h7.6a2 2 0 1 1 0 4h-7.6l5.4 5.4a2 2 0 0 1-2.8 2.8l-5.4-5.4v7.6a2 2 0 1 1-4 0v-7.6l-5.4 5.4a2 2 0 0 1-2.8-2.8l5.4-5.4h-7.6a2 2 0 1 1 0-4h7.6l-5.4-5.4a2 2 0 0 1 2.8-2.8l5.4 5.4V94c0-1.1.9-2 2-2z"/>
+                    <g transform="translate(146 286) scale(0.72) translate(-126 -106)">
+                        <path d="M126 92c1.1 0 2 .9 2 2v7.6l5.4-5.4a2 2 0 1 1 2.8 2.8l-5.4 5.4h7.6a2 2 0 1 1 0 4h-7.6l5.4 5.4a2 2 0 0 1-2.8 2.8l-5.4-5.4v7.6a2 2 0 1 1-4 0v-7.6l-5.4 5.4a2 2 0 0 1-2.8-2.8l5.4-5.4h-7.6a2 2 0 1 1 0-4h7.6l-5.4-5.4a2 2 0 0 1 2.8-2.8l5.4 5.4V94c0-1.1.9-2 2-2z"/>
+                    </g>
+                </g>
+
+                <g>
+                    <circle cx="328" cy="72" r="16" fill="#FFFCF6" stroke="#2457C5" stroke-width="2.6"/>
+                    <circle cx="328" cy="72" r="6" fill="#FF7627"/>
+                    <circle cx="363" cy="200" r="13" fill="#FFFCF6" stroke="#2457C5" stroke-width="2.4"/>
+                    <circle cx="363" cy="200" r="5" fill="#2457C5"/>
+                    <circle cx="322" cy="322" r="15" fill="#FFFCF6" stroke="#2457C5" stroke-width="2.5"/>
+                    <circle cx="322" cy="322" r="5.5" fill="#2457C5"/>
+                    <circle cx="72" cy="72" r="12" fill="#FFFCF6" stroke="#2457C5" stroke-width="2.2" opacity="0.85"/>
+                    <circle cx="72" cy="72" r="4.5" fill="#73B9F5" opacity="0.85"/>
+                    <circle cx="72" cy="322" r="12" fill="#FFFCF6" stroke="#2457C5" stroke-width="2.2" opacity="0.85"/>
+                    <circle cx="72" cy="322" r="4.5" fill="#73B9F5" opacity="0.85"/>
+                </g>
+
+                <rect x="149" y="272" width="102" height="24" rx="12" fill="#FFFCF6" stroke="#2457C5" stroke-width="2"/>
+                <circle cx="166" cy="284" r="4" fill="#1C9A5B"/>
+                <text x="205" y="288" text-anchor="middle" font-size="9" fill="#2457C5"
+                      font-family="'JetBrains Mono', monospace" letter-spacing="1.4">PROTECTED</text>
+            </svg>
+            {% endif %}
         </div>
     </div>
 </section>
 
-<!-- Features Section -->
-<section class="py-5">
-    <div class="container">
-        <div class="section-head">
+<!-- ============================================================
+     Зачем нужен — сценарии
+     ============================================================ -->
+<section id="cases" class="relative scroll-mt-24 py-16 lg:py-24 overflow-hidden">
+    {% if has_static('img/collage/flip-phone-vpn.png') %}
+        {# Раскладушка — коллажный акцент секции; на мобилке прячется,
+           чтобы не воровать место у карточек. #}
+        <img src="/static/img/collage/flip-phone-vpn.png" width="1040" height="1560" loading="lazy" alt=""
+             aria-hidden="true"
+             class="pointer-events-none hidden xl:block absolute -left-16 top-24 w-44 rotate-[9deg]
+                    opacity-90 drop-shadow-[4px_6px_0_rgba(36,87,197,0.12)]">
+    {% endif %}
+    <div class="mx-auto max-w-6xl px-4">
+        <div class="text-center max-w-2xl mx-auto">
+            <span class="eyebrow eyebrow-orange">Зачем нужен</span>
+            <h2 class="mt-2 font-display font-black text-[clamp(1.9rem,5vw,2.8rem)] leading-tight">
+                Когда интернет вдруг <span class="marker-underline">перестаёт работать</span>
+            </h2>
+            <p class="mt-4 text-subtle">Четыре ситуации, в которых FlaskVPN включают чаще всего.</p>
+        </div>
+
+        <div class="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {% set cases = [
+                ('play',   'Видео не грузится',      'YouTube тормозит, стрим встаёт на паузу каждые тридцать секунд. С VPN канал перестаёт резаться.', 'rotate-[-1.2deg]'),
+                ('card',   'Банк за границей',       'Приложение банка и госуслуги отказываются открываться с зарубежного IP. VPN возвращает российский маршрут.', 'rotate-[0.8deg]'),
+                ('wifi',   'Чужой Wi-Fi',            'Кафе, аэропорт, отель. Трафик в открытой сети виден всем — шифрование закрывает его целиком.', 'rotate-[-0.6deg]'),
+                ('globe',  'Заблокированный сайт',   'Сервис, документация или магазин недоступны из вашей страны. Доступ открывается в один тап.', 'rotate-[1.1deg]')
+            ] %}
+            {% for name, title, text, tilt in cases %}
+                <article class="sticker sticker-hover relative p-6 {{ tilt }} hover:rotate-0 animate-in"
+                         style="animation-delay: {{ loop.index0 * 0.08 }}s">
+                    <div class="w-12 h-12 rounded-2xl grid place-items-center mb-4
+                                {{ 'bg-orange-soft text-orange' if loop.index is odd else 'bg-sky-soft text-blue' }}">
+                        {{ ic.icon(name, 'w-6 h-6') }}
+                    </div>
+                    <h3 class="font-display font-extrabold text-lg">{{ title }}</h3>
+                    <p class="mt-2 text-sm text-subtle leading-relaxed">{{ text }}</p>
+                </article>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+<!-- ============================================================
+     Как это работает
+     ============================================================ -->
+<section id="how" class="relative scroll-mt-24 py-16 lg:py-24 overflow-hidden">
+    <div class="pointer-events-none absolute -right-24 top-10 w-80 h-72 blob bg-sky/25" aria-hidden="true"></div>
+
+    <div class="relative mx-auto max-w-6xl px-4">
+        <div class="text-center max-w-2xl mx-auto">
+            <span class="eyebrow">Как это работает</span>
+            <h2 class="mt-2 font-display font-black text-[clamp(1.9rem,5vw,2.8rem)] leading-tight">
+                Три шага и десять минут
+            </h2>
+            <p class="mt-4 text-subtle">
+                Без настройки конфигов и возни с файлами: ссылка подписки импортируется в приложение сама.
+            </p>
+        </div>
+
+        <ol class="mt-12 grid gap-6 md:grid-cols-3">
+            {% set steps = [
+                ('Оплатите тариф',    'Картой на сайте или прямо в Telegram-боте. Первый период можно взять бесплатно — карта для пробного не нужна.'),
+                ('Скачайте приложение','Happ для iOS, Android, Windows и macOS. Мы определим вашу систему и дадим нужную ссылку.'),
+                ('Откройте подписку', 'Нажмите ссылку из личного кабинета — ключ подставится в приложение сам. Дальше одна кнопка «Подключить».')
+            ] %}
+            {% for title, text in steps %}
+                <li class="relative sticker p-7 pt-10 animate-in" style="animation-delay: {{ loop.index0 * 0.1 }}s">
+                    <span class="absolute -top-5 left-6 w-12 h-12 rounded-2xl bg-orange text-paper
+                                 font-display font-black text-2xl grid place-items-center shadow-pop-orange"
+                          aria-hidden="true">{{ loop.index }}</span>
+                    <h3 class="font-display font-extrabold text-lg">{{ title }}</h3>
+                    <p class="mt-2 text-sm text-subtle leading-relaxed">{{ text }}</p>
+                </li>
+            {% endfor %}
+        </ol>
+
+        <p class="mt-8 text-center text-sm text-muted">
+            Не получилось — поддержка отвечает в Telegram{% if site.support_url %}:
+            <a href="{{ site.support_url }}" target="_blank" rel="noopener"
+               class="text-blue font-semibold hover:text-orange transition">написать в поддержку</a>{% endif %}.
+        </p>
+    </div>
+</section>
+
+<!-- ============================================================
+     Почему FlaskVPN
+     ============================================================ -->
+<section class="py-16 lg:py-20">
+    <div class="mx-auto max-w-6xl px-4">
+        <div class="text-center max-w-2xl mx-auto">
             <span class="eyebrow eyebrow-orange">Почему мы</span>
-            <h2 class="section-title">Почему FlaskVPN?</h2>
-            <p class="section-subtitle">Надёжная защита и свобода в интернете</p>
+            <h2 class="slogan mt-2 text-[clamp(2.1rem,6vw,3.4rem)] leading-tight">
+                Small tools, bigger freedom
+            </h2>
         </div>
 
-        <div class="row g-4">
-            <div class="col-md-6 col-lg-3">
-                <div class="feature-card animate-in">
-                    <div class="feature-icon">
-                        <i class="fas fa-shield-halved"></i>
+        {# Две колонки уже на телефоне: прежние четыре карточки в столбик
+           растягивали экран почти на три прокрутки. #}
+        <div class="mt-10 grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
+            {% set features = [
+                ('shield',  'Шифрование',      'VLESS-Reality: трафик неотличим от обычного HTTPS'),
+                ('zap',     'Без лимитов',     'Ни потолка скорости, ни квоты на трафик'),
+                ('devices', 'Все устройства',  'iOS, Android, Windows и macOS с одной подпиской'),
+                ('lock',    'Без логов',       'Мы не храним историю ваших подключений')
+            ] %}
+            {% for name, title, text in features %}
+                <div class="sticker p-5 text-center animate-in" style="animation-delay: {{ loop.index0 * 0.07 }}s">
+                    <div class="w-11 h-11 mx-auto rounded-2xl grid place-items-center mb-3
+                                {{ 'bg-sky-soft text-blue' if loop.index is odd else 'bg-orange-soft text-orange' }}">
+                        {{ ic.icon(name, 'w-5 h-5') }}
                     </div>
-                    <h5>Безопасность</h5>
-                    <p>Шифрование трафика по протоколу VLESS-Reality</p>
-                </div>
-            </div>
-            <div class="col-md-6 col-lg-3">
-                <div class="feature-card animate-in animate-in-delay-1">
-                    <div class="feature-icon">
-                        <i class="fas fa-bolt"></i>
-                    </div>
-                    <h5>Скорость</h5>
-                    <p>Без ограничений скорости и трафика</p>
-                </div>
-            </div>
-            <div class="col-md-6 col-lg-3">
-                <div class="feature-card animate-in animate-in-delay-2">
-                    <div class="feature-icon">
-                        <i class="fas fa-globe"></i>
-                    </div>
-                    <h5>Доступ</h5>
-                    <p>Обход блокировок и доступ к любым ресурсам</p>
-                </div>
-            </div>
-            <div class="col-md-6 col-lg-3">
-                <div class="feature-card animate-in animate-in-delay-3">
-                    <div class="feature-icon">
-                        <i class="fas fa-laptop"></i>
-                    </div>
-                    <h5>Мультиплатформа</h5>
-                    <p>Поддержка iOS, Android, Windows, macOS</p>
-                </div>
-            </div>
-        </div>
-    </div>
-</section>
-
-<!-- Tariffs Section -->
-<section class="py-5 position-relative" id="tariffs">
-    <div class="deco deco-halftone" style="top: 30px; right: 3%; width: 130px; height: 130px;"></div>
-
-    <div class="container position-relative">
-        <div class="section-head">
-            <span class="eyebrow">Тарифы</span>
-            <h2 class="section-title">Выберите свой план</h2>
-            <p class="section-subtitle">Начните с бесплатного пробного периода</p>
-        </div>
-
-        {% if tariffs %}
-        <div class="row row-cols-1 row-cols-md-3 g-4 justify-content-center">
-            {% for tariff in tariffs %}
-                {% set is_popular = (tariffs|length >= 3 and loop.index == 2) %}
-
-                <div class="col">
-                    <div class="card tariff-card h-100 p-4 {% if is_popular %}popular{% endif %}">
-                        {% if is_popular %}
-                            <span class="tariff-badge">Популярный</span>
-                        {% endif %}
-
-                        <div class="card-body text-center d-flex flex-column">
-                            <h4 class="fw-bold mb-3">{{ tariff.name }}</h4>
-
-                            <div class="tariff-price mb-1">
-                                {{ tariff.price | int }} <small class="fs-5">₽</small>
-                            </div>
-                            <div class="text-gray small mb-3">за {{ tariff.duration_days }} дней</div>
-
-                            <ul class="tariff-features text-start mx-auto">
-                                <li><i class="fas fa-check"></i> Безлимитная скорость</li>
-                                <li><i class="fas fa-check"></i> До {{ device_settings.base_limit }} устройств</li>
-                                <li><i class="fas fa-check"></i> Ещё устройства — {{ device_settings.price }} ₽/мес за каждое</li>
-                                <li><i class="fas fa-check"></i> VLESS-Reality протокол</li>
-                                <li><i class="fas fa-check"></i> Поддержка 24/7</li>
-                            </ul>
-
-                            <button onclick="initPayment('{{ tariff.name }}', '{{ tariff.price | int }}', this)"
-                                    class="btn {% if is_popular %}btn-accent{% else %}btn-accent-outline{% endif %} mt-auto w-100">
-                                <span class="btn-text">Купить</span>
-                            </button>
-                        </div>
-                    </div>
+                    <h3 class="font-display font-extrabold">{{ title }}</h3>
+                    <p class="mt-1.5 text-sm text-subtle leading-snug">{{ text }}</p>
                 </div>
             {% endfor %}
         </div>
+    </div>
+</section>
+
+<!-- ============================================================
+     Тарифы
+     ============================================================ -->
+<section id="tariffs" class="relative scroll-mt-24 py-16 lg:py-24 overflow-hidden">
+    <div class="pointer-events-none absolute left-[3%] top-24 w-32 h-32 halftone opacity-50 hidden md:block" aria-hidden="true"></div>
+
+    <div class="relative mx-auto max-w-6xl px-4">
+        <div class="text-center max-w-2xl mx-auto">
+            <span class="eyebrow">Тарифы</span>
+            <h2 class="mt-2 font-display font-black text-[clamp(1.9rem,5vw,2.8rem)] leading-tight">
+                Выберите свой план
+            </h2>
+            <p class="mt-4 text-subtle">Начните с бесплатного пробного периода — карта не нужна.</p>
+        </div>
+
+        {% if tariffs %}
+            <div class="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3 lg:max-w-5xl mx-auto items-start">
+                {% for tariff in tariffs %}
+                    {# Подсветку задаёт админка (Tariff.is_highlighted). Раньше шаблон
+                       жёстко выделял вторую карточку и флаг игнорировался. #}
+                    {% set is_popular = tariff.is_highlighted %}
+                    <div class="relative sticker sticker-hover p-7 flex flex-col animate-in
+                                {% if is_popular %}border-[3px] border-orange lg:-translate-y-3{% endif %}"
+                         style="animation-delay: {{ loop.index0 * 0.08 }}s">
+
+                        {% if is_popular %}
+                            <span class="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full
+                                         bg-orange text-paper font-display font-extrabold text-xs tracking-wide
+                                         whitespace-nowrap">
+                                Выбор большинства
+                            </span>
+                        {% endif %}
+
+                        <h3 class="font-display font-extrabold text-xl text-center">{{ tariff.name }}</h3>
+
+                        <p class="mt-4 text-center">
+                            <span class="font-display font-black text-5xl text-blue">{{ tariff.price | int }}</span>
+                            <span class="font-display font-black text-2xl text-blue">₽</span>
+                        </p>
+                        <p class="mt-1 text-center text-sm text-muted">за {{ tariff.duration_days }} дней</p>
+
+                        <ul class="mt-6 space-y-2.5 text-sm">
+                            <li class="flex gap-2.5">
+                                <span class="text-success shrink-0 mt-0.5">{{ ic.icon('check', 'w-4 h-4') }}</span>
+                                {% if tariff.data_limit_gb %}
+                                    {{ tariff.data_limit_gb }} ГБ трафика в месяц
+                                {% else %}
+                                    Безлимитный трафик
+                                {% endif %}
+                            </li>
+                            <li class="flex gap-2.5">
+                                <span class="text-success shrink-0 mt-0.5">{{ ic.icon('check', 'w-4 h-4') }}</span>
+                                Без ограничения скорости
+                            </li>
+                            <li class="flex gap-2.5">
+                                <span class="text-success shrink-0 mt-0.5">{{ ic.icon('check', 'w-4 h-4') }}</span>
+                                До {{ device_settings.base_limit }} устройств
+                            </li>
+                            <li class="flex gap-2.5">
+                                <span class="text-success shrink-0 mt-0.5">{{ ic.icon('check', 'w-4 h-4') }}</span>
+                                Ещё устройства — {{ device_settings.price }} ₽/мес за каждое
+                            </li>
+                            <li class="flex gap-2.5">
+                                <span class="text-success shrink-0 mt-0.5">{{ ic.icon('check', 'w-4 h-4') }}</span>
+                                Поддержка в Telegram
+                            </li>
+                        </ul>
+
+                        <button type="button"
+                                onclick="initPayment('{{ tariff.name }}', '{{ tariff.price | int }}', this)"
+                                class="btn-pop mt-7 w-full {% if not is_popular %}btn-pop-outline{% endif %}">
+                            <span class="btn-text">Купить</span>
+                        </button>
+                    </div>
+                {% endfor %}
+            </div>
         {% else %}
-            <div class="text-center py-5">
-                <p class="text-gray fs-5">Тарифы пока не добавлены</p>
+            {# Пустое состояние вместо голой строки «тарифов нет»: пробный период
+               доступен и без активных тарифов, а вопрос уходит в поддержку. #}
+            <div class="mt-12 max-w-lg mx-auto sticker p-8 text-center">
+                <div class="w-14 h-14 mx-auto rounded-2xl bg-sky-soft text-blue grid place-items-center">
+                    {{ ic.icon('spark', 'w-7 h-7') }}
+                </div>
+                <h3 class="mt-4 font-display font-extrabold text-lg">Тарифы обновляются</h3>
+                <p class="mt-2 text-sm text-subtle">
+                    Прямо сейчас список планов пуст. Начните с бесплатного пробного периода —
+                    он не требует оплаты, а тарифы появятся в кабинете.
+                </p>
+                <div class="mt-6 flex flex-wrap gap-3 justify-center">
+                    <a href="/register" class="btn-pop">Пробный период</a>
+                    {% if site.support_url %}
+                        <a href="{{ site.support_url }}" target="_blank" rel="noopener"
+                           class="btn-pop btn-pop-outline">Написать в поддержку</a>
+                    {% endif %}
+                </div>
             </div>
         {% endif %}
     </div>
 </section>
+
+<!-- ============================================================
+     Финальный призыв
+     ============================================================ -->
+<section class="pb-20">
+    <div class="mx-auto max-w-4xl px-4">
+        <div class="relative sticker {% if not has_static('img/collage/tape-blue.png') %}tape{% endif %}
+                    px-6 py-12 text-center">
+            <div class="pointer-events-none absolute -right-12 -bottom-16 w-56 h-56 blob bg-sky/25 overflow-hidden" aria-hidden="true"></div>
+            {% if has_static('img/collage/tape-blue.png') %}
+                {# Настоящий скотч вместо CSS-полоски: держит карточку за верхний край. #}
+                <img src="/static/img/collage/tape-blue.png" width="300" height="120" loading="lazy" alt=""
+                     aria-hidden="true"
+                     class="pointer-events-none absolute -top-4 left-1/2 -translate-x-1/2 w-32 rotate-[-4deg]">
+            {% endif %}
+            {% if has_static('img/collage/paper-torn.png') %}
+                <img src="/static/img/collage/paper-torn.png" width="1500" height="700" loading="lazy" alt=""
+                     aria-hidden="true"
+                     class="pointer-events-none absolute -bottom-6 -left-8 w-52 rotate-[-6deg] opacity-80">
+            {% endif %}
+            <div class="relative">
+                <p class="slogan text-[clamp(1.1rem,3vw,1.5rem)] !text-orange">Same internet, just freer</p>
+                <h2 class="mt-3 font-display font-black text-[clamp(1.8rem,5vw,2.6rem)] leading-tight">
+                    Проверьте на своём интернете
+                </h2>
+                <p class="mt-3 text-subtle max-w-md mx-auto">
+                    Пробный период бесплатный и без карты. Не подойдёт — просто не продлевайте.
+                </p>
+                <a href="/register" class="btn-pop btn-pop-orange mt-7 text-lg">
+                    Начать бесплатно {{ ic.icon('arrow-right', 'w-5 h-5') }}
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/scripts.js" defer></script>
 {% endblock %}

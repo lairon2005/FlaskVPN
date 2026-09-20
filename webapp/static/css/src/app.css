@@ -1,0 +1,821 @@
+/* ============================================================
+   FlaskVPN — Tailwind source (v4, CSS-first config)
+   Дофаминовая айдентика FLASK: тёплая бумага, пузырьковый синий,
+   оранжевые искры, коллаж из ретро-техники, скотч и рваные края.
+
+   Собирается standalone-бинарником: ./tools/tailwind.sh
+   Выход — webapp/static/css/app.css (коммитится).
+   Источник истины по цветам и шрифтам — docs/brand.md.
+   ============================================================ */
+
+@import "tailwindcss";
+
+/* ------------------------------------------------------------
+   Matcha World — фирменный bubble-леттеринг (Khurasan Studio,
+   свободен для коммерческого использования).
+
+   В шрифте 128 глифов: латиница и цифры, КИРИЛЛИЦЫ НЕТ. Поэтому
+   unicode-range ограничен латиницей — браузер даже не пытается взять
+   его для русского текста и сразу берёт Nunito. Так слово-марка
+   FlaskVPN и английские слоганы бренда набираются леттерингом, а
+   русские заголовки — круглым тяжёлым Nunito 900, и в смешанной
+   строке не возникает разнобоя из «тофу».
+   ------------------------------------------------------------ */
+@font-face {
+    font-family: 'Matcha World';
+    src: url('/static/fonts/matcha-world.woff2') format('woff2');
+    font-weight: 400 900;
+    font-style: normal;
+    font-display: swap;
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+                   U+02DA, U+02DC, U+2000-206F, U+2122, U+2191, U+2193,
+                   U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Jinja-шаблоны и JS, из которых Tailwind собирает список классов.
+   Автоопределение в v4 идёт от папки с CSS вверх и .html/.js там не находит. */
+@source "../../../templates/**/*.html";
+@source "../../js/**/*.js";
+
+@theme {
+    /* ---- Палитра бренда ---- */
+    --color-blue: #2457C5;
+    --color-blue-deep: #1B44A0;
+    --color-blue-ink: #16326F;
+    --color-sky: #73B9F5;
+    --color-sky-soft: #DCEDFD;
+    --color-orange: #FF7627;
+    --color-orange-deep: #E45E0E;
+    --color-orange-soft: #FFE6D5;
+    --color-cream: #F7F1E8;
+    --color-cream-deep: #EDE4D6;
+    --color-paper: #FFFCF6;
+    --color-ink: #17203A;
+
+    /* Вторичный текст затемнён против исходных значений: на кремовом фоне
+       прежние #5C6A88/#8D97AE давали 4.76:1 и 2.61:1 — второй не проходил AA. */
+    --color-muted: #616D88;      /* 4.6:1 на --color-cream */
+    --color-subtle: #4A5878;     /* 6.3:1 на --color-cream */
+
+    /* Статусы */
+    --color-success: #1C9A5B;
+    --color-danger: #DF3B22;
+
+    /* ---- Типографика ----
+       --font-lettering: латиница набирается Matcha World, кириллица
+       автоматически падает на Nunito (см. unicode-range в @font-face). */
+    --font-lettering: 'Matcha World', 'Nunito', 'Segoe UI', sans-serif;
+    --font-display: 'Nunito', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --font-body: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    /* ---- Скругления: бренд использует щедрые радиусы ---- */
+    --radius-sm: 10px;
+    --radius-md: 14px;
+    --radius-lg: 20px;
+    --radius-xl: 28px;
+    --radius-2xl: 36px;
+
+    /* ---- Тени: печатный офсет вместо свечения ---- */
+    --shadow-pop: 4px 4px 0 rgb(36 87 197 / 0.16);
+    --shadow-pop-lg: 8px 8px 0 rgb(36 87 197 / 0.18);
+    --shadow-pop-orange: 4px 4px 0 rgb(255 118 39 / 0.28);
+    --shadow-card: 0 2px 0 rgb(36 87 197 / 0.07), 0 12px 28px rgb(23 32 58 / 0.06);
+
+    /* ---- Анимации ---- */
+    --animate-float: float 6s ease-in-out infinite;
+    --animate-wobble: wobble 8s ease-in-out infinite;
+}
+
+@keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-10px); }
+}
+
+@keyframes wobble {
+    0%, 100% { transform: rotate(-1.5deg); }
+    50%      { transform: rotate(1.5deg); }
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.45; transform: scale(0.8); }
+}
+
+@keyframes fade-in-up {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: none; }
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+
+@layer base {
+    :root {
+        /* Зерно бумаги и полутон — SVG без внешних файлов. */
+        --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        color-scheme: light;
+    }
+
+    html {
+        scroll-behavior: smooth;
+        background-color: var(--color-cream);
+    }
+
+    body {
+        background-color: var(--color-cream);
+        color: var(--color-ink);
+        font-family: var(--font-body);
+        -webkit-font-smoothing: antialiased;
+    }
+
+    /* Зерно поверх всей страницы. В бренд-гайде фактура бумаги хорошо
+       читается — прежние 0.05 на экране пропадали. */
+    body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        z-index: 9998;
+        pointer-events: none;
+        background-image: var(--grain);
+        opacity: 0.11;
+        mix-blend-mode: multiply;
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+        font-family: var(--font-display);
+        font-weight: 800;
+        letter-spacing: -0.03em;
+    }
+
+    /* Видимый фокус на всём интерактивном: прежний CSS снимал его у
+       .navbar-toggler и не задавал нигде, кроме инпутов. */
+    :focus-visible {
+        outline: 3px solid var(--color-orange);
+        outline-offset: 2px;
+        border-radius: 4px;
+    }
+}
+
+/* ============================================================
+   Дофаминовые примитивы бренда
+   ============================================================ */
+
+@layer components {
+    /* Слово-марка: Flask синим + VPN оранжевым */
+    .wordmark {
+        font-family: var(--font-lettering);
+        /* Диапазон 400–900 объявлен в @font-face, поэтому браузер не
+           синтезирует жир поверх единственного начертания Matcha World. */
+        font-weight: 700;
+        /* Леттеринг и так набран плотно — отрицательный трекинг склеивал бы
+           буквы в кашу (в отличие от Nunito, где он нужен). */
+        letter-spacing: 0;
+        color: var(--color-blue);
+    }
+    .wordmark .vpn { color: var(--color-orange); }
+
+    /* Моно-капс надзаголовок */
+    .eyebrow {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--color-blue);
+    }
+    .eyebrow-orange { color: var(--color-orange); }
+
+    /* Английские слоганы бренда (SAME INTERNET JUST FREER и т.п.) —
+       единственное место, кроме слово-марки, где уместен леттеринг. */
+    .slogan {
+        font-family: var(--font-lettering);
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        color: var(--color-blue);
+    }
+
+    /* Рукописное подчёркивание под словом */
+    .marker-underline {
+        position: relative;
+        display: inline-block;
+    }
+    .marker-underline::after {
+        content: '';
+        position: absolute;
+        left: -2%;
+        right: -2%;
+        bottom: 0.06em;
+        height: 0.32em;
+        background: var(--color-orange);
+        opacity: 0.85;
+        transform: rotate(-0.8deg);
+        border-radius: 0.2em 0.6em 0.3em 0.5em;
+        z-index: -1;
+    }
+
+    /* Полутон и органическая голубая форма — фоновая графика гайда */
+    .halftone {
+        background-image: radial-gradient(circle at center, var(--color-sky) 1.8px, transparent 1.9px);
+        background-size: 9px 9px;
+        -webkit-mask-image: radial-gradient(circle at center, #000 42%, transparent 72%);
+        mask-image: radial-gradient(circle at center, #000 42%, transparent 72%);
+    }
+
+    .blob {
+        background: var(--color-sky);
+        border-radius: 62% 38% 46% 54% / 54% 44% 56% 46%;
+    }
+
+    /* Карточка-стикер: печатный офсет, «вдавливается» при нажатии */
+    .sticker {
+        background: var(--color-paper);
+        border: 2px solid var(--color-blue);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-pop);
+        transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }
+    .sticker-hover:hover {
+        transform: translate(-2px, -2px);
+        box-shadow: var(--shadow-pop-lg);
+    }
+
+    /* Полоска скотча поверх угла карточки */
+    .tape::before {
+        content: '';
+        position: absolute;
+        top: -12px;
+        left: 50%;
+        width: 88px;
+        height: 26px;
+        transform: translateX(-50%) rotate(-3deg);
+        background: rgb(115 185 245 / 0.55);
+        border-left: 1px dashed rgb(255 255 255 / 0.5);
+        border-right: 1px dashed rgb(255 255 255 / 0.5);
+        pointer-events: none;
+    }
+
+    /* Кнопки */
+    .btn-pop {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-height: 48px;
+        padding: 0.8rem 1.5rem;
+        border-radius: var(--radius-xl);
+        font-family: var(--font-display);
+        font-weight: 800;
+        border: 2px solid var(--color-blue);
+        background: var(--color-blue);
+        color: var(--color-paper);
+        box-shadow: var(--shadow-pop);
+        transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+        cursor: pointer;
+    }
+    .btn-pop:hover { background: var(--color-blue-deep); }
+    .btn-pop:active {
+        transform: translate(3px, 3px);
+        box-shadow: 1px 1px 0 rgb(36 87 197 / 0.16);
+    }
+
+    .btn-pop-outline {
+        background: transparent;
+        color: var(--color-blue);
+    }
+    .btn-pop-outline:hover {
+        background: var(--color-sky-soft);
+    }
+
+    .btn-pop-orange {
+        background: var(--color-orange);
+        border-color: var(--color-orange);
+        box-shadow: var(--shadow-pop-orange);
+    }
+    .btn-pop-orange:hover { background: var(--color-orange-deep); }
+
+    /* Появление секций. Стартовый opacity:0 вешается ТОЛЬКО при работающем JS
+       (класс .js ставит инлайн-скрипт в <head>): scripts.js ставит элементам
+       animationPlayState: paused до попадания во вьюпорт, и без этой развязки
+       любая ошибка JS оставила бы весь лендинг невидимым. */
+    .animate-in {
+        animation: fade-in-up 0.5s ease forwards;
+    }
+    html.js .animate-in {
+        opacity: 0;
+    }
+
+    /* Тост и состояние загрузки кнопки — разметку для них рисует
+       scripts.js, общий для старых и новых страниц. */
+    .toast-item {
+        background: var(--color-paper);
+        border: 2px solid var(--color-blue);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-pop);
+        padding: 0.75rem 1rem;
+        font-weight: 600;
+        animation: fade-in-up 0.25s ease;
+    }
+    .toast-item.error   { border-color: var(--color-danger);  color: var(--color-danger); }
+    .toast-item.success { border-color: var(--color-success); color: var(--color-success); }
+    .toast-item.fade-out { opacity: 0; transition: opacity 0.3s ease; }
+
+
+    /* ---------- Формы ---------- */
+    .field-label {
+        display: block;
+        font-family: var(--font-body);
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: var(--color-ink);
+        margin-bottom: 0.4rem;
+    }
+
+    .input {
+        width: 100%;
+        min-height: 48px;           /* тач-таргет: ниже 44px на телефоне неудобно */
+        padding: 0.75rem 1rem;
+        font-size: 1rem;            /* 16px — иначе iOS зумит страницу при фокусе */
+        font-family: var(--font-body);
+        color: var(--color-ink);
+        background: #FFFFFF;
+        border: 2px solid rgb(36 87 197 / 0.22);
+        border-radius: var(--radius-md);
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .input::placeholder { color: var(--color-muted); }
+    .input:focus {
+        outline: none;
+        border-color: var(--color-blue);
+        box-shadow: 0 0 0 3px rgb(115 185 245 / 0.45);
+    }
+    .input:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    /* Поле с иконкой слева */
+    .input-wrap { position: relative; }
+    .input-wrap .input { padding-left: 2.85rem; }
+    .input-wrap .input-icon {
+        position: absolute;
+        left: 0.95rem;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--color-muted);
+        pointer-events: none;
+        transition: color 0.15s ease;
+    }
+    .input-wrap:focus-within .input-icon { color: var(--color-blue); }
+
+    /* Шестизначный код из письма */
+    .code-input {
+        text-align: center;
+        font-family: var(--font-mono);
+        font-size: 1.6rem;
+        font-weight: 600;
+        letter-spacing: 0.5em;
+        text-indent: 0.5em;         /* компенсирует трекинг, иначе текст уезжает влево */
+    }
+
+    /* Индикатор надёжности пароля */
+    .strength-track {
+        height: 5px;
+        border-radius: 999px;
+        background: rgb(36 87 197 / 0.12);
+        overflow: hidden;
+    }
+    .strength-track .bar {
+        height: 100%;
+        width: 0;
+        border-radius: 999px;
+        background: var(--color-danger);
+        transition: width 0.25s ease, background-color 0.25s ease;
+    }
+    /* Классы вешает initPasswordStrength() в scripts.js */
+    .strength-track .bar.weak   { width: 33%;  background: var(--color-danger); }
+    .strength-track .bar.medium { width: 66%;  background: var(--color-orange); }
+    .strength-track .bar.strong { width: 100%; background: var(--color-success); }
+
+    /* ---------- Сообщения ---------- */
+    .alert {
+        display: flex;
+        gap: 0.6rem;
+        align-items: flex-start;
+        padding: 0.85rem 1rem;
+        margin-bottom: 1rem;
+        border: 2px solid;
+        border-radius: var(--radius-md);
+        font-size: 0.9rem;
+        font-weight: 500;
+    }
+    .alert-error   { border-color: var(--color-danger);  background: rgb(223 59 34 / 0.08);  color: #A32615; }
+    .alert-success { border-color: var(--color-success); background: rgb(28 154 91 / 0.08);  color: #126B3E; }
+    .alert-warn    { border-color: var(--color-orange);  background: rgb(255 118 39 / 0.10); color: #9C4308; }
+    .alert-info    { border-color: var(--color-blue);    background: rgb(36 87 197 / 0.07);  color: var(--color-blue-ink); }
+
+    /* ---------- Поле с кнопкой «копировать» ---------- */
+    .copy-field {
+        display: flex;
+        align-items: stretch;
+        border: 2px solid rgb(36 87 197 / 0.22);
+        border-radius: var(--radius-md);
+        background: #FFFFFF;
+        overflow: hidden;
+    }
+    .copy-field:focus-within {
+        border-color: var(--color-blue);
+        box-shadow: 0 0 0 3px rgb(115 185 245 / 0.45);
+    }
+    .copy-field input {
+        flex: 1;
+        min-width: 0;               /* без этого длинная ссылка распирает флекс */
+        border: 0;
+        padding: 0.75rem 1rem;
+        font-family: var(--font-mono);
+        font-size: 0.82rem;
+        color: var(--color-subtle);
+        background: transparent;
+    }
+    .copy-field input:focus { outline: none; }
+    .copy-field .copy-btn {
+        flex-shrink: 0;
+        min-width: 48px;
+        display: grid;
+        place-items: center;
+        padding: 0 0.9rem;
+        border: 0;
+        border-left: 2px solid rgb(36 87 197 / 0.14);
+        background: var(--color-sky-soft);
+        color: var(--color-blue);
+        cursor: pointer;
+        transition: background-color 0.15s ease;
+    }
+    .copy-field .copy-btn:hover { background: var(--color-sky); color: var(--color-paper); }
+
+    /* ---------- Бейджи статусов ---------- */
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.3rem 0.7rem;
+        border-radius: 999px;
+        border: 2px solid;
+        font-size: 0.74rem;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+    .badge-active  { border-color: var(--color-success); color: #126B3E; background: rgb(28 154 91 / 0.10); }
+    .badge-expired { border-color: var(--color-danger);  color: #A32615; background: rgb(223 59 34 / 0.10); }
+    .badge-pending { border-color: var(--color-orange);  color: #9C4308; background: rgb(255 118 39 / 0.12); }
+    .badge-info    { border-color: var(--color-blue);    color: var(--color-blue-ink); background: rgb(36 87 197 / 0.09); }
+    .badge-muted   { border-color: rgb(36 87 197 / 0.25); color: var(--color-muted); background: transparent; }
+
+    /* Пульсирующая точка в бейдже статуса */
+    .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        animation: pulse-dot 2s ease-in-out infinite;
+    }
+    .dot-green { background: var(--color-success); }
+    .dot-red   { background: var(--color-danger); }
+
+    /* ---------- Внутренние панели карточек ---------- */
+    .panel {
+        border-radius: var(--radius-md);
+        border: 2px solid rgb(36 87 197 / 0.14);
+        background: rgb(220 237 253 / 0.28);
+    }
+    .panel-dashed {
+        border-style: dashed;
+        border-color: rgb(255 118 39 / 0.45);
+        background: rgb(255 230 213 / 0.35);
+    }
+
+    /* ---------- Таблица платежей ---------- */
+    .data-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    .data-table th {
+        text-align: left;
+        padding: 0.55rem 0.75rem;
+        font-family: var(--font-mono);
+        font-size: 0.66rem;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--color-muted);
+        border-bottom: 2px solid rgb(36 87 197 / 0.14);
+        white-space: nowrap;
+    }
+    .data-table td {
+        padding: 0.7rem 0.75rem;
+        border-bottom: 1px solid rgb(36 87 197 / 0.09);
+        vertical-align: top;
+    }
+    .data-table tr:last-child td { border-bottom: 0; }
+    /* Суммы и даты — табличные цифры, иначе колонки «пляшут» */
+    .data-table td:first-child, .data-table td:nth-child(2) { font-variant-numeric: tabular-nums; }
+
+    /* ---------- Аватар ---------- */
+    .avatar {
+        flex-shrink: 0;
+        width: 56px;
+        height: 56px;
+        display: grid;
+        place-items: center;
+        border-radius: var(--radius-lg);
+        border: 2px solid var(--color-blue);
+        background: var(--color-sky-soft);
+        color: var(--color-blue);
+        font-family: var(--font-display);
+        font-weight: 900;
+        font-size: 1.5rem;
+    }
+
+
+    /* ---------- Модальное окно (нативный <dialog>) ----------
+       Bootstrap JS на новой базе нет. <dialog> даёт бесплатно фокус-трап,
+       закрытие по Esc и инертность фона — самому это не воспроизвести. */
+    .modal {
+        width: min(64rem, calc(100vw - 2rem));
+        max-height: calc(100dvh - 3rem);
+        padding: 0;
+        border: 2px solid var(--color-blue);
+        border-radius: var(--radius-xl);
+        background: var(--color-cream);
+        color: var(--color-ink);
+        box-shadow: var(--shadow-pop-lg);
+        overflow: hidden;
+    }
+    .modal::backdrop {
+        background: rgb(23 32 58 / 0.55);
+        backdrop-filter: blur(2px);
+    }
+    .modal[open] { animation: fade-in-up 0.22s ease; }
+
+    .modal-head {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1.1rem 1.25rem;
+        background: var(--color-cream);
+        border-bottom: 2px solid rgb(36 87 197 / 0.14);
+    }
+    .modal-body {
+        padding: 1.25rem;
+        overflow-y: auto;
+        max-height: calc(100dvh - 9rem);
+        overscroll-behavior: contain;
+    }
+    .modal-close {
+        flex-shrink: 0;
+        width: 44px;                /* тач-таргет, иконка внутри меньше */
+        height: 44px;
+        display: grid;
+        place-items: center;
+        border: 2px solid rgb(36 87 197 / 0.2);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--color-subtle);
+        cursor: pointer;
+        transition: background-color 0.15s ease, color 0.15s ease;
+    }
+    .modal-close:hover { background: var(--color-sky-soft); color: var(--color-blue); }
+
+    /* Степпер количества (устройства) */
+    .stepper-btn {
+        width: 44px;
+        height: 44px;
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        border: 2px solid var(--color-blue);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--color-blue);
+        font-family: var(--font-display);
+        font-weight: 800;
+        font-size: 1.15rem;
+        line-height: 1;
+        cursor: pointer;
+        transition: background-color 0.15s ease, color 0.15s ease;
+    }
+    .stepper-btn:hover { background: var(--color-blue); color: var(--color-paper); }
+
+
+    /* ============================================================
+       Telegram Mini App
+       Градус дофамина здесь сознательно ниже, чем на лендинге:
+       те же токены, формы и типографика, но без коллажа и крупной
+       графики — внутри Telegram экран маленький, телефоны слабые,
+       а человек пришёл работать с ключом и платежами.
+       ============================================================ */
+
+    .tma-body {
+        background: var(--color-cream);
+        padding-top: env(safe-area-inset-top, 0);
+        /* Место под таб-бар + домашний индикатор iOS */
+        padding-bottom: calc(64px + env(safe-area-inset-bottom, 0));
+    }
+    /* Зерно внутри Telegram выключено: на слабых устройствах fixed-слой
+       с mix-blend-mode заметно роняет плавность прокрутки. */
+    .tma-body::before { content: none; }
+
+    .tma-content {
+        max-width: 560px;
+        margin: 0 auto;
+        padding: 16px 14px 8px;
+    }
+
+    /* ---- Нижний таб-бар ---- */
+    .tma-tabbar {
+        position: fixed;
+        left: 0; right: 0; bottom: 0;
+        z-index: 50;
+        display: flex;
+        background: rgb(255 252 246 / 0.96);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        border-top: 2px solid rgb(36 87 197 / 0.14);
+        padding-bottom: env(safe-area-inset-bottom, 0);
+    }
+    .tma-tab {
+        position: relative;
+        flex: 1;
+        min-height: 52px;          /* тач-таргет */
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        padding: 9px 4px 8px;
+        border: 0;
+        background: none;
+        color: var(--color-muted);
+        font-size: 0.68rem;
+        font-weight: 600;
+        line-height: 1.1;
+        text-decoration: none;
+        cursor: pointer;
+    }
+    .tma-tab:hover,
+    .tma-tab.active { color: var(--color-blue); }
+    /* Оранжевый маркер активной вкладки — акцент бренда */
+    .tma-tab.active::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 26px;
+        height: 3px;
+        border-radius: 0 0 3px 3px;
+        background: var(--color-orange);
+    }
+
+    /* ---- Шторка «Ещё» ---- */
+    .tma-sheet-backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        background: rgb(23 32 58 / 0.45);
+    }
+    .tma-sheet-backdrop.open { display: block; }
+
+    .tma-sheet {
+        position: fixed;
+        left: 0; right: 0; bottom: 0;
+        z-index: 61;
+        transform: translateY(100%);
+        transition: transform 0.25s ease;
+        background: var(--color-paper);
+        border: 2px solid rgb(36 87 197 / 0.16);
+        border-bottom: 0;
+        border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+        padding: 10px 10px calc(18px + env(safe-area-inset-bottom, 0));
+        box-shadow: 0 -12px 34px rgb(23 32 58 / 0.12);
+    }
+    .tma-sheet.open { transform: translateY(0); }
+    .tma-sheet-handle {
+        width: 40px;
+        height: 4px;
+        margin: 4px auto 12px;
+        border-radius: 999px;
+        background: rgb(36 87 197 / 0.22);
+    }
+    .tma-sheet-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 48px;
+        padding: 13px 12px;
+        border-radius: var(--radius-sm);
+        color: var(--color-ink);
+        font-weight: 600;
+        font-size: 0.95rem;
+        text-decoration: none;
+    }
+    .tma-sheet-item svg { color: var(--color-blue); flex-shrink: 0; }
+    .tma-sheet-item:hover { background: rgb(115 185 245 / 0.18); }
+
+    /* ---- Выбор тарифа (сценарий с MainButton) ---- */
+    .tma-tariffs { display: flex; flex-direction: column; gap: 12px; }
+    .tma-tariffs .tariff-card { cursor: pointer; padding: 16px; }
+    .tma-tariffs .tariff-card.selected {
+        border-color: var(--color-blue);
+        border-width: 3px;
+        box-shadow: var(--shadow-pop);
+        background: #FFFFFF;
+    }
+    .tma-radio {
+        position: relative;
+        flex-shrink: 0;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        border: 2px solid rgb(36 87 197 / 0.28);
+        background: #FFFFFF;
+    }
+    .tariff-card.selected .tma-radio { border-color: var(--color-blue); }
+    .tariff-card.selected .tma-radio::after {
+        content: '';
+        position: absolute;
+        inset: 3px;
+        border-radius: 50%;
+        background: var(--color-blue);
+    }
+    /* Последняя карточка не должна прятаться под MainButton'ом Telegram */
+    .tma-mainbutton-spacer { height: 70px; }
+
+    /* ---- Сплэш авторизации ---- */
+    .tma-splash {
+        min-height: 100dvh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        text-align: center;
+    }
+    .tma-spinner {
+        width: 32px;
+        height: 32px;
+        margin: 0 auto 16px;
+        border: 3px solid rgb(36 87 197 / 0.2);
+        border-top-color: var(--color-orange);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    /* Текст юридических документов. Плагин typography не подключаем —
+       нужны ровно эти пять правил. */
+    .doc { color: var(--color-subtle); line-height: 1.7; }
+    .doc h2 {
+        font-family: var(--font-display);
+        font-weight: 800;
+        font-size: 1.35rem;
+        color: var(--color-ink);
+        margin: 2.5rem 0 0.75rem;
+    }
+    .doc h3 {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 1.05rem;
+        color: var(--color-ink);
+        margin: 1.75rem 0 0.5rem;
+    }
+    .doc p { margin: 0.75rem 0; }
+    .doc ul { margin: 0.75rem 0; padding-left: 1.25rem; list-style: disc; }
+    .doc li { margin: 0.35rem 0; }
+    .doc a { color: var(--color-blue); font-weight: 600; text-decoration: underline; }
+    .doc a:hover { color: var(--color-orange); }
+    .doc strong { color: var(--color-ink); font-weight: 700; }
+
+    .btn-loading {
+        pointer-events: none;
+        opacity: 0.65;
+    }
+    .btn-loading .btn-text::after {
+        content: '…';
+    }
+}
+
+/* ============================================================
+   Доступность
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+    .animate-in, html.js .animate-in { opacity: 1; }
+}

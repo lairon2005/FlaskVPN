@@ -38,6 +38,11 @@ python3 -m bot
 # Dev: только веб-кабинет
 uvicorn webapp.main:app --reload
 
+# Пересборка CSS (Tailwind standalone, без npm) — обязательна после правки
+# любого шаблона или webapp/static/css/src/app.css; результат коммитится.
+# Один app.css обслуживает и сайт, и Mini App.
+./tools/tailwind.sh
+
 # Миграции схемы (идемпотентные ALTER ... IF NOT EXISTS)
 python3 fix_db.py
 
@@ -91,6 +96,7 @@ python3 -m unittest tests.test_device_pricing -v                # то же че
 | `UI_MODE` | опц., `bot` \| `tma` | Глобальный режим интерфейса; на `DOMAIN=localhost` web_app-кнопки автоматически отключаются |
 | `TG_BOT_USERNAME` / `TMA_APP_NAME` | опц. | Deep-link `t.me/<bot>/<app>` — рефералка и `return_url` ЮKassa |
 | `MAIL_*` | нужны webapp | SMTP для верификации email |
+| `LEGAL_NAME` / `LEGAL_INN` / `LEGAL_OGRNIP` / `LEGAL_ADDRESS` / `LEGAL_EMAIL` | нужны webapp | Реквизиты продавца для оферты, политики и подвала. Пока пусты — юр. страницы помечены «Черновик» |
 | `CERT_FULLCHAIN_PATH` / `CERT_KEY_PATH` | обязательны для Docker | Абсолютные пути к сертификатам (монтируются в nginx) |
 
 ## Architecture
@@ -98,6 +104,7 @@ python3 -m unittest tests.test_device_pricing -v                # то же че
 ```
 nginx (host: 80 → HTTP, 443 → HTTPS, 127.0.0.1:8080/9443 → cover-сайт Xray-ноды)
   $DOMAIN, *.$DOMAIN
+  ├── /offer /privacy /refund → flask_site (8000) — юридические страницы
   ├── /yookassa  → flask_bot (8081)  — вебхуки YooKassa
   ├── /tma       → flask_site (8000) — экраны Mini App
   ├── /sub/*     → 302               — легаси-ссылки на REMNAWAVE_SUB_HOST

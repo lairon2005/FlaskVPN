@@ -4,10 +4,10 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 
 from db import User
 from webapp.dependencies import get_current_user
+from webapp.templating import templates
 from loader import logger, remnawave_client
 from database import tariff_repo, stats_repo, payment_repo
 from tgbot.services import (
@@ -21,18 +21,8 @@ from tgbot.services import (
 from tgbot.services.key_service import CODE_OK, REVOKE_NOTICES
 
 router = APIRouter(prefix="/profile")
-templates = Jinja2Templates(directory="webapp/templates")
 
 # Фильтр даты
-def timestamp_to_date(value):
-    if value:
-        try:
-            return datetime.fromtimestamp(float(value)).strftime('%Y-%m-%d %H:%M')
-        except Exception:
-            return "Неизвестно"
-    return "Неограниченно"
-
-templates.env.filters['timestamp_to_date'] = timestamp_to_date
 
 # --- Роуты ---
 

@@ -1,38 +1,47 @@
 {% extends "tma/base.html" %}
+{% import "_icons.html" as ic %}
 
 {% block content %}
-<h5 class="fw-bold mb-3 animate-in"><i class="fas fa-receipt text-accent me-2"></i>История платежей</h5>
+<h1 class="font-display font-black text-xl mb-3 flex items-center gap-2 animate-in">
+    {{ ic.icon('receipt', 'w-5 h-5 text-orange') }} История платежей
+</h1>
 
 {% if payments %}
-<div class="section-card animate-in">
-    <div class="table-responsive">
+<section class="sticker p-4 animate-in">
+    <div class="overflow-x-auto">
         <table class="data-table">
             <thead>
-                <tr><th>Дата</th><th>Сумма</th><th>Статус</th></tr>
+                <tr><th scope="col">Дата</th><th scope="col">Сумма</th><th scope="col">Статус</th></tr>
             </thead>
             <tbody>
             {% for p in payments %}
                 <tr>
-                    <td>{{ p.created_at.strftime('%d.%m.%Y') if p.created_at else '—' }}</td>
+                    <td class="whitespace-nowrap">{{ p.created_at.strftime('%d.%m.%Y') if p.created_at else '—' }}</td>
                     <td>
-                        {{ "%.2f"|format(p.final_amount) }} ₽
-                        {% if p.discount_percent %}<span class="text-success-custom small">(−{{ p.discount_percent }}%)</span>{% endif %}
-                        {% if p.kind == 'devices' %}<div class="text-gray small">доп. устройства ({{ p.extra_devices }} шт.)</div>{% endif %}
+                        <span class="font-semibold">{{ "%.2f"|format(p.final_amount) }} ₽</span>
+                        {% if p.discount_percent %}<span class="text-success text-xs">−{{ p.discount_percent }}%</span>{% endif %}
+                        {% if p.kind == 'devices' %}<div class="text-xs text-muted">доп. устройства ({{ p.extra_devices }} шт.)</div>{% endif %}
                     </td>
                     <td>
-                        {% if p.status == 'succeeded' %}<span class="status-badge status-badge-active">Оплачен</span>
-                        {% elif p.status == 'pending' %}<span class="status-badge status-badge-pending">Ожидает</span>
-                        {% elif p.status == 'refunded' %}<span class="status-badge status-badge-info">Возврат</span>
-                        {% elif p.status == 'cancelled' %}<span class="status-badge status-badge-muted">Отменён</span>
-                        {% else %}<span class="status-badge status-badge-expired">Ошибка</span>{% endif %}
+                        {% if p.status == 'succeeded' %}<span class="badge badge-active">Оплачен</span>
+                        {% elif p.status == 'pending' %}<span class="badge badge-pending">Ожидает</span>
+                        {% elif p.status == 'refunded' %}<span class="badge badge-info">Возврат</span>
+                        {% elif p.status == 'cancelled' %}<span class="badge badge-muted">Отменён</span>
+                        {% else %}<span class="badge badge-expired">Ошибка</span>{% endif %}
                     </td>
                 </tr>
             {% endfor %}
             </tbody>
         </table>
     </div>
-</div>
+</section>
 {% else %}
-<p class="text-center text-gray py-5">Платежей пока нет.</p>
+<div class="sticker p-8 text-center animate-in">
+    <div class="w-12 h-12 mx-auto rounded-2xl bg-sky-soft text-blue grid place-items-center">
+        {{ ic.icon('receipt', 'w-6 h-6') }}
+    </div>
+    <p class="mt-3 font-display font-extrabold">Платежей пока нет</p>
+    <p class="mt-1 text-sm text-muted">Здесь появятся все ваши оплаты подписки и устройств.</p>
+</div>
 {% endif %}
 {% endblock %}
