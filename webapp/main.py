@@ -1,5 +1,6 @@
 # webapp/main.py
 import asyncio
+import mimetypes
 import os
 import logging
 from contextlib import asynccontextmanager
@@ -38,6 +39,14 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 
 # --- Статика (создаем папку, если нет) ---
+# StaticFiles берёт Content-Type из mimetypes, а в python:3.11.8-alpine нет ни
+# этих типов в таблице, ни /etc/mime.types — коллаж лендинга и фирменный шрифт
+# уезжали как text/plain. Браузеры такое досниффивают, но с nosniff или через
+# кэширующий прокси картинка превратится в текст.
+mimetypes.add_type("image/webp", ".webp")
+mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("font/woff", ".woff")
+
 static_dir = "webapp/static"
 if not os.path.exists(static_dir):
     os.makedirs(static_dir)
