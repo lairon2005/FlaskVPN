@@ -68,7 +68,7 @@ Nunito, Inter и JetBrains Mono — подключаются одним `<link>`
 | `webapp/templates/_icons.html` | SVG-спрайт Lucide (38 символов) вместо Font Awesome |
 | `webapp/static/img/og-cover.png` | обложка ссылки 1200×630, генерится `python3 tools/make_og.py` |
 | `webapp/static/fonts/matcha-world.woff2` | фирменный леттеринг, 23 КБ |
-| `webapp/static/img/collage/` | ретро-коллаж (монитор, раскладушка, скотч, бумага) — см. README в папке |
+| `webapp/static/img/collage/` | ретро-коллаж: монитор, раскладушка, скотч, бумага (webp с альфой, ~390 КБ на все четыре). Подготовка — `python3 tools/make_collage.py`, требования — README в папке |
 | `webapp/static/css/src/app.css` (секция `.tma-*`) | светлый таб-бар, шторка «Ещё», компактные карточки тарифов |
 | `webapp/static/js/tma.js` | `setHeaderColor`/`setBackgroundColor`/`setBottomBarColor` + цвет `MainButton` |
 | `webapp/static/img/logo.svg` | иконка: синий скруглённый квадрат, круглая белая «F», оранжевые акценты |

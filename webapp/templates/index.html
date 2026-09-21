@@ -60,19 +60,19 @@
         <!-- Коллаж hero. Показан и на мобилке: раньше иллюстрация пряталась
              на < 992px, а секция держала min-height — под текстом зиял пустой экран. -->
         <div class="animate-in [animation-delay:0.2s] relative mx-auto w-full max-w-md lg:max-w-none">
-            {% if has_static('img/collage/crt-vpn.png') %}
+            {% if has_static('img/collage/crt-vpn.webp') %}
             {# Коллаж бренда: ретро-монитор на скотче поверх голубой формы.
                Если картинки в static нет — ниже отрисуется SVG-глобус. #}
             <div class="relative animate-float">
                 <div class="pointer-events-none absolute inset-x-6 top-10 bottom-10 blob bg-sky/45" aria-hidden="true"></div>
-                <img src="/static/img/collage/crt-vpn.png" width="1400" height="1120" loading="eager" fetchpriority="high"
+                <img src="/static/img/collage/crt-vpn.webp" width="950" height="924" loading="eager" fetchpriority="high"
                      alt="Старый ЭЛТ-монитор с надписью VPN на экране"
                      class="relative w-full h-auto rotate-[-2.5deg] drop-shadow-[6px_8px_0_rgba(36,87,197,0.14)]">
-                {% if has_static('img/collage/tape-blue.png') %}
-                    <img src="/static/img/collage/tape-blue.png" width="300" height="120" loading="lazy" alt=""
+                {% if has_static('img/collage/tape-blue.webp') %}
+                    <img src="/static/img/collage/tape-blue.webp" width="420" height="261" loading="lazy" alt=""
                          aria-hidden="true"
                          class="pointer-events-none absolute -top-3 left-[18%] w-28 rotate-[-14deg] opacity-95">
-                    <img src="/static/img/collage/tape-blue.png" width="300" height="120" loading="lazy" alt=""
+                    <img src="/static/img/collage/tape-blue.webp" width="420" height="261" loading="lazy" alt=""
                          aria-hidden="true"
                          class="pointer-events-none absolute bottom-6 right-[6%] w-24 rotate-[8deg] opacity-90">
                 {% endif %}
@@ -167,10 +167,10 @@
      Зачем нужен — сценарии
      ============================================================ -->
 <section id="cases" class="relative scroll-mt-24 py-16 lg:py-24 overflow-hidden">
-    {% if has_static('img/collage/flip-phone-vpn.png') %}
+    {% if has_static('img/collage/flip-phone-vpn.webp') %}
         {# Раскладушка — коллажный акцент секции; на мобилке прячется,
            чтобы не воровать место у карточек. #}
-        <img src="/static/img/collage/flip-phone-vpn.png" width="1040" height="1560" loading="lazy" alt=""
+        <img src="/static/img/collage/flip-phone-vpn.webp" width="420" height="733" loading="lazy" alt=""
              aria-hidden="true"
              class="pointer-events-none hidden xl:block absolute -left-16 top-24 w-44 rotate-[9deg]
                     opacity-90 drop-shadow-[4px_6px_0_rgba(36,87,197,0.12)]">
@@ -386,19 +386,22 @@
 <!-- ============================================================
      Финальный призыв
      ============================================================ -->
-<section class="pb-20">
+{# overflow-hidden — из-за голубой кляксы: она торчит на -right-12 и давала
+   30px горизонтальной прокрутки на мобилке. pt-6 оставляет место скотчу,
+   который вылезает за верхний край карточки на -top-4. #}
+<section class="pt-6 pb-20 overflow-hidden">
     <div class="mx-auto max-w-4xl px-4">
-        <div class="relative sticker {% if not has_static('img/collage/tape-blue.png') %}tape{% endif %}
+        <div class="relative sticker {% if not has_static('img/collage/tape-blue.webp') %}tape{% endif %}
                     px-6 py-12 text-center">
             <div class="pointer-events-none absolute -right-12 -bottom-16 w-56 h-56 blob bg-sky/25 overflow-hidden" aria-hidden="true"></div>
-            {% if has_static('img/collage/tape-blue.png') %}
+            {% if has_static('img/collage/tape-blue.webp') %}
                 {# Настоящий скотч вместо CSS-полоски: держит карточку за верхний край. #}
-                <img src="/static/img/collage/tape-blue.png" width="300" height="120" loading="lazy" alt=""
+                <img src="/static/img/collage/tape-blue.webp" width="420" height="261" loading="lazy" alt=""
                      aria-hidden="true"
                      class="pointer-events-none absolute -top-4 left-1/2 -translate-x-1/2 w-32 rotate-[-4deg]">
             {% endif %}
-            {% if has_static('img/collage/paper-torn.png') %}
-                <img src="/static/img/collage/paper-torn.png" width="1500" height="700" loading="lazy" alt=""
+            {% if has_static('img/collage/paper-torn.webp') %}
+                <img src="/static/img/collage/paper-torn.webp" width="640" height="306" loading="lazy" alt=""
                      aria-hidden="true"
                      class="pointer-events-none absolute -bottom-6 -left-8 w-52 rotate-[-6deg] opacity-80">
             {% endif %}
