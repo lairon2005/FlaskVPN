@@ -9,6 +9,8 @@ from aiogram import Bot, Dispatcher
 
 from tgbot.services import payment_service
 from tgbot.services.payment import parse_webhook_notification
+from tgbot.services.referral_service import REFERRER_PAYMENT_BONUS_DAYS
+from tgbot.services.intro_offer import conversion_price, format_rub
 from database import user_repo
 from loader import logger, config
 from remnawave.client import RemnawaveClient
@@ -16,7 +18,7 @@ from tgbot.handlers.user.profile import show_profile_logic
 
 
 async def _notify_tg_user(user_id: int, tariff, remnawave: RemnawaveClient, bot: Bot, request: web.Request,
-                          is_auto: bool = False, payment_method=None):
+                          is_auto: bool = False, payment_method=None, result=None):
     """Уведомление ТОЛЬКО для Telegram пользователей."""
     if user_id < 0:
         return
@@ -35,7 +37,27 @@ async def _notify_tg_user(user_id: int, tariff, remnawave: RemnawaveClient, bot:
         pass
 
     try:
-        if is_auto:
+        if result is not None and result.is_intro:
+            db_user = await user_repo.get(user_id)
+            end = db_user.subscription_end_date if db_user else None
+            end_str = end.strftime('%d.%m.%Y') if end else "конца недели"
+            renew = result.renew_tariff
+            if result.card_saved and renew:
+                last4 = getattr(getattr(payment_method, 'card', None), 'last4', None)
+                card_part = f" с карты *{last4}" if last4 else ""
+                success_text = (
+                    f"🎁 Пробная неделя активна до <b>{end_str}</b>.\n\n"
+                    f"{end_str} спишем {format_rub(conversion_price(renew))} ₽{card_part}, и подписка "
+                    f"продолжится на {renew.duration_days} дн. Напомним за сутки. "
+                    "Отключить автопродление: профиль → «💳 Моя карта»."
+                )
+            else:
+                success_text = (
+                    f"🎁 Пробная неделя активна до <b>{end_str}</b>.\n\n"
+                    "Способ оплаты не сохранился, поэтому автоматически подписка не продлится — "
+                    "продлите её вручную до окончания недели."
+                )
+        elif is_auto:
             success_text = (
                 f"🔄 Подписка автоматически продлена! Тариф '<b>{tariff.name}</b>' — "
                 f"{tariff.duration_days} дней."
@@ -228,7 +250,8 @@ async def yookassa_webhook_handler(request: web.Request):
                 try:
                     await bot.send_message(
                         result.referrer_id,
-                        f"🎉 Ваш реферал совершил первую оплату! Вам начислено <b>15 бонусных дней</b>."
+                        f"🎉 Ваш реферал совершил первую оплату! Вам начислено "
+                        f"<b>{REFERRER_PAYMENT_BONUS_DAYS} бонусных дней</b>."
                     )
                 except Exception as e:
                     logger.error(f"Failed to notify referrer {result.referrer_id}: {e}")
@@ -246,6 +269,7 @@ async def yookassa_webhook_handler(request: web.Request):
                     result.payment.user_id, result.tariff, remnawave, bot, request,
                     is_auto=(result.payment.source == 'auto'),
                     payment_method=payment_method,
+                    result=result,
                 )
 
             return web.Response(status=200)
@@ -270,9 +294,26 @@ async def yookassa_webhook_handler(request: web.Request):
 
         # === ОТМЕНА ===
         elif event_type == 'payment.canceled':
-            from database import payment_repo
+            from database import payment_repo, payment_method_repo
             payment = await payment_repo.get_by_yookassa_id(yookassa_payment_id)
-            await payment_repo.update_status(yookassa_payment_id, 'cancelled')
+
+            # Автосписание: банк отказал асинхронно. Синхронный отказ charge_renewal
+            # уже пометил 'failed' и посчитал — второй раз не считаем.
+            if payment and payment.source == 'auto':
+                if payment.status == 'pending':
+                    await payment_repo.update_status(yookassa_payment_id, 'failed')
+                    await payment_method_repo.increment_fail(payment.user_id)
+                    logger.info(f"Auto-renewal payment {yookassa_payment_id} declined (user={payment.user_id})")
+                    from tgbot.services.scheduler import handle_renewal_failure
+                    await handle_renewal_failure(bot, payment.user_id)
+                return web.Response(status=200)
+
+            if payment and payment.status != 'pending':
+                # Уже финальный статус (или локально отменён) — не перетираем.
+                return web.Response(status=200)
+
+            # Через сервис: заодно возвращает промокод неоплаченного счёта.
+            await payment_service.cancel_by_gateway(yookassa_payment_id)
             logger.info(f"Payment {yookassa_payment_id} cancelled by YooKassa")
             if payment and payment.user_id > 0:
                 try:

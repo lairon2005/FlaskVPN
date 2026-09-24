@@ -267,14 +267,14 @@
         );
     }
 
-    function tmaInitPayment(tariffName, price, btn, activePromo, extraDevices, allowCancelRetry) {
+    // tariff — {id, name, basePrice}; сервер ищет тариф по id.
+    function tmaInitPayment(tariff, btn, activePromo, extraDevices, allowCancelRetry) {
         if (!btn) return Promise.resolve();
         btn.classList.add('btn-loading');
         if (tg && tg.MainButton) tg.MainButton.showProgress(true);
 
         var payload = {
-            tariff_name: tariffName,
-            price: price,
+            tariff_id: tariff.id,
             source: 'tma',
             extra_devices: extraDevices || 0,
         };
@@ -304,11 +304,16 @@
                     // Один повтор: если и после отмены 409, дальше просто сообщаем.
                     if (allowCancelRetry !== false) {
                         offerCancelPending(function () {
-                            tmaInitPayment(tariffName, price, btn, activePromo, extraDevices, false);
+                            tmaInitPayment(tariff, btn, activePromo, extraDevices, false);
                         });
                     } else {
                         showToast('У вас уже есть неоплаченный счёт. Завершите оплату или попробуйте позже.', 'warning');
                     }
+                } else if (response.status === 400) {
+                    // Причина отказа от сервера (например, пробная неделя уже использована).
+                    return response.json().then(function (data) {
+                        showToast(data.detail || 'Тариф недоступен.', 'warning');
+                    });
                 } else {
                     showToast('Ошибка при создании платежа. Попробуйте позже.', 'error');
                 }
@@ -434,11 +439,13 @@
         }
 
         function slotsCost() {
-            if (!selected || !slots) return 0;
+            // На пробной неделе доп. устройства не продаются.
+            if (!selected || !slots || selected.intro) return 0;
             return slotPrice * billingMonths(selected.days) * slots;
         }
 
         function currentPrice(basePrice) {
+            if (selected && selected.intro) return basePrice; // фиксированная цена
             var discount = tmaActivePromo ? tmaActivePromo.discount_percent : 0;
             // Скидка применяется только к тарифу — устройства идут по полной.
             var tariffPart = discount ? Math.round(basePrice * (1 - discount / 100)) : basePrice;
@@ -482,7 +489,11 @@
             mainButtonHandler = function () {
                 if (!selected) return;
                 var fakeBtn = document.createElement('button'); // tmaInitPayment ожидает элемент для .btn-loading
-                tmaInitPayment(selected.name, selected.basePrice, fakeBtn, tmaActivePromo, slots);
+                if (selected.intro) {
+                    tmaInitPayment(selected, fakeBtn, null, 0);
+                } else {
+                    tmaInitPayment(selected, fakeBtn, tmaActivePromo, slots);
+                }
             };
             tg.MainButton.onClick(mainButtonHandler);
         }
@@ -493,6 +504,8 @@
                 card.classList.add('selected');
                 haptic('light');
                 selected = {
+                    id: parseInt(card.dataset.tariffId, 10),
+                    intro: card.dataset.intro === '1',
                     name: card.dataset.tariffName,
                     basePrice: parseFloat(card.dataset.tariffPrice),
                     days: parseInt(card.dataset.tariffDays || '30', 10),
@@ -686,27 +699,27 @@
         if (!downloadBtn) return;
 
         if (/android/i.test(userAgent)) {
-            downloadBtn.href = 'https://play.google.com/store/apps/details?id=com.happproxy';
-            appDesc.textContent = 'Для Android рекомендуем Happ.';
+            downloadBtn.href = 'https://play.google.com/store/apps/details?id=llc.itdev.incy';
+            appDesc.textContent = 'Для Android рекомендуем INCY.';
             setOsIcon(osIcon, 'android');
             btnTextEl.textContent = 'Google Play';
         } else if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
-            downloadBtn.href = 'https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643';
-            appDesc.textContent = 'Для iOS рекомендуем Happ.';
+            downloadBtn.href = 'https://apps.apple.com/ru/app/incy/id6756943388';
+            appDesc.textContent = 'Для iOS рекомендуем INCY.';
             setOsIcon(osIcon, 'apple');
             btnTextEl.textContent = 'App Store';
         } else if (/Win/i.test(userAgent)) {
-            downloadBtn.href = 'https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe';
-            appDesc.textContent = 'Для Windows рекомендуем Happ.';
+            downloadBtn.href = 'https://github.com/INCY-DEV/incy-platforms/releases/latest/download/incy-windows-setup.exe';
+            appDesc.textContent = 'Для Windows рекомендуем INCY.';
             setOsIcon(osIcon, 'windows');
             btnTextEl.textContent = 'Скачать для Windows';
         } else if (/Mac/i.test(userAgent)) {
-            downloadBtn.href = 'https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643';
-            appDesc.textContent = 'Для macOS рекомендуем Happ.';
+            downloadBtn.href = 'https://apps.apple.com/ru/app/incy/id6756943388';
+            appDesc.textContent = 'Для macOS рекомендуем INCY.';
             setOsIcon(osIcon, 'apple');
             btnTextEl.textContent = 'Скачать для macOS';
         } else {
-            downloadBtn.href = 'https://play.google.com/store/apps/details?id=com.happproxy';
+            downloadBtn.href = 'https://play.google.com/store/apps/details?id=llc.itdev.incy';
             appDesc.textContent = 'Выберите приложение для вашей ОС.';
             setOsIcon(osIcon, 'download');
             btnTextEl.textContent = 'Скачать';
@@ -736,7 +749,7 @@
 
     // ============================================================
     // Страница подписки Remnawave: открываем во внешнем браузере
-    // (Telegram.WebApp.openLink) — из webview Mini App happ:// deeplink
+    // (Telegram.WebApp.openLink) — из webview Mini App incy:// deeplink
     // на самой sub-странице не отработает.
     // ============================================================
 

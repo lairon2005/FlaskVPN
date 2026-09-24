@@ -96,6 +96,26 @@ class StatsRepository:
             result = await session.execute(stmt)
             return result.scalar_one()
 
+    async def get_intro_funnel(self) -> dict:
+        """Воронка вводного тарифа: купили пробную неделю → перешли на полную
+        цену (первая оплата) / сейчас на пробной неделе / отвалились."""
+        async with self._session_maker() as session:
+            now = datetime.now()
+            base = select(func.count()).select_from(User).where(User.intro_used == True)
+            bought = (await session.execute(base)).scalar_one()
+            converted = (await session.execute(
+                base.where(User.is_first_payment_made == True)
+            )).scalar_one()
+            on_trial = (await session.execute(
+                base.where(User.is_first_payment_made == False, User.subscription_end_date > now)
+            )).scalar_one()
+        return {
+            "bought": bought,
+            "converted": converted,
+            "on_trial": on_trial,
+            "dropped": bought - converted - on_trial,
+        }
+
     async def count_referral_starts_for_period(self, days: int) -> int:
         """
         Метрика №5 (числитель K-фактора): «старты по реф-ссылкам» —

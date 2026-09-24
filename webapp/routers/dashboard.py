@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from db import User
 from webapp.dependencies import get_current_user
 from webapp.templating import templates
-from loader import logger, remnawave_client
+from loader import logger, remnawave_client, config
 from database import tariff_repo, stats_repo, payment_repo
 from tgbot.services import (
     subscription_service,
@@ -19,6 +19,7 @@ from tgbot.services import (
     key_service,
 )
 from tgbot.services.key_service import CODE_OK, REVOKE_NOTICES
+from webapp.routers.tma import intro_consents
 
 router = APIRouter(prefix="/profile")
 
@@ -35,7 +36,9 @@ async def dashboard_page(
         return RedirectResponse(url="/login")
 
     # Получаем тарифы для модального окна
-    tariffs_list = await tariff_repo.get_active()
+    tariffs_list = await tariff_repo.get_active_for_user(
+        user, allow_intro=config.yookassa.save_payment_method
+    )
 
     vpn_user_data = None
     subscription_link = None
@@ -115,6 +118,7 @@ async def dashboard_page(
         "sub_link": subscription_link,
         "error": error_message,
         "tariffs": tariffs_list,
+        "intro_consents": await intro_consents(tariffs_list),
         "referral_count": referral_count,
         "referral_bonus": referral_bonus,
         "payments": payments_list,
@@ -187,7 +191,7 @@ async def set_card_renew_tariff(
         return RedirectResponse(url="/profile/", status_code=303)
 
     tariff = await tariff_repo.get_by_id(tariff_id)
-    if tariff and tariff.is_active:
+    if tariff and tariff.is_active and not tariff.is_intro:
         await payment_method_service.set_renew_tariff(user.user_id, tariff_id)
     return RedirectResponse(url="/profile/", status_code=303)
 

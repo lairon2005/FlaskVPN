@@ -8,10 +8,49 @@ class TariffRepository:
         self._session_maker = session_maker
 
     async def get_active(self) -> list[Tariff]:
+        """Активные обычные тарифы. Вводный сюда не входит: он продаётся
+        только через get_active_for_user и не может быть тарифом продления."""
         async with self._session_maker() as session:
-            stmt = select(Tariff).where(Tariff.is_active == True).order_by(Tariff.price.asc())
+            stmt = (
+                select(Tariff)
+                .where(Tariff.is_active == True, Tariff.is_intro == False)
+                .order_by(Tariff.price.asc())
+            )
             result = await session.execute(stmt)
             return result.scalars().all()
+
+    async def get_active_for_user(self, user, allow_intro: bool = True) -> list[Tariff]:
+        """Витрина конкретного пользователя: активные тарифы, где вводный
+        показан первым и только тем, кому он положен (intro_offer.visible_tariffs).
+
+        allow_intro=False — вводный не показывать никому (магазин не сохраняет
+        карты: без карты перехода на полную цену не будет)."""
+        from tgbot.services.intro_offer import visible_tariffs
+
+        all_tariffs = await self.get_all()
+        by_id = {t.id: t for t in all_tariffs}
+        active = sorted(
+            (t for t in all_tariffs if t.is_active and (allow_intro or not t.is_intro)),
+            key=lambda t: t.price,
+        )
+        return visible_tariffs(active, user, by_id)
+
+    async def get_by_id_map(self) -> dict[int, Tariff]:
+        return {t.id: t for t in await self.get_all()}
+
+    async def is_referenced(self, tariff_id: int) -> bool:
+        """На тариф ссылается вводный тариф или карта автопродления — удалять нельзя."""
+        from db import UserPaymentMethod
+        async with self._session_maker() as session:
+            by_tariff = await session.execute(
+                select(Tariff.id).where(Tariff.renew_tariff_id == tariff_id).limit(1)
+            )
+            if by_tariff.first() is not None:
+                return True
+            by_card = await session.execute(
+                select(UserPaymentMethod.id).where(UserPaymentMethod.renew_tariff_id == tariff_id).limit(1)
+            )
+            return by_card.first() is not None
 
     async def get_all(self) -> list[Tariff]:
         async with self._session_maker() as session:
@@ -36,6 +75,8 @@ class TariffRepository:
         data_limit_gb: int | None = None,
         loyalty_price: float | None = None,
         is_highlighted: bool = False,
+        is_intro: bool = False,
+        renew_tariff_id: int | None = None,
     ) -> Tariff:
         async with self._session_maker() as session:
             new_tariff = Tariff(
@@ -46,6 +87,8 @@ class TariffRepository:
                 data_limit_gb=data_limit_gb,
                 loyalty_price=loyalty_price,
                 is_highlighted=is_highlighted,
+                is_intro=is_intro,
+                renew_tariff_id=renew_tariff_id,
             )
             session.add(new_tariff)
             await session.commit()

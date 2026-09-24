@@ -2,10 +2,12 @@ from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
 from tgbot.states.tariff_states import TariffFSM
 from aiogram.types import Message, CallbackQuery
-from loader import logger
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from loader import logger, config
 
 from tgbot.filters.admin import IsAdmin
 from database import tariff_repo
+from tgbot.services.intro_offer import is_sellable_intro
 from tgbot.keyboards.inline import (tariffs_list_keyboard, single_tariff_manage_keyboard,
                                     confirm_delete_tariff_keyboard, cancel_fsm_keyboard,
                                     tariff_highlight_choice_keyboard)
@@ -26,6 +28,14 @@ async def show_tariff_card(call: CallbackQuery, tariff_id: int):
     limit_str = "Безлимит" if not tariff.data_limit_gb else f"{tariff.data_limit_gb} ГБ/мес."
     loyalty_str = f"{tariff.loyalty_price} RUB" if tariff.loyalty_price else "не задана"
     highlight_str = "⭐ да" if tariff.is_highlighted else "нет"
+    intro_str = "нет"
+    if tariff.is_intro:
+        renew = await tariff_repo.get_by_id(tariff.renew_tariff_id) if tariff.renew_tariff_id else None
+        intro_str = f"🎁 да → «{renew.name}» ({renew.price} RUB)" if renew else "🎁 да → тариф продления не выбран"
+        if not is_sellable_intro(tariff, await tariff_repo.get_by_id_map()):
+            intro_str += "\n⚠️ <i>Пользователям не показывается: нужен активный обычный тариф продления.</i>"
+        elif not config.yookassa.save_payment_method:
+            intro_str += "\n⚠️ <i>Не показывается: YOOKASSA_SAVE_PAYMENT_METHOD выключен.</i>"
     text = (
         f"<b>Управление тарифом:</b> «{tariff.name}»\n\n"
         f"<b>ID:</b> <code>{tariff.id}</code>\n"
@@ -34,10 +44,13 @@ async def show_tariff_card(call: CallbackQuery, tariff_id: int):
         f"<b>Лимит трафика:</b> {limit_str}\n"
         f"<b>Цена навсегда (лояльти):</b> {loyalty_str}\n"
         f"<b>Выбор большинства:</b> {highlight_str}\n"
+        f"<b>Вводный (пробная неделя):</b> {intro_str}\n"
         f"<b>Статус:</b> {status}"
     )
     await call.message.edit_text(
-        text, reply_markup=single_tariff_manage_keyboard(tariff.id, tariff.is_active, tariff.is_highlighted)
+        text, reply_markup=single_tariff_manage_keyboard(
+            tariff.id, tariff.is_active, tariff.is_highlighted, tariff.is_intro
+        )
     )
 
 
@@ -81,6 +94,52 @@ async def toggle_tariff_highlight(call: CallbackQuery):
         await show_tariff_card(call, tariff_id)
 
 
+# --- Вводный тариф: переключатель и тариф продления ---
+@admin_tariffs_router.callback_query(F.data.startswith("admin_toggle_intro_"))
+async def toggle_tariff_intro(call: CallbackQuery):
+    tariff_id = int(call.data.split("_")[3])
+    tariff = await tariff_repo.get_by_id(tariff_id)
+    if not tariff:
+        return
+    if not tariff.is_intro and await tariff_repo.is_referenced(tariff_id):
+        # На него продлеваются карты или другой вводный — вводным он быть не может.
+        await call.answer("Этот тариф — тариф продления. Вводным его сделать нельзя.", show_alert=True)
+        return
+    new_value = not tariff.is_intro
+    await tariff_repo.update_field(tariff_id, 'is_intro', new_value)
+    await call.answer("Тариф стал вводным" if new_value else "Тариф больше не вводный")
+    await show_tariff_card(call, tariff_id)
+
+
+@admin_tariffs_router.callback_query(F.data.startswith("admin_pick_renew_"))
+async def pick_renew_tariff(call: CallbackQuery):
+    tariff_id = int(call.data.split("_")[3])
+    builder = InlineKeyboardBuilder()
+    for t in await tariff_repo.get_active():  # только обычные активные
+        if t.id != tariff_id:
+            builder.button(text=f"{t.name} — {t.price} RUB / {t.duration_days} дн.",
+                           callback_data=f"admin_set_renew_{tariff_id}_{t.id}")
+    builder.button(text="⬅️ Назад", callback_data=f"admin_manage_tariff_{tariff_id}")
+    builder.adjust(1)
+    await call.message.edit_text(
+        "На какой тариф переводить после пробной недели? С карты спишется его обычная цена.",
+        reply_markup=builder.as_markup(),
+    )
+
+
+@admin_tariffs_router.callback_query(F.data.startswith("admin_set_renew_"))
+async def set_renew_tariff(call: CallbackQuery):
+    parts = call.data.split("_")  # ['admin', 'set', 'renew', '<id>', '<target>']
+    tariff_id, target_id = int(parts[3]), int(parts[4])
+    target = await tariff_repo.get_by_id(target_id)
+    if not target or target.is_intro or not target.is_active:
+        await call.answer("Этот тариф нельзя сделать тарифом продления.", show_alert=True)
+        return
+    await tariff_repo.update_field(tariff_id, 'renew_tariff_id', target_id)
+    await call.answer("Тариф продления сохранён")
+    await show_tariff_card(call, tariff_id)
+
+
 # --- Блок удаления тарифа ---
 @admin_tariffs_router.callback_query(F.data.startswith("admin_delete_tariff_"))
 async def delete_tariff_confirm(call: CallbackQuery):
@@ -93,7 +152,20 @@ async def delete_tariff_confirm(call: CallbackQuery):
 @admin_tariffs_router.callback_query(F.data.startswith("admin_confirm_delete_tariff_"))
 async def delete_tariff_finish(call: CallbackQuery):
     tariff_id = int(call.data.split("_")[4])
-    await tariff_repo.delete_by_id(tariff_id)
+    if await tariff_repo.is_referenced(tariff_id):
+        await call.answer(
+            "На этот тариф продлеваются карты или переходит вводный тариф — "
+            "удалить нельзя. Отключите его вместо удаления.",
+            show_alert=True,
+        )
+        return
+    try:
+        await tariff_repo.delete_by_id(tariff_id)
+    except Exception as e:
+        # По тарифу есть платежи (FK payments.tariff_id) — история важнее.
+        logger.warning(f"Не удалось удалить тариф {tariff_id}: {e}")
+        await call.answer("По тарифу есть платежи — удалить нельзя. Отключите его.", show_alert=True)
+        return
     await call.answer("Тариф успешно удален", show_alert=True)
     await tariffs_menu(call) # Возвращаемся к списку тарифов
 

@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 from test_stars_payment import _load_module
+from real_intro_offer import real_intro_offer
 
 
 def _config_stub():
@@ -62,6 +63,7 @@ def _load_inline_keyboards():
             "db": db_module,
             "tgbot": tgbot_module,
             "tgbot.services": services_module,
+            "tgbot.services.intro_offer": real_intro_offer(),
             "tgbot.services.pricing": pricing_module,
         },
     )
@@ -104,6 +106,7 @@ def load_device_slots_module():
             "tgbot.keyboards": keyboards_module,
             "tgbot.keyboards.inline": inline,
             "tgbot.services": services_module,
+            "tgbot.services.intro_offer": real_intro_offer(),
         },
     )
     return module, services_module

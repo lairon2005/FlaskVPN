@@ -85,16 +85,20 @@ class PromoCodeService:
                 f"или исчерпан (проиграна гонка try_claim)."
             )
 
-    async def release(self, user_id: int, promo: PromoCode) -> None:
+    async def is_claimed(self, user_id: int, promo: PromoCode) -> bool:
+        """Держит ли пользователь сейчас захват этого промокода (отметку использования)."""
+        return await self._promo_repo.has_user_used(user_id, promo.id)
+
+    async def release(self, user_id: int, promo: PromoCode) -> bool:
         """
         Компенсирующий откат apply(): вернуть захваченный промокод пользователю,
         если шаг после захвата не довёл сценарий до конца (например, не удалось
         показать тарифы со скидкой). Без этого попытка сгорает молча — повторное
         нажатие упрётся в «вы уже использовали этот промокод», хотя скидкой
         человек так и не воспользовался. Симметрично компенсации внутри
-        apply_bonus_days().
+        apply_bonus_days(). Возвращает True, если попытка действительно возвращена.
         """
-        await self._promo_repo.release_claim(user_id, promo)
+        return await self._promo_repo.release_claim(user_id, promo)
 
     async def apply_bonus_days(self, user_id: int, promo: PromoCode, subscription_service):
         """Применить промокод с бонусными днями: claim → extend, с компенсацией.

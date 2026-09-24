@@ -23,6 +23,7 @@ from tgbot.services import (
     device_service,
     device_slot_service,
     key_service,
+    payment_method_service,
     payment_service,
     profile_service,
     referral_service,
@@ -31,6 +32,8 @@ from tgbot.services import (
 from tgbot.services import support_service
 from tgbot.services.key_service import CODE_OK, REVOKE_NOTICES
 from tgbot.services.referral_service import REFERRAL_TRIAL_DAYS
+from tgbot.services.intro_offer import consent_text, conversion_price, is_in_intro
+from tgbot.services.pricing import effective_price
 from webapp.core.security import ACCESS_TOKEN_EXPIRE_MINUTES, create_access_token
 from webapp.core.support import (
     SupportValidationError,
@@ -79,6 +82,17 @@ async def _load_vpn_context(user_id: int) -> dict:
     }
 
 
+async def intro_consents(tariffs) -> dict[int, str]:
+    """Текст согласия для каждого вводного тарифа витрины: {tariff_id: текст}."""
+    result = {}
+    for t in tariffs:
+        if t.is_intro:
+            renew = await tariff_repo.get_by_id(t.renew_tariff_id)
+            if renew:
+                result[t.id] = consent_text(t, renew)
+    return result
+
+
 # --- Экраны ---
 
 @router.get("/", response_class=HTMLResponse)
@@ -123,12 +137,15 @@ async def tma_tariffs(request: Request, user: User | None = Depends(get_current_
     if not user:
         return _auth_splash(request)
 
-    tariffs_list = await tariff_repo.get_active()
+    tariffs_list = await tariff_repo.get_active_for_user(
+        user, allow_intro=config.yookassa.save_payment_method
+    )
     device_settings = await device_slot_service.settings()
     return templates.TemplateResponse("tma/tariffs.html", {
         "request": request,
         "user": user,
         "tariffs": tariffs_list,
+        "intro_consents": await intro_consents(tariffs_list),
         "device_settings": device_settings,
         # Степпер стартует с уже оплаченных слотов: иначе продление, в котором
         # человек не трогал счётчик, молча снесло бы его доп. устройства.
@@ -215,6 +232,52 @@ async def tma_devices_delete(request: Request, user: User | None = Depends(get_c
         await device_service.delete_device(user.user_id, key)
 
     return RedirectResponse(url="/tma/devices", status_code=303)
+
+
+@router.get("/card", response_class=HTMLResponse)
+async def tma_card(request: Request, user: User | None = Depends(get_current_user)):
+    """Сохранённая карта и автопродление — то же, что «💳 Моя карта» в боте.
+    Без этого экрана купивший пробную неделю в Mini App не мог бы отключить
+    автосписание, не выходя из приложения."""
+    if not user:
+        return _auth_splash(request)
+
+    card = await payment_method_service.get_card(user.user_id)
+    renew_tariff = None
+    renew_price = None
+    if card and card.renew_tariff_id:
+        renew_tariff = await tariff_repo.get_by_id(card.renew_tariff_id)
+        if renew_tariff:
+            renew_price = (
+                conversion_price(renew_tariff) if is_in_intro(user)
+                else effective_price(renew_tariff, user_has_active_sub=True)
+            )
+    return templates.TemplateResponse("tma/card.html", {
+        "request": request,
+        "user": user,
+        "card": card,
+        "renew_tariff": renew_tariff,
+        "renew_price": renew_price,
+        "in_intro": is_in_intro(user),
+        "title": "Моя карта",
+        "active_tab": "card",
+    })
+
+
+@router.post("/card/toggle-renew")
+async def tma_card_toggle(user: User | None = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    await payment_method_service.toggle_auto_renew(user.user_id)
+    return RedirectResponse(url="/tma/card", status_code=303)
+
+
+@router.post("/card/delete")
+async def tma_card_delete(user: User | None = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    await payment_method_service.delete_card(user.user_id)
+    return RedirectResponse(url="/tma/card", status_code=303)
 
 
 @router.post("/key/revoke")
@@ -336,7 +399,7 @@ async def create_stars_invoice(
     tariff = await tariff_repo.get_by_id(payload.tariff_id)
     if not tariff:
         raise HTTPException(status_code=404, detail="Тариф не найден")
-    if not tariff.price_stars:
+    if not tariff.price_stars or tariff.is_intro or not tariff.is_active:
         raise HTTPException(status_code=400, detail="Оплата Stars недоступна для этого тарифа")
 
     # payload инвойса: "stars:{tariff_id}:{user_id}" — распознаётся обработчиками

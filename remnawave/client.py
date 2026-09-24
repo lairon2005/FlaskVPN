@@ -68,6 +68,40 @@ _MAX_ERROR_BODY_LENGTH = 2048
 _USERS_PAGE_SIZE = 1000
 
 
+
+def _normalize_user(user: Any) -> Any:
+    """
+    Приводит объект пользователя панели к виду, который ждёт код бота.
+
+    Remnawave 3.x переименовала идентификатор пользователя `uuid` → `id`
+    (панель на server31 версии 2.8.x отдаёт старое имя). Вся остальная кодовая
+    база — БД, сервисы, хендлеры — знает его как uuid, поэтому расхождение
+    гасим здесь, в единственной точке входа ответов панели, а не правкой
+    двух десятков вызовов.
+
+    Идентификатор приводится к строке: в 3.x это целое число (1, 2, 3…), а
+    бот хранит его в колонке String(36) — asyncpg на int в varchar падает.
+    """
+    if isinstance(user, dict) and not user.get("uuid") and user.get("id") is not None:
+        user["uuid"] = str(user["id"])
+    return user
+
+
+
+def _panel_user_id(user_uuid: Any) -> Any:
+    """
+    Обратный перевод идентификатора для тела запроса.
+
+    В 3.x поля `id` и `userId` объявлены числом, а бот хранит идентификатор
+    строкой (колонка String(36)) — панель на строку отвечает HTTP 400.
+    Числовую строку возвращаем как int, всё остальное (UUID панели 2.8.x)
+    отдаём как есть.
+    """
+    if isinstance(user_uuid, str) and user_uuid.isdigit():
+        return int(user_uuid)
+    return user_uuid
+
+
 class RemnawaveError(Exception):
     """Базовая ошибка клиента Remnawave."""
 
@@ -592,7 +626,7 @@ class RemnawaveClient:
             payload["description"] = description
 
         resp = await self._request("POST", "/api/users", json=payload)
-        user = resp.get("response", resp)
+        user = _normalize_user(resp.get("response", resp))
         logger.info(
             "[remnawave] user created: username=%s uuid=%s squad=%s",
             username, user.get("uuid"), self._squad_uuid or "—",
@@ -612,7 +646,7 @@ class RemnawaveClient:
         """Возвращает пользователя по username или None если не найден."""
         try:
             resp = await self._request("GET", f"/api/users/by-username/{username}")
-            return resp.get("response", resp)
+            return _normalize_user(resp.get("response", resp))
         except RemnawaveAPIError as e:
             if e.status == 404:
                 return None
@@ -646,7 +680,8 @@ class RemnawaveClient:
         `база + слоты`, а при смене базы прогонять всех, у кого поле заполнено
         (это делает джоб sync_device_limits).
         """
-        payload: dict[str, Any] = {"uuid": user_uuid}
+        # 3.x принимает идентификатор в поле id (в 2.8.x было uuid)
+        payload: dict[str, Any] = {"id": _panel_user_id(user_uuid)}
         if expire_at is not None:
             payload["expireAt"] = expire_at
         if traffic_limit_bytes is not None:
@@ -657,7 +692,7 @@ class RemnawaveClient:
             payload["hwidDeviceLimit"] = hwid_device_limit
 
         resp = await self._request("PATCH", "/api/users", json=payload)
-        user = resp.get("response", resp)
+        user = _normalize_user(resp.get("response", resp))
         logger.info(
             "[remnawave] user updated: uuid=%s expire_at=%s traffic_limit_bytes=%s hwid_limit=%s",
             user_uuid, expire_at, traffic_limit_bytes, hwid_device_limit,
@@ -691,7 +726,7 @@ class RemnawaveClient:
             if not page:
                 break
 
-            users.extend(page)
+            users.extend(_normalize_user(u) for u in page)
             start += len(page)
 
             if total and start >= total:
@@ -702,12 +737,12 @@ class RemnawaveClient:
     async def disable_user(self, user_uuid: str) -> dict:
         """Деактивирует пользователя (без удаления)."""
         resp = await self._request("POST", f"/api/users/{user_uuid}/actions/disable")
-        return resp.get("response", resp)
+        return _normalize_user(resp.get("response", resp))
 
     async def enable_user(self, user_uuid: str) -> dict:
         """Активирует пользователя."""
         resp = await self._request("POST", f"/api/users/{user_uuid}/actions/enable")
-        return resp.get("response", resp)
+        return _normalize_user(resp.get("response", resp))
 
     async def reset_user_traffic(self, user_uuid: str) -> dict:
         """
@@ -742,7 +777,7 @@ class RemnawaveClient:
         смогут. Освобождать слоты нужно отдельно — delete_all_user_devices().
         """
         resp = await self._request("POST", f"/api/users/{user_uuid}/actions/revoke")
-        user = resp.get("response", resp)
+        user = _normalize_user(resp.get("response", resp))
         logger.info("[remnawave] subscription revoked: uuid=%s", user_uuid)
         return user
 
@@ -773,7 +808,7 @@ class RemnawaveClient:
         resp = await self._request(
             "POST",
             "/api/hwid/devices/delete",
-            json={"userUuid": user_uuid, "hwid": hwid},
+            json={"userId": _panel_user_id(user_uuid), "hwid": hwid},
         )
         logger.info("[remnawave] hwid device deleted: uuid=%s hwid=%s", user_uuid, hwid)
         return (resp.get("response") or {}).get("devices", [])
@@ -783,7 +818,7 @@ class RemnawaveClient:
         await self._request(
             "POST",
             "/api/hwid/devices/delete-all",
-            json={"userUuid": user_uuid},
+            json={"userId": _panel_user_id(user_uuid)},
             allow_empty=True,
         )
         logger.info("[remnawave] all hwid devices deleted: uuid=%s", user_uuid)

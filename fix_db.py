@@ -299,6 +299,40 @@ async def fix_database():
         """))
         print("  ✅ app_settings")
 
+        # ── 16. Вводный тариф (1 ₽ за неделю → автопродление) ────────────────
+        # tariffs.is_intro/renew_tariff_id — вводный тариф и на что он переходит;
+        # users.intro_used — вводный уже куплен (продаётся один раз);
+        # user_payment_methods.last_attempt_at — ретраи не чаще раза в сутки.
+        print("\n📋 Вводный тариф...")
+        await conn.execute(text(
+            "ALTER TABLE tariffs ADD COLUMN IF NOT EXISTS is_intro BOOLEAN NOT NULL DEFAULT FALSE;"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE tariffs ADD COLUMN IF NOT EXISTS renew_tariff_id BIGINT;"
+        ))
+        await conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'fk_tariffs_renew_tariff'
+                ) THEN
+                    ALTER TABLE tariffs ADD CONSTRAINT fk_tariffs_renew_tariff
+                        FOREIGN KEY (renew_tariff_id) REFERENCES tariffs(id) ON DELETE SET NULL;
+                END IF;
+            END $$;
+        """))
+        print("  ✅ tariffs.is_intro / tariffs.renew_tariff_id")
+
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS intro_used BOOLEAN NOT NULL DEFAULT FALSE;"
+        ))
+        print("  ✅ users.intro_used")
+
+        await conn.execute(text(
+            "ALTER TABLE user_payment_methods ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMP WITHOUT TIME ZONE;"
+        ))
+        print("  ✅ user_payment_methods.last_attempt_at")
+
     print("\n🎉 Миграция завершена успешно!")
 
 

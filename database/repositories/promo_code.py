@@ -96,27 +96,40 @@ class PromoCodeRepository:
             await session.commit()
             return True
 
-    async def release_claim(self, user_id: int, promo: PromoCode) -> None:
+    async def release_claim(self, user_id: int, promo: PromoCode) -> bool:
         """
         Компенсирующий откат try_claim(): вызывается, когда сам захват прошёл
         успешно, но последующее начисление (subscription_service.extend, поход
         в Remnawave) упало — например, ConnectTimeout панели (инцидент
-        2026-07-23, LOVEFLASKVPN). Возвращает попытку пользователю: удаляет
-        отметку использования и возвращает uses_left, одной транзакцией.
+        2026-07-23, LOVEFLASKVPN), либо счёт с промокодом отменён неоплаченным.
+        Возвращает попытку пользователю: удаляет отметку использования и
+        возвращает uses_left, одной транзакцией.
+
+        uses_left растёт, только если отметка действительно была: повторный
+        release (кнопка отмены + вебхук payment.canceled по тому же счёту) или
+        release по старому веб-счёту, созданному ещё без захвата, иначе
+        накручивал бы промокоду лишние использования. Возвращает True, если
+        попытка возвращена.
         """
         async with self._session_maker() as session:
-            await session.execute(
-                delete(UsedPromoCode).where(
+            deleted = await session.execute(
+                delete(UsedPromoCode)
+                .where(
                     UsedPromoCode.user_id == user_id,
                     UsedPromoCode.promo_code_id == promo.id,
                 )
+                .returning(UsedPromoCode.id)
             )
+            if deleted.first() is None:
+                await session.rollback()
+                return False
             await session.execute(
                 update(PromoCode)
                 .where(PromoCode.id == promo.id)
                 .values(uses_left=PromoCode.uses_left + 1)
             )
             await session.commit()
+            return True
 
     async def use(self, user_id: int, promo: PromoCode) -> bool:
         """

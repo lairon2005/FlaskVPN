@@ -8,6 +8,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardMarkup
 from db import Tariff, PromoCode, Channel
 from loader import config
 from tgbot.services.pricing import effective_price, format_quota
+from tgbot.services.intro_offer import format_rub
 
 
 # =============================================================================
@@ -109,10 +110,10 @@ def onboarding_subscribe_keyboard(channels: List[Channel]) -> InlineKeyboardMark
 
 
 def onboarding_download_app_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура для второго шага — скачать приложение Happ."""
+    """Клавиатура для второго шага — скачать приложение INCY."""
     builder = InlineKeyboardBuilder()
-    builder.button(text="📱 iOS (App Store)", url="https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643")
-    builder.button(text="🤖 Android (Google Play)", url="https://play.google.com/store/apps/details?id=com.happproxy")
+    builder.button(text="📱 iOS (App Store)", url="https://apps.apple.com/ru/app/incy/id6756943388")
+    builder.button(text="🤖 Android (Google Play)", url="https://play.google.com/store/apps/details?id=llc.itdev.incy")
     builder.button(text="➡️ Приложение установлено", callback_data="onboarding_app_installed")
     builder.adjust(2, 1)
     return builder.as_markup()
@@ -207,6 +208,13 @@ def tariffs_keyboard(
     """
     builder = InlineKeyboardBuilder()
     for tariff in tariffs:
+        if tariff.is_intro:
+            # Вводный: фиксированная цена, промокод и лоялти-цена к нему не применяются.
+            builder.button(
+                text=f"🎁 {tariff.name} — {format_rub(tariff.price)} ₽ за {tariff.duration_days} дн.",
+                callback_data=f"select_tariff_{tariff.id}",
+            )
+            continue
         base_price = effective_price(tariff, user_has_active_sub)
         is_loyalty = user_has_active_sub and bool(tariff.loyalty_price) and base_price == tariff.loyalty_price
 
@@ -262,7 +270,8 @@ def winback_survey_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def payment_method_choice_keyboard(tariff_id: int, slots: int = 0) -> InlineKeyboardMarkup:
+def payment_method_choice_keyboard(tariff_id: int, slots: int = 0,
+                                   back_callback: str | None = None) -> InlineKeyboardMarkup:
     """Выбор способа оплаты (карта / СБП) перед созданием платежа с автопродлением.
 
     `slots` — сколько доп. устройств выбрано на предыдущем шаге; едет в
@@ -271,7 +280,7 @@ def payment_method_choice_keyboard(tariff_id: int, slots: int = 0) -> InlineKeyb
     builder = InlineKeyboardBuilder()
     builder.button(text="💳 Банковская карта", callback_data=f"paymethod_card_{tariff_id}_{slots}")
     builder.button(text="🏦 СБП", callback_data=f"paymethod_sbp_{tariff_id}_{slots}")
-    builder.button(text="⬅️ Назад", callback_data=f"select_tariff_{tariff_id}")
+    builder.button(text="⬅️ Назад", callback_data=back_callback or f"select_tariff_{tariff_id}")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -456,10 +465,10 @@ def os_client_keyboard():
     """Создает клавиатуру со ссылками на рекомендованные клиенты для VLESS."""
     builder = InlineKeyboardBuilder()
     builder.button(text="👤 Мой профиль", callback_data="my_profile")
-    builder.button(text="🤖 Android (Happ)", url="https://play.google.com/store/apps/details?id=com.happproxy")
-    builder.button(text="🍏 iOS (Happ)", url="https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643")
-    builder.button(text="💻 Windows (Happ)", url="https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe")
-    builder.button(text="🍎 mac OS (Happ)", url="https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643")
+    builder.button(text="🤖 Android (INCY)", url="https://play.google.com/store/apps/details?id=llc.itdev.incy")
+    builder.button(text="🍏 iOS (INCY)", url="https://apps.apple.com/ru/app/incy/id6756943388")
+    builder.button(text="💻 Windows (INCY)", url="https://github.com/INCY-DEV/incy-platforms/releases/latest/download/incy-windows-setup.exe")
+    builder.button(text="🍎 mac OS (INCY)", url="https://apps.apple.com/ru/app/incy/id6756943388")
     builder.button(text="⬅️ Назад в главное меню", callback_data="back_to_main_menu")
     builder.adjust(1) # Располагаем кнопки по одной в ряд
     return builder.as_markup()
@@ -534,7 +543,7 @@ def tariffs_list_keyboard(tariffs: list[Tariff]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for tariff in tariffs:
         status_icon = "✅" if tariff.is_active else "❌"
-        star = "⭐ " if tariff.is_highlighted else ""
+        star = "🎁 " if tariff.is_intro else ("⭐ " if tariff.is_highlighted else "")
         builder.button(
             text=f"{status_icon} {star}{tariff.name} - {tariff.price} RUB",
             callback_data=f"admin_manage_tariff_{tariff.id}"
@@ -545,7 +554,8 @@ def tariffs_list_keyboard(tariffs: list[Tariff]) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def single_tariff_manage_keyboard(tariff_id: int, is_active: bool, is_highlighted: bool = False) -> InlineKeyboardMarkup:
+def single_tariff_manage_keyboard(tariff_id: int, is_active: bool, is_highlighted: bool = False,
+                                  is_intro: bool = False) -> InlineKeyboardMarkup:
     """Клавиатура для управления одним тарифом."""
     builder = InlineKeyboardBuilder()
     builder.button(text="✏️ Изменить название", callback_data=f"admin_edit_tariff_name_{tariff_id}")
@@ -556,6 +566,11 @@ def single_tariff_manage_keyboard(tariff_id: int, is_active: bool, is_highlighte
 
     highlight_text = "➖ Убрать «выбор большинства»" if is_highlighted else "⭐ Пометить «выбор большинства»"
     builder.button(text=highlight_text, callback_data=f"admin_toggle_highlight_{tariff_id}")
+
+    intro_text = "➖ Убрать «вводный»" if is_intro else "🎁 Сделать вводным (пробная неделя)"
+    builder.button(text=intro_text, callback_data=f"admin_toggle_intro_{tariff_id}")
+    if is_intro:
+        builder.button(text="🔁 Тариф продления", callback_data=f"admin_pick_renew_{tariff_id}")
 
     action_text, action_cb = ("❌ Отключить", "admin_toggle_tariff_") if is_active else ("✅ Включить", "admin_toggle_tariff_")
     builder.button(text=action_text, callback_data=f"{action_cb}{tariff_id}")

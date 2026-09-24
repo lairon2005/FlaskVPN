@@ -209,7 +209,8 @@ Alembic не используется. Таблицы создаются `Base.m
 | `lifecycle_activation_drip` | 10:30 | Lifecycle: дожим неактивированных |
 | `award_referral_leaderboard` | 1-го числа, 09:00 | Приз победителю реферального лидерборда |
 | `sync_device_limits` | каждый час в :20 | Сверка лимитов устройств (см. ниже) |
-| `cancel_stale_payments` | каждые 15 мин | Гасит `pending` старше 60 мин (`PENDING_PAYMENT_TTL_MINUTES`) |
+| `cancel_stale_payments` | каждые 15 мин | Гасит `pending` старше 60 мин (`PENDING_PAYMENT_TTL_MINUTES`); автосписания (`source='auto'`) — только старше суток |
+| `convert_intro_subscriptions` | каждый час в :05 | Переход с пробной недели на тариф продления в день окончания (см. «Вводный тариф») |
 
 ### Режимы бота
 
@@ -265,3 +266,28 @@ subscription-settings; как только записано персональн
    записанные устройства переживают снижение лимита, поэтому без чистки схема
    «купил 5 слотов на месяц, привязал 10 устройств, перестал платить» работала бы
    вечно.
+
+## Вводный тариф (пробная неделя за 1 ₽ → автопродление)
+
+Новичок платит символическую сумму за короткий срок с обязательным сохранением
+карты; в день окончания с карты списывается обычная цена тарифа продления.
+Правила — чистые функции в `tgbot/services/intro_offer.py`.
+
+| Правило | Как реализовано |
+|---|---|
+| Настройка | Админка → тариф → «🎁 Сделать вводным» + «🔁 Тариф продления» (`Tariff.is_intro`, `Tariff.renew_tariff_id`). Без активного обычного тарифа продления вводный никому не показывается |
+| Кому | Только тем, кто ни разу не платил и не брал вводный (`is_intro_eligible`); бесплатный триал живёт отдельно |
+| Витрина | `tariff_repo.get_active_for_user(user, allow_intro=config.yookassa.save_payment_method)` — вводный первым. `get_active()` вводный **не возвращает** (он не может быть тарифом продления) |
+| Проверка | `intro_block_reason` в `select_tariff_`/`tpay_`/`paymethod_` бота и в `POST /payment/create` — витрину можно обойти старой кнопкой |
+| Оформление | Без промокода, без доп. устройств, без Stars; карта сохраняется всегда; текст согласия — `consent_text()` |
+| Оплата 1 ₽ | `User.intro_used=True`; **не** первая оплата: `is_first_payment_made` и бонус рефереру появятся при списании полной цены. Карта сохраняется с `renew_tariff_id` тарифа продления |
+| «На пробной неделе» | `intro_used AND NOT is_first_payment_made` (`is_in_intro`) — отдельного статуса нет |
+| Переход | Джоб `convert_intro_subscriptions` (почасовой, окно — ≤1 ч до конца). Обычный `auto_renew_subscriptions` (за 3 дня) таких не берёт. Цена — `renew_tariff.price`, не лоялти (`conversion_price`) |
+| Отказ карты | Повтор раз в сутки (`UserPaymentMethod.last_attempt_at`), до 3 попыток; уведомление после каждого отказа (`scheduler.handle_renewal_failure`, его же зовёт вебхук `payment.canceled` для `source='auto'`) |
+| Напоминание | Lifecycle D-1: «завтра спишем N ₽ с карты *1234»; D-3 и 7-дневный нудж для включённого автопродления не шлются |
+| Управление картой | Бот «💳 Моя карта», веб `/profile/card/*`, Mini App `/tma/card` |
+| Статистика | `/admin` → «Пробная неделя»: куплено / перешли / на пробной / отвалились (`stats_repo.get_intro_funnel`) |
+
+**Данные:** `Tariff.is_intro`, `Tariff.renew_tariff_id`, `User.intro_used`,
+`UserPaymentMethod.last_attempt_at` — миграция `fix_db.py`, секция 16.
+Юр. условия — `legal/refund.html` §3, §5 и `legal/offer.html` §4.

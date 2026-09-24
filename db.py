@@ -67,6 +67,12 @@ class User(Base):
     # лимит навсегда отвязывается от глобального fallbackDeviceLimit.
     extra_devices: Mapped[int] = mapped_column(Integer, default=0, server_default='0', nullable=False)
 
+    # Вводный тариф (1 ₽ за неделю) уже оплачен — повторно не продаётся.
+    # «В intro-периоде» = intro_used AND NOT is_first_payment_made: 1 ₽ первой
+    # оплатой не считается, флаг первой оплаты ставит только списание полной
+    # цены при переходе на тариф продления (см. tgbot/services/intro_offer.py).
+    intro_used: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false', nullable=False)
+
 class Tariff(Base):
     __tablename__ = 'tariffs'
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -83,6 +89,14 @@ class Tariff(Base):
     # Цена в Telegram Stars (XTR), docs/tma-roadmap.md фаза 3.2. NULL → оплата
     # Stars для этого тарифа недоступна (кнопка "⭐" не показывается в tariffs.html).
     price_stars: Mapped[int] = mapped_column(Integer, nullable=True)
+
+    # Вводный тариф: продаётся один раз тем, кто ещё не платил, только с
+    # сохранением карты; по истечении срока карта автоматически списывается
+    # за renew_tariff_id. Без renew_tariff_id пользователям не показывается.
+    is_intro: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false', nullable=False)
+    renew_tariff_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey('tariffs.id', ondelete='SET NULL'), nullable=True
+    )
 
 class PromoCode(Base):
     __tablename__ = 'promo_codes'
@@ -155,6 +169,9 @@ class UserPaymentMethod(Base):
     renew_tariff_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('tariffs.id'), nullable=True)
     fail_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+    # Время последней попытки автосписания. Переход с вводного тарифа идёт
+    # почасовым джобом — без этой отметки отказ карты повторялся бы каждый час.
+    last_attempt_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
 
 
 class LifecycleMessage(Base):

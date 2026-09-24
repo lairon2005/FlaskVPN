@@ -18,6 +18,7 @@ from tgbot.services.promo_code_service import PromoClaimError
 from tgbot.promo import get_promo_reward
 from tgbot.services.pricing import effective_price, format_quota
 from tgbot.services.device_pricing import build_checkout, receipt_items
+from tgbot.services.intro_offer import intro_block_reason, consent_text
 from tgbot.handlers.user.profile import show_profile_logic
 from tgbot.keyboards.inline import (
     cancel_fsm_keyboard,
@@ -47,7 +48,10 @@ async def show_tariffs_logic(event: Message | CallbackQuery, state: FSMContext):
     fsm_data = await state.get_data()
     discount = fsm_data.get("discount")
 
-    active_tariffs = await tariff_repo.get_active()
+    user = await user_repo.get(event.from_user.id)
+    active_tariffs = await tariff_repo.get_active_for_user(
+        user, allow_intro=config.yookassa.save_payment_method
+    )
     tariffs_list = list(active_tariffs) if active_tariffs else []
 
     user_has_active_sub = await _user_has_active_sub(event.from_user.id)
@@ -304,6 +308,32 @@ async def _show_pending_invoice(call: CallbackQuery, pending) -> None:
     await call.message.edit_text("".join(lines), reply_markup=kb.as_markup())
 
 
+async def _check_tariff_available(call: CallbackQuery, tariff) -> bool:
+    """Серверная проверка перед оформлением: скрытый тариф или вводный не по
+    адресу можно открыть старой кнопкой, минуя витрину. False — показан отказ."""
+    user = await user_repo.get(call.from_user.id)
+    reason = intro_block_reason(tariff, user, await tariff_repo.get_by_id_map())
+    if reason is None and tariff.is_intro and not config.yookassa.save_payment_method:
+        reason = "Тариф временно недоступен."
+    if reason is None:
+        return True
+    kb = InlineKeyboardBuilder()
+    kb.button(text="💎 К тарифам", callback_data="buy_subscription")
+    await call.message.edit_text(f"❌ {reason}\n\nВыберите другой тариф.", reply_markup=kb.as_markup())
+    return False
+
+
+async def _show_intro_checkout(call: CallbackQuery, tariff) -> None:
+    """Вводный тариф: без шага устройств и промокода — сразу согласие и способ оплаты."""
+    renew_tariff = await tariff_repo.get_by_id(tariff.renew_tariff_id)
+    await call.message.edit_text(
+        f"🎁 <b>{tariff.name}</b>\n\n"
+        f"{consent_text(tariff, renew_tariff)}\n\n"
+        "Выберите способ оплаты — он сохранится для автопродления.",
+        reply_markup=payment_method_choice_keyboard(tariff.id, 0, back_callback="buy_subscription"),
+    )
+
+
 def _compute_price(
     tariff, discount_percent: int | None, promo_code: str | None,
     user_has_active_sub: bool = False,
@@ -347,9 +377,31 @@ async def _create_and_send_payment(
     promo_code = fsm_data.get("promo_code")
     user_has_active_sub = await _user_has_active_sub(user_id)
 
+    if tariff.is_intro:
+        # Вводный тариф: цена фиксированная, промокод остаётся в FSM на потом,
+        # доп. устройства на пробной неделе не продаются.
+        discount_percent, promo_code, slots, user_has_active_sub = None, None, 0, False
+
+    # Скидка в FSM переживает отмену счёта, а промокод при отмене возвращается
+    # (payment_service._release_promo) — поэтому перед новым счётом убеждаемся,
+    # что промокод снова за этим пользователем, иначе скидка вышла бы бесплатной.
+    dropped_promo = None
+    if promo_code:
+        promo = await payment_service.hold_promo(user_id, promo_code)
+        if promo is None:
+            dropped_promo, discount_percent, promo_code = promo_code, None, None
+            await state.update_data(discount=None, promo_code=None)
+        else:
+            discount_percent = promo.discount_percent
+
     original_price, final_price, price_text = _compute_price(
         tariff, discount_percent, promo_code, user_has_active_sub
     )
+    if dropped_promo:
+        price_text = (
+            f"{price_text}\n⚠️ Промокод <code>{dropped_promo}</code> больше не действует, "
+            "счёт выставлен без скидки."
+        )
 
     device_settings = await device_slot_service.settings()
     checkout = build_checkout(
@@ -418,7 +470,10 @@ async def _create_and_send_payment(
     payment_kb.adjust(1)
 
     auto_note = ""
-    if save_card:
+    if tariff.is_intro:
+        renew_tariff = await tariff_repo.get_by_id(tariff.renew_tariff_id)
+        auto_note = f"\n\n♻️ {consent_text(tariff, renew_tariff)}"
+    elif save_card:
         auto_note = (
             "\n\n♻️ После оплаты способ оплаты сохранится, и подписка будет "
             "продлеваться автоматически. Отключить автопродление можно в любой "
@@ -493,10 +548,17 @@ async def select_tariff_handler(call: CallbackQuery, state: FSMContext, bot: Bot
         await call.message.edit_text("Ошибка! Тариф не найден.", reply_markup=back_to_main_menu_keyboard())
         return
 
+    if not await _check_tariff_available(call, tariff):
+        return
+
     # Проверка на дубликат pending-платежа
     pending = await payment_service.get_pending_payment(user_id)
     if pending:
         await _show_pending_invoice(call, pending)
+        return
+
+    if tariff.is_intro:
+        await _show_intro_checkout(call, tariff)
         return
 
     # Дефолт — то, за сколько слотов человек уже платит: при продлении они
@@ -521,6 +583,11 @@ async def change_tariff_slots_handler(call: CallbackQuery, state: FSMContext):
         await call.message.edit_text("Ошибка! Тариф не найден.", reply_markup=back_to_main_menu_keyboard())
         return
 
+    if tariff.is_intro:
+        if await _check_tariff_available(call, tariff):
+            await _show_intro_checkout(call, tariff)
+        return
+
     await _show_slots_step(call, state, tariff, slots)
 
 
@@ -541,9 +608,16 @@ async def tariff_to_payment_handler(call: CallbackQuery, state: FSMContext, bot:
         await call.message.edit_text("Ошибка! Тариф не найден.", reply_markup=back_to_main_menu_keyboard())
         return
 
+    if not await _check_tariff_available(call, tariff):
+        return
+
     pending = await payment_service.get_pending_payment(user_id)
     if pending:
         await _show_pending_invoice(call, pending)
+        return
+
+    if tariff.is_intro:
+        await _show_intro_checkout(call, tariff)
         return
 
     # Автопродление включено → шаг выбора способа оплаты
@@ -599,6 +673,9 @@ async def select_payment_method_handler(call: CallbackQuery, state: FSMContext, 
     tariff = await tariff_repo.get_by_id(tariff_id)
     if not tariff:
         await call.message.edit_text("Ошибка! Тариф не найден.", reply_markup=back_to_main_menu_keyboard())
+        return
+
+    if not await _check_tariff_available(call, tariff):
         return
 
     # Повторная защита от дубликата (могли создать счёт в другой вкладке)

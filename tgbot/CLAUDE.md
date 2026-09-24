@@ -29,8 +29,8 @@ tgbot/
 | `process_start_command` | `/start` | Регистрирует нового / показывает меню существующему; запускает онбординг для новых |
 | `_start_onboarding` | вызывается из `process_start_command` | Показывает список каналов для подписки (шаг 1 онбординга) |
 | `onboarding_check_subscription` | `onboarding_check_sub` | Проверяет подписку на каналы → активирует триал → шаг 2 |
-| `_activate_and_show_download` | вызывается из онбординга | Активирует триал/реферальный бонус, показывает скачивание Happ |
-| `onboarding_app_installed` | `onboarding_app_installed` | Шаг 3 онбординга: показывает импорт-ссылку в Happ |
+| `_activate_and_show_download` | вызывается из онбординга | Активирует триал/реферальный бонус, показывает скачивание INCY |
+| `onboarding_app_installed` | `onboarding_app_installed` | Шаг 3 онбординга: показывает импорт-ссылку в INCY |
 | `show_referral_info` | вызывается из хендлеров | Формирует реферальную ссылку и статистику |
 | `referral_command_handler` | `/referral` | → `show_referral_info` |
 | `referral_program_handler` | `referral_program` | → `show_referral_info` |
@@ -56,7 +56,7 @@ tgbot/
 | `show_profile_logic(event, remnawave, bot)` | вызывается из payment.py и webhook_handlers | Показывает профиль с QR-кодом и sub_url; используется после оплаты. `remnawave: RemnawaveClient` приезжает из workflow data диспетчера (`Dispatcher(remnawave=...)`), в вебхуках — из `request.app['remnawave']` |
 | `profile_command_handler` | `/profile` | → `show_profile_logic` |
 | `my_profile_callback_handler` | `my_profile` | → `show_profile_logic` |
-| `my_keys_handler` | `my_keys` | Показывает sub_url для копирования + кнопку импорта в Happ |
+| `my_keys_handler` | `my_keys` | Показывает sub_url для копирования + кнопку импорта в INCY |
 | `my_payments_handler` | `my_payments` | История последних 10 платежей пользователя |
 
 **`my_keys_handler`** — упрощённый экран: берёт `subscription_url` из Remnawave через `profile_service` (уже полный URL) и показывает `keys_screen_keyboard(full_sub_url)` — кнопка ведёт на sub-страницу панели.
@@ -326,7 +326,7 @@ full_sub_url = connection.subscription_url
 ### Кнопка подключения
 ```python
 # Ведём прямо на subscription_url — Remnawave отдаёт по нему sub-страницу
-# с импортом под каждое приложение. happ:// deeplink и хелперы utils/url.py
+# с импортом под каждое приложение. incy:// deeplink и хелперы utils/url.py
 # удалены; статическая страница /import в nginx осталась только для старых ссылок.
 keys_screen_keyboard(full_sub_url)
 ```

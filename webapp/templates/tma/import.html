@@ -45,7 +45,7 @@
                 <span class="w-8 h-8 shrink-0 rounded-xl bg-sky-soft text-blue font-display font-black
                              text-sm grid place-items-center" aria-hidden="true">1</span>
                 <div class="min-w-0">
-                    <h3 class="font-display font-extrabold text-sm">Скачайте приложение Happ</h3>
+                    <h3 class="font-display font-extrabold text-sm">Скачайте приложение INCY</h3>
                     <p class="text-xs text-muted" id="appDescription">Определяем устройство…</p>
                     <a href="#" id="downloadBtn" target="_blank" rel="noopener"
                        class="btn-pop btn-pop-outline mt-2 !min-h-[44px] !py-2 !px-4 text-sm">
@@ -53,11 +53,11 @@
                         <span id="btnText">Скачать</span>
                     </a>
                     <div class="mt-2 flex flex-wrap gap-2">
-                        <a href="https://play.google.com/store/apps/details?id=com.happproxy" target="_blank" rel="noopener"
+                        <a href="https://play.google.com/store/apps/details?id=llc.itdev.incy" target="_blank" rel="noopener"
                            class="btn-pop btn-pop-outline !min-h-[36px] !py-1.5 !px-3 text-xs">Android</a>
-                        <a href="https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643" target="_blank" rel="noopener"
+                        <a href="https://apps.apple.com/ru/app/incy/id6756943388" target="_blank" rel="noopener"
                            class="btn-pop btn-pop-outline !min-h-[36px] !py-1.5 !px-3 text-xs">iOS / macOS</a>
-                        <a href="https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe" target="_blank" rel="noopener"
+                        <a href="https://github.com/INCY-DEV/incy-platforms/releases/latest/download/incy-windows-setup.exe" target="_blank" rel="noopener"
                            class="btn-pop btn-pop-outline !min-h-[36px] !py-1.5 !px-3 text-xs">Windows</a>
                     </div>
                 </div>
@@ -77,10 +77,10 @@
                              text-sm grid place-items-center" aria-hidden="true">3</span>
                 <div>
                     <h3 class="font-display font-extrabold text-sm">Подключитесь одной кнопкой</h3>
-                    <p class="text-xs text-muted">На странице подписки выберите приложение — Happ сам добавит ключ</p>
+                    <p class="text-xs text-muted">На странице подписки выберите приложение — INCY сам добавит ключ</p>
                     {# Открываем через Telegram.WebApp.openLink (tma.js::initOpenSubLink):
                        sub-страница Remnawave должна открыться браузером, иначе её
-                       happ:// deeplink не сработает внутри webview Mini App. #}
+                       incy:// deeplink не сработает внутри webview Mini App. #}
                     <button type="button" class="btn-pop mt-2 !min-h-[44px] !py-2 !px-4 text-sm"
                             id="tmaOpenSubBtn" data-sub-link="{{ sub_link }}">
                         {{ ic.icon('zap', 'w-4 h-4') }} Открыть страницу подписки

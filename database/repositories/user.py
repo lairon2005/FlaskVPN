@@ -101,6 +101,12 @@ class UserRepository:
             await session.execute(stmt)
             await session.commit()
 
+    async def set_intro_used(self, user_id: int):
+        async with self._session_maker() as session:
+            stmt = update(User).where(User.user_id == user_id).values(intro_used=True)
+            await session.execute(stmt)
+            await session.commit()
+
     async def set_extra_devices(self, user_id: int, count: int) -> None:
         """Устанавливает количество оплаченных доп. слотов устройств (абсолютное значение)."""
         async with self._session_maker() as session:
@@ -257,6 +263,9 @@ class UserRepository:
             threshold = datetime.now() - timedelta(days=days_ago)
             stmt = select(User).where(
                 User.is_first_payment_made == False,
+                # Купившие вводный тариф — уже клиенты на пробной неделе:
+                # «3 дня бесплатно» и прочий дожим им не по адресу.
+                User.intro_used == False,
                 User.reg_date <= threshold,
                 User.is_active == True,
                 User.user_id > 0,

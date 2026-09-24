@@ -224,7 +224,7 @@ async def _activate_and_show_download(event: Message | CallbackQuery, bot: Bot,
     # Показываем шаг 2: скачивание приложения (только при успешной активации)
     text = (
         f"🎉 <b>Поздравляем!</b> Вам предоставлен пробный период на <b>{trial_days} {_days_word(trial_days)}</b>.\n\n"
-        "📲 <b>Шаг 1:</b> Скачайте приложение <b>Happ</b> для вашего устройства:"
+        "📲 <b>Шаг 1:</b> Скачайте приложение <b>INCY</b> для вашего устройства:"
     )
 
     if isinstance(event, CallbackQuery):
@@ -267,7 +267,7 @@ async def onboarding_app_installed(call: CallbackQuery, bot: Bot):
         text = (
             "📲 <b>Шаг 2:</b> Подключите VPN\n\n"
             "Откройте страницу подписки по кнопке ниже и выберите своё приложение — "
-            "подписка добавится в <b>Happ</b> автоматически.\n\n"
+            "подписка добавится в <b>INCY</b> автоматически.\n\n"
             "После подключения вы сможете пользоваться VPN!"
         )
         await replace_message_text(

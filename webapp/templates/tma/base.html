@@ -48,7 +48,7 @@
         {{ ic.icon('tag', 'w-5 h-5') }}<span>Тарифы</span>
     </a>
     <button type="button" id="tmaMoreBtn"
-            class="tma-tab {% if active_tab in ('referral', 'history', 'support', 'devices') %}active{% endif %}"
+            class="tma-tab {% if active_tab in ('referral', 'history', 'support', 'devices', 'card') %}active{% endif %}"
             aria-haspopup="true" aria-expanded="false" aria-controls="tmaSheet">
         {{ ic.icon('dots', 'w-5 h-5') }}<span>Ещё</span>
     </button>
@@ -60,6 +60,7 @@
     <div class="tma-sheet-handle"></div>
     <a href="/tma/referral" class="tma-sheet-item">{{ ic.icon('gift', 'w-5 h-5') }} Реферальная программа</a>
     <a href="/tma/devices" class="tma-sheet-item">{{ ic.icon('devices', 'w-5 h-5') }} Мои устройства</a>
+    <a href="/tma/card" class="tma-sheet-item">{{ ic.icon('card', 'w-5 h-5') }} Моя карта</a>
     <a href="/tma/history" class="tma-sheet-item">{{ ic.icon('receipt', 'w-5 h-5') }} История платежей</a>
     <a href="/tma/support" class="tma-sheet-item">{{ ic.icon('help', 'w-5 h-5') }} Поддержка</a>
 </div>

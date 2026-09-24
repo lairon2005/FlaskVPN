@@ -111,11 +111,11 @@
                             <span id="btnText">Скачать</span>
                         </a>
                         <div class="mt-3 flex flex-wrap gap-2">
-                            <a href="https://play.google.com/store/apps/details?id=com.happproxy" target="_blank" rel="noopener"
+                            <a href="https://play.google.com/store/apps/details?id=llc.itdev.incy" target="_blank" rel="noopener"
                                class="btn-pop btn-pop-outline !min-h-0 !py-1.5 !px-3 text-xs">Android</a>
-                            <a href="https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643" target="_blank" rel="noopener"
+                            <a href="https://apps.apple.com/ru/app/incy/id6756943388" target="_blank" rel="noopener"
                                class="btn-pop btn-pop-outline !min-h-0 !py-1.5 !px-3 text-xs">iOS / macOS</a>
-                            <a href="https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe" target="_blank" rel="noopener"
+                            <a href="https://github.com/INCY-DEV/incy-platforms/releases/latest/download/incy-windows-setup.exe" target="_blank" rel="noopener"
                                class="btn-pop btn-pop-outline !min-h-0 !py-1.5 !px-3 text-xs">Windows</a>
                         </div>
                     </div>
@@ -437,6 +437,26 @@
 
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 items-start" id="tariffCards">
             {% for tariff in tariffs %}
+                {% if tariff.is_intro %}
+                {# Вводный тариф: цена фиксированная — без data-tariff-price и .tariff-price, #}
+                {# чтобы промокод и счётчик устройств её не пересчитывали. #}
+                <div class="tariff-card sticker p-5 flex flex-col relative border-[3px] border-orange">
+                    <span class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full
+                                 bg-orange text-paper font-display font-extrabold text-[0.7rem] whitespace-nowrap">
+                        Пробная неделя
+                    </span>
+                    <h3 class="font-display font-extrabold text-center">{{ tariff.name }}</h3>
+                    <p class="mt-3 text-center font-display font-black text-4xl text-blue tabular-nums">
+                        {{ tariff.price | int }}<span class="text-[0.5em]"> ₽</span>
+                    </p>
+                    <p class="mt-3 text-xs text-muted text-center">{{ (intro_consents or {}).get(tariff.id, '') }}</p>
+                    <button type="button" onclick="initPayment('{{ tariff.name }}', '{{ tariff.price | int }}', this)"
+                            data-tariff-id="{{ tariff.id }}" data-intro="1"
+                            class="btn-pop mt-5 w-full">
+                        <span class="btn-text">Попробовать</span>
+                    </button>
+                </div>
+                {% else %}
                 {% set is_popular = tariff.is_highlighted %}
                 <div class="tariff-card sticker p-5 flex flex-col relative
                             {% if is_popular %}border-[3px] border-orange{% endif %}"
@@ -470,10 +490,12 @@
                     </ul>
 
                     <button type="button" onclick="initPayment('{{ tariff.name }}', '{{ tariff.price | int }}', this)"
+                            data-tariff-id="{{ tariff.id }}"
                             class="btn-pop mt-5 w-full {% if not is_popular %}btn-pop-outline{% endif %}">
                         <span class="btn-text">Купить</span>
                     </button>
                 </div>
+                {% endif %}
             {% endfor %}
         </div>
         {% else %}

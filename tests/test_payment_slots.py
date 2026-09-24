@@ -15,7 +15,8 @@ from test_stars_payment import load_payment_service_module
 
 def _tariff(**overrides):
     defaults = {"id": 5, "name": "Три месяца", "duration_days": 90,
-                "data_limit_gb": None, "price": 399, "loyalty_price": None}
+                "data_limit_gb": None, "price": 399, "loyalty_price": None,
+                "is_active": True, "is_intro": False, "renew_tariff_id": None}
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 

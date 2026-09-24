@@ -11,6 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.methods import DeleteMessage
 
 from tgbot.promo import get_promo_reward
+from real_intro_offer import real_intro_offer
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -214,6 +215,7 @@ def load_payment_handlers_module():
         "tgbot": tgbot_module,
         "tgbot.promo": tgbot_promo_module,
         "tgbot.services": tgbot_services_module,
+        "tgbot.services.intro_offer": real_intro_offer(),
         "tgbot.services.promo_code_service": promo_code_service_module,
         "tgbot.services.pricing": tgbot_services_pricing_module,
         "tgbot.services.device_pricing": device_pricing_module,
@@ -344,7 +346,7 @@ class BroadcastPromoOnPhotoMessageTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_discount_button_on_photo_message_falls_back_to_new_message(self):
         module, deps = load_payment_handlers_module()
-        deps.tariff_repo.get_active.return_value = [SimpleNamespace(id=1, name="Месяц")]
+        deps.tariff_repo.get_active_for_user.return_value = [SimpleNamespace(id=1, name="Месяц", is_intro=False)]
         deps.user_repo.get.return_value = None
         deps.promo_service.validate.return_value = SimpleNamespace(
             is_valid=True,
@@ -370,7 +372,7 @@ class BroadcastPromoOnPhotoMessageTests(unittest.IsolatedAsyncioTestCase):
         module, deps = load_payment_handlers_module()
         # Настоящий сбой уже ПОСЛЕ захвата промокода (в инциденте это был
         # edit_text по caption-сообщению).
-        deps.tariff_repo.get_active.side_effect = RuntimeError("db is down")
+        deps.tariff_repo.get_active_for_user.side_effect = RuntimeError("db is down")
         deps.user_repo.get.return_value = None
         promo = SimpleNamespace(id=6, code="AUGUST", bonus_days=0, discount_percent=15)
         deps.promo_service.validate.return_value = SimpleNamespace(is_valid=True, promo=promo)

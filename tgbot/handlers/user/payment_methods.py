@@ -10,9 +10,10 @@ from tgbot.keyboards.inline import (
     renew_tariff_select_keyboard,
     back_to_main_menu_keyboard,
 )
-from database import tariff_repo
+from database import tariff_repo, user_repo
 from tgbot.services import payment_method_service
 from tgbot.services.pricing import effective_price
+from tgbot.services.intro_offer import is_in_intro, conversion_price
 
 payment_methods_router = Router()
 
@@ -45,9 +46,14 @@ async def _show_card(call: CallbackQuery) -> None:
             card_line = f"{card.card_type or 'Карта'} •••• {card.card_last4 or '——'}"
 
         renew_tariff = await tariff_repo.get_by_id(card.renew_tariff_id) if card.renew_tariff_id else None
+        in_intro = is_in_intro(await user_repo.get(user_id))
         if renew_tariff:
-            # Автопродление — по определению непрерывное продление, показываем лоялти-цену
-            renew_price = effective_price(renew_tariff, user_has_active_sub=True)
+            # Автопродление — по определению непрерывное продление, показываем лоялти-цену.
+            # После пробной недели — обычную цену: её обещали в согласии.
+            if in_intro:
+                renew_price = conversion_price(renew_tariff)
+            else:
+                renew_price = effective_price(renew_tariff, user_has_active_sub=True)
             renew_tariff_line = f"{renew_tariff.name} — {renew_price} RUB"
         else:
             renew_tariff_line = "не выбран"
@@ -58,7 +64,11 @@ async def _show_card(call: CallbackQuery) -> None:
             f"Карта: <b>{card_line}</b>\n"
             f"Автопродление: {renew_status}\n"
             f"Тариф продления: <b>{renew_tariff_line}</b>\n\n"
-            "Подписка будет автоматически продлена за 3 дня до окончания."
+            + (
+                "Списание — в день окончания пробной недели, напомним за сутки."
+                if in_intro else
+                "Подписка будет автоматически продлена за 3 дня до окончания."
+            )
         )
         reply_markup = payment_method_keyboard(card.auto_renew_enabled)
 
@@ -113,7 +123,7 @@ async def pm_set_tariff_handler(call: CallbackQuery) -> None:
     tariff_id = int(call.data.split("_")[3])
 
     tariff = await tariff_repo.get_by_id(tariff_id)
-    if not tariff or not tariff.is_active:
+    if not tariff or not tariff.is_active or tariff.is_intro:
         await call.answer("Тариф недоступен.", show_alert=True)
         return
 

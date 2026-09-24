@@ -31,6 +31,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from test_stars_payment import _load_module, load_payment_service_module
 from test_payment_repository import load_payment_repository_module
+from real_intro_offer import real_intro_offer
 
 
 def _payment(**overrides):
@@ -63,7 +64,7 @@ def _service(module, payment_repo):
             set_first_payment_done=AsyncMock(),
         ),
         tariff_repo=SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(
-            id=5, name="Три месяца", duration_days=90, data_limit_gb=None,
+            id=5, name="Три месяца", duration_days=90, data_limit_gb=None, is_active=True, is_intro=False,
         ))),
         payment_repo=payment_repo,
     )
@@ -275,6 +276,7 @@ def _scheduler_stubs():
         "tgbot.keyboards": keyboards_pkg,
         "tgbot.keyboards.inline": keyboards_module,
         "tgbot.services": tgbot_services_module,
+        "tgbot.services.intro_offer": real_intro_offer(),
         "tgbot.services.utils": services_utils_module,
         "utils": utils_module,
         "loader": loader_module,

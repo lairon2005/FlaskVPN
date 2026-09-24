@@ -5,6 +5,7 @@ import os
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
+from types import SimpleNamespace
 
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -16,11 +17,12 @@ from db import User
 from webapp.routers import auth, dashboard, legal, payment, tma
 from webapp.dependencies import get_current_user
 from webapp.templating import templates
-from loader import logger, remnawave_client, shutdown_logging
+from loader import logger, remnawave_client, shutdown_logging, config
 from typing import Optional
 from db import Tariff
 from database import tariff_repo
 from tgbot.services import device_slot_service
+from webapp.routers.tma import intro_consents
 
 
 
@@ -67,7 +69,12 @@ app.include_router(tma.router)
 async def read_root(request: Request, user: User = Depends(get_current_user)):
     if user:
         return RedirectResponse(url="/profile/", status_code=302)
-    tariffs = await tariff_repo.get_active()
+    # Гость — потенциально новый клиент: вводный тариф показываем как новичку.
+    # Право на него всё равно проверит /payment/create после входа.
+    guest = SimpleNamespace(is_first_payment_made=False, intro_used=False)
+    tariffs = await tariff_repo.get_active_for_user(
+        guest, allow_intro=config.yookassa.save_payment_method
+    )
     # Базовый лимит устройств правится из админки — на лендинге он не должен
     # расходиться с тем, что человек получит после оплаты.
     device_settings = await device_slot_service.settings()
@@ -76,5 +83,6 @@ async def read_root(request: Request, user: User = Depends(get_current_user)):
         "title": "Главная",
         "user": user,
         "tariffs": tariffs,
+        "intro_consents": await intro_consents(tariffs),
         "device_settings": device_settings,
     })

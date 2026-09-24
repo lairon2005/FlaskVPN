@@ -63,7 +63,7 @@ webapp/
     ├── forgot_password.html / reset_password.html
     ├── legal/_doc.html   # обёртка юр. документов + блок реквизитов
     ├── legal/{offer,privacy,refund}.html
-    └── tma/              # Mini App: base, index, tariffs, devices, import,
+    └── tma/              # Mini App: base, index, tariffs, devices, card, import,
                           #   referral, history, support, _auth_splash
 ```
 
@@ -156,7 +156,7 @@ python3 tools/make_collage.py  # пересобрать коллажную ка�
 ### `payment.py` (prefix `/payment`)
 | Метод | Путь | Описание |
 |-------|------|----------|
-| POST | `/payment/create` | JSON: `{tariff_name, price, promo_code?, extra_devices?}` → YooKassa → `{payment_url}`. `extra_devices` — доп. устройства к тарифу; количество режется по серверному потолку, скидка на них не действует, в чек уходят отдельной позицией (54-ФЗ) |
+| POST | `/payment/create` | JSON: `{tariff_id, promo_code?, extra_devices?}` (легаси: `tariff_name`+`price` вместо `tariff_id`) → YooKassa → `{payment_url}`. Вводный тариф: 400 с причиной, если не положен; промокод и устройства игнорируются, карта сохраняется всегда. `extra_devices` — доп. устройства к тарифу; количество режется по серверному потолку, скидка на них не действует, в чек уходят отдельной позицией (54-ФЗ) |
 | POST | `/payment/device-slots` | JSON: `{slots, source?}` → счёт на докупку устройств (`kind='devices'`, без тарифа). Цену считает сервер по остатку срока подписки; 400 — докупка недоступна (нет подписки, триал, потолок), 409 — уже есть неоплаченный счёт |
 | POST | `/payment/cancel-pending` | Без тела → локально помечает висящий счёт `cancelled`, чтобы можно было выставить новый (например, сменить карту на СБП). YooKassa сама отменяет счёт только через ~30 мин, а `Payment.cancel` для `capture=True` недоступен; 404 — счёта нет |
 | POST | `/payment/validate-promo` | JSON: `{code}` → `{valid, type, discount_percent/bonus_days}` |
@@ -274,7 +274,7 @@ fixed-слой с блендом роняет плавность прокрут�
 | Функция | Назначение |
 |---------|------------|
 | `showToast(message, type)` | Уведомление (top-right, 3 сек) |
-| `initPayment(name, price, btn)` | POST `/payment/create` (+ `extra_devices`), редирект на payment_url. На 409 предлагает отменить висящий счёт (`offerCancelPending`) и повторяет запрос один раз |
+| `initPayment(name, price, btn)` | POST `/payment/create` (+ `extra_devices`, `tariff_id` из `btn.dataset.tariffId`; `data-intro="1"` — без промокода и устройств; 400 → toast с причиной), редирект на payment_url. На 409 предлагает отменить висящий счёт (`offerCancelPending`) и повторяет запрос один раз |
 | `initSlotSelector()` | Ставит счётчик доп. устройств в уже оплаченное количество — иначе продление без касания счётчика сняло бы слоты |
 | `updateSlotCount(delta)` | Степпер доп. устройств: пересчёт цены во всех карточках тарифов (`цена × месяцев × слотов`) |
 | `updateBuySlots(delta)` / `buyDeviceSlots(btn)` | Докупка устройств в карточке «Мои устройства» → POST `/payment/device-slots`; на 409 — тот же `offerCancelPending` |

@@ -32,7 +32,7 @@ async def give_trial_subscription(user_id: int, bot: Bot, chat_id: int):
             text=(
                 f"🎉 <b>Поздравляем!</b>\n\n"
                 f"Вы получили пробную подписку на <b>{trial_days} дней</b>.\n\n"
-                "📲 <b>Скачайте приложение Happ</b> для подключения VPN:"
+                "📲 <b>Скачайте приложение INCY</b> для подключения VPN:"
             ),
             reply_markup=onboarding_download_app_keyboard()
         )

@@ -226,7 +226,7 @@
         <ol class="mt-12 grid gap-6 md:grid-cols-3">
             {% set steps = [
                 ('Оплатите тариф',    'Картой на сайте или прямо в Telegram-боте. Первый период можно взять бесплатно — карта для пробного не нужна.'),
-                ('Скачайте приложение','Happ для iOS, Android, Windows и macOS. Мы определим вашу систему и дадим нужную ссылку.'),
+                ('Скачайте приложение','INCY для iOS, Android, Windows и macOS. Мы определим вашу систему и дадим нужную ссылку.'),
                 ('Откройте подписку', 'Нажмите ссылку из личного кабинета — ключ подставится в приложение сам. Дальше одна кнопка «Подключить».')
             ] %}
             {% for title, text in steps %}
@@ -305,10 +305,16 @@
                        жёстко выделял вторую карточку и флаг игнорировался. #}
                     {% set is_popular = tariff.is_highlighted %}
                     <div class="relative sticker sticker-hover p-7 flex flex-col animate-in
-                                {% if is_popular %}border-[3px] border-orange lg:-translate-y-3{% endif %}"
+                                {% if is_popular or tariff.is_intro %}border-[3px] border-orange lg:-translate-y-3{% endif %}"
                          style="animation-delay: {{ loop.index0 * 0.08 }}s">
 
-                        {% if is_popular %}
+                        {% if tariff.is_intro %}
+                            <span class="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full
+                                         bg-orange text-paper font-display font-extrabold text-xs tracking-wide
+                                         whitespace-nowrap">
+                                Пробная неделя
+                            </span>
+                        {% elif is_popular %}
                             <span class="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full
                                          bg-orange text-paper font-display font-extrabold text-xs tracking-wide
                                          whitespace-nowrap">
@@ -351,9 +357,13 @@
                             </li>
                         </ul>
 
+                        {% if tariff.is_intro and (intro_consents or {}).get(tariff.id) %}
+                            <p class="mt-4 text-xs text-muted text-center">{{ (intro_consents or {})[tariff.id] }}</p>
+                        {% endif %}
                         <button type="button"
                                 onclick="initPayment('{{ tariff.name }}', '{{ tariff.price | int }}', this)"
-                                class="btn-pop mt-7 w-full {% if not is_popular %}btn-pop-outline{% endif %}">
+                                data-tariff-id="{{ tariff.id }}" {% if tariff.is_intro %}data-intro="1"{% endif %}
+                                class="btn-pop mt-7 w-full {% if not is_popular and not tariff.is_intro %}btn-pop-outline{% endif %}">
                             <span class="btn-text">Купить</span>
                         </button>
                     </div>

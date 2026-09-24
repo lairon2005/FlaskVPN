@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, update, func, case
+from sqlalchemy import select, update, func, case, or_, and_
 
 from db import Payment, Tariff
 
@@ -111,12 +111,36 @@ class PaymentRepository:
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
 
+    async def has_paid_with_promo(self, user_id: int, promo_code: str) -> bool:
+        """Есть ли у пользователя оплаченный (в т.ч. потом возвращённый) счёт с этим промокодом.
+
+        Страховка перед возвратом промокода при отмене счёта: бот держит скидку
+        в FSM и после оплаты, так что отменяемый счёт может оказаться уже
+        вторым с тем же промокодом — тогда промокод израсходован первым и
+        возвращать его нельзя.
+        """
+        async with self._session_maker() as session:
+            stmt = select(Payment.id).where(
+                Payment.user_id == user_id,
+                func.upper(Payment.promo_code) == promo_code.upper(),
+                Payment.status.in_(('succeeded', 'refunded')),
+            ).limit(1)
+            result = await session.execute(stmt)
+            return result.first() is not None
+
     async def get_pending_older_than(self, minutes: int) -> list[Payment]:
         async with self._session_maker() as session:
             cutoff = datetime.now() - timedelta(minutes=minutes)
+            # Автосписание (source='auto') может подтверждаться банком дольше —
+            # отменив его локально через час, мы бы на следующий день списали
+            # второй раз. Для них порог — сутки.
+            auto_cutoff = datetime.now() - timedelta(hours=24)
             stmt = select(Payment).where(
                 Payment.status == 'pending',
-                Payment.created_at < cutoff
+                or_(
+                    and_(Payment.source != 'auto', Payment.created_at < cutoff),
+                    and_(Payment.source == 'auto', Payment.created_at < auto_cutoff),
+                ),
             )
             result = await session.execute(stmt)
             return result.scalars().all()

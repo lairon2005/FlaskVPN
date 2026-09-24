@@ -8,17 +8,18 @@ class PaymentMethodService:
         self._repo = payment_method_repo
 
     async def save_from_yookassa(self, user_id: int, yk_payment_method,
-                                  renew_tariff_id: int) -> None:
+                                  renew_tariff_id: int) -> bool:
         """Сохраняет метод оплаты из объекта YooKassa SDK после успешного платежа.
 
         yk_payment_method — объект payment_method из верифицированного Payment SDK.
         Сохраняет только если getattr(yk_payment_method, 'saved', False) == True.
+        Возвращает True, если карта сохранена.
         """
         if not getattr(yk_payment_method, 'saved', False):
             logger.info(
                 f"Метод оплаты пользователя {user_id} не помечен как saved — пропускаем сохранение"
             )
-            return
+            return False
 
         pm_id = yk_payment_method.id
         card_last4: str | None = None
@@ -45,8 +46,10 @@ class PaymentMethodService:
                 f"Метод оплаты сохранён: user={user_id}, type={card_type or 'unknown'}, "
                 f"last4={card_last4 or '—'}"
             )
+            return True
         except Exception:
             logger.exception(f"Ошибка при сохранении метода оплаты для user={user_id}")
+            return False
 
     async def get_card(self, user_id: int) -> UserPaymentMethod | None:
         """Возвращает сохранённый метод оплаты пользователя или None."""

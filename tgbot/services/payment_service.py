@@ -7,8 +7,10 @@ from database.repositories.tariff import TariffRepository
 from database.repositories.payment import PaymentRepository
 from tgbot.services.subscription_service import SubscriptionService, ExtensionResult
 from tgbot.services.referral_service import ReferralService
+from tgbot.services.promo_code_service import PromoClaimError
 from tgbot.services.pricing import effective_price
 from tgbot.services.device_pricing import slots_cost_for_tariff
+from tgbot.services.intro_offer import is_in_intro, conversion_price
 from loader import logger, config
 
 
@@ -23,6 +25,12 @@ class PaymentResult:
     payment: Payment | None = None
     kind: str = 'subscription'
     extra_devices: int = 0  # сколько доп. устройств стало у пользователя после платежа
+    # Оплачен вводный тариф: для текста уведомления — «пробная неделя до …,
+    # потом спишем N ₽» (renew_tariff) либо предупреждение, что карта не
+    # сохранилась и перехода не будет (card_saved=False).
+    is_intro: bool = False
+    renew_tariff: Tariff | None = None
+    card_saved: bool = False
 
 
 @dataclass
@@ -41,7 +49,8 @@ class PaymentService:
                  tariff_repo: TariffRepository,
                  payment_repo: PaymentRepository,
                  payment_method_service=None,
-                 device_slot_service=None):
+                 device_slot_service=None,
+                 promo_service=None):
         self._subscription_service = subscription_service
         self._referral_service = referral_service
         self._user_repo = user_repo
@@ -49,6 +58,9 @@ class PaymentService:
         self._payment_repo = payment_repo
         self._payment_method_service = payment_method_service
         self._device_slot_service = device_slot_service
+        # Возврат промокода при отмене счёта и повторный захват при оплате по
+        # старой ссылке — см. _release_promo / _reclaim_promo / hold_promo.
+        self._promo_service = promo_service
 
     async def create_payment_record(self, yookassa_payment_id: str, user_id: int,
                                     tariff_id: int | None, original_amount: float,
@@ -102,9 +114,108 @@ class PaymentService:
         if pending is None:
             return None
 
-        await self._payment_repo.update_status(pending.yookassa_payment_id, 'cancelled')
+        # Условная отметка: счёт мог оплатиться между выборкой и отменой.
+        if not await self._payment_repo.cancel_if_pending(pending.yookassa_payment_id):
+            return None
         logger.info(f"Payment cancelled by user: user={user_id}, yookassa_id={pending.yookassa_payment_id}")
+        await self._release_promo(pending)
         return pending
+
+    async def cancel_by_gateway(self, yookassa_payment_id: str) -> Payment | None:
+        """Вебхук payment.canceled: YooKassa сама отменила неоплаченный счёт.
+
+        Возвращает запись платежа (для уведомления пользователя) или None, если
+        её нет. Промокод возвращаем, только если отмену проставили именно мы —
+        счёт, уже отменённый кнопкой или джобом, свой промокод уже вернул.
+        """
+        payment = await self._payment_repo.get_by_yookassa_id(yookassa_payment_id)
+        if payment is None:
+            return None
+        if await self._payment_repo.cancel_if_pending(yookassa_payment_id):
+            await self._release_promo(payment)
+        return payment
+
+    async def hold_promo(self, user_id: int, code: str):
+        """Убедиться, что промокод для нового счёта захвачен этим пользователем.
+
+        Бот захватывает промокод при вводе и держит скидку в FSM. Если счёт с
+        ним отменили, промокод вернулся (_release_promo), а скидка в FSM
+        осталась — без повторного захвата следующий счёт прошёл бы со скидкой
+        бесплатно для промокода, и его можно было бы ввести ещё раз.
+
+        Возвращает PromoCode, если скидку применять можно, иначе None:
+        промокод удалён, уже оплачен другим счётом или его забрали, пока он
+        был возвращён (кончились uses_left).
+        """
+        promo = await self._promo_service.get_by_code(code)
+        if promo is None or promo.discount_percent <= 0:
+            return None
+        if await self._payment_repo.has_paid_with_promo(user_id, code):
+            return None
+        if await self._promo_service.is_claimed(user_id, promo):
+            return promo
+        # Захват заново — как новое применение, так что срок действия проверяем.
+        if promo.expire_date and datetime.now() > promo.expire_date:
+            return None
+        try:
+            await self._promo_service.apply(user_id, promo)
+        except PromoClaimError:
+            return None
+        return promo
+
+    async def _release_promo(self, payment: Payment) -> None:
+        """Вернуть промокод отменённого неоплаченного счёта.
+
+        Иначе промокод сгорал вместе со счётом: человек передумал насчёт
+        способа оплаты — и скидки больше нет. Не возвращаем, если этот
+        промокод уже оплачен другим счётом (см. has_paid_with_promo).
+        Сбой здесь не должен ломать саму отмену — только лог.
+        """
+        if not payment.promo_code or self._promo_service is None:
+            return
+        try:
+            if await self._payment_repo.has_paid_with_promo(payment.user_id, payment.promo_code):
+                return
+            promo = await self._promo_service.get_by_code(payment.promo_code)
+            if promo is None:
+                return
+            if await self._promo_service.release(payment.user_id, promo):
+                logger.info(
+                    f"Promo returned after cancel: user={payment.user_id}, "
+                    f"promo={payment.promo_code}, yookassa_id={payment.yookassa_payment_id}"
+                )
+        except Exception:
+            logger.exception(
+                f"Не удалось вернуть промокод {payment.promo_code} "
+                f"по отменённому счёту {payment.yookassa_payment_id}, user={payment.user_id}"
+            )
+
+    async def _reclaim_promo(self, payment: Payment) -> None:
+        """Оплатили отменённый счёт по старой ссылке — промокод снова израсходован.
+
+        При отмене он вернулся (_release_promo), и без повторного захвата его
+        можно было бы применить ещё раз. Не удалось (промокод уже снова
+        захвачен или исчерпан) — скидку по этому счёту всё равно отдаём,
+        деньги уже списаны; только фиксируем в логе.
+        """
+        if not payment.promo_code or self._promo_service is None:
+            return
+        try:
+            promo = await self._promo_service.get_by_code(payment.promo_code)
+            if promo is None or await self._promo_service.is_claimed(payment.user_id, promo):
+                return
+            await self._promo_service.apply(payment.user_id, promo)
+        except PromoClaimError:
+            logger.warning(
+                f"Оплачен отменённый счёт {payment.yookassa_payment_id} с промокодом "
+                f"{payment.promo_code}, но промокод уже исчерпан — скидка выдана сверх лимита, "
+                f"user={payment.user_id}"
+            )
+        except Exception:
+            logger.exception(
+                f"Не удалось повторно захватить промокод {payment.promo_code} "
+                f"по счёту {payment.yookassa_payment_id}, user={payment.user_id}"
+            )
 
     async def cancel_stale_payments(self, older_than_minutes: int) -> list[Payment]:
         """Автоотмена счетов, провисевших в 'pending' дольше таймаута.
@@ -150,6 +261,7 @@ class PaymentService:
                 f"Payment auto-cancelled by timeout ({older_than_minutes} min): "
                 f"user={payment.user_id}, yookassa_id={payment.yookassa_payment_id}"
             )
+            await self._release_promo(payment)
 
         if raced:
             logger.info(f"Автоотмена счетов: {raced} счетов сменили статус по пути — пропущены.")
@@ -199,6 +311,9 @@ class PaymentService:
             await self._payment_repo.update_status(yookassa_payment_id, 'failed')
             return None
 
+        if payment.status == 'cancelled':
+            await self._reclaim_promo(payment)
+
         user = await self._user_repo.get(payment.user_id)
         if not user:
             logger.error(f"User {payment.user_id} not found during payment processing")
@@ -241,26 +356,44 @@ class PaymentService:
                     f"payment={yookassa_payment_id} — будет исправлено джобом сверки"
                 )
 
-        # 5. Referral bonus
-        referrer_id = await self._referral_service.process_first_payment_bonus(payment.user_id)
-
-        # 6. Mark first payment
-        if is_first_payment:
-            await self._user_repo.set_first_payment_done(payment.user_id)
+        # 5-6. Бонус рефереру и флаг первой оплаты. Вводный тариф (1 ₽) первой
+        #      оплатой не считается: и то и другое наступит при первом списании
+        #      полной цены тарифа продления (intro_offer.py).
+        referrer_id = None
+        if tariff.is_intro:
+            is_first_payment = False
+            await self._user_repo.set_intro_used(payment.user_id)
+        else:
+            referrer_id = await self._referral_service.process_first_payment_bonus(payment.user_id)
+            if is_first_payment:
+                await self._user_repo.set_first_payment_done(payment.user_id)
 
         # 7. Update payment status
         await self._payment_repo.update_status(yookassa_payment_id, 'succeeded')
 
-        # 8. Сохраняем метод оплаты для автопродления (не ломаем обработку при ошибке)
+        # 8. Сохраняем метод оплаты для автопродления (не ломаем обработку при ошибке).
+        #    После вводного тарифа карта продлевает не его, а тариф продления.
+        renew_tariff_id = tariff.renew_tariff_id if tariff.is_intro else payment.tariff_id
+        card_saved = False
         if payment_method is not None and self._payment_method_service is not None:
             try:
-                await self._payment_method_service.save_from_yookassa(
-                    payment.user_id, payment_method, renew_tariff_id=payment.tariff_id
+                card_saved = await self._payment_method_service.save_from_yookassa(
+                    payment.user_id, payment_method, renew_tariff_id=renew_tariff_id
                 )
             except Exception:
                 logger.exception(
                     f"Не удалось сохранить метод оплаты для user={payment.user_id}, "
                     f"payment={yookassa_payment_id}"
+                )
+
+        renew_tariff = None
+        if tariff.is_intro:
+            renew_tariff = await self._tariff_repo.get_by_id(tariff.renew_tariff_id) if tariff.renew_tariff_id else None
+            if not card_saved:
+                # Неделю человек получил, но автоперехода не будет — это надо видеть.
+                logger.error(
+                    f"Вводный тариф оплачен без сохранения карты: user={payment.user_id}, "
+                    f"payment={yookassa_payment_id} — автопродления не будет"
                 )
 
         logger.info(
@@ -276,6 +409,9 @@ class PaymentService:
             payment=payment,
             kind='subscription',
             extra_devices=extra_devices,
+            is_intro=bool(tariff.is_intro),
+            renew_tariff=renew_tariff,
+            card_saved=card_saved,
         )
 
     async def _process_device_payment(self, payment: Payment) -> PaymentResult | None:
@@ -496,8 +632,10 @@ class PaymentService:
 
         # 3. Тариф для продления
         tariff = await self._tariff_repo.get_by_id(card.renew_tariff_id)
-        if tariff is None:
-            logger.warning(f"charge_renewal: тариф {card.renew_tariff_id} не найден, user={user_id}")
+        if tariff is None or not tariff.is_active or tariff.is_intro:
+            logger.warning(
+                f"charge_renewal: тариф {card.renew_tariff_id} не найден, скрыт или вводный, user={user_id}"
+            )
             return 'skipped'
 
         # 4. Данные пользователя (email для чека)
@@ -505,8 +643,12 @@ class PaymentService:
         email = user.email if user else None
 
         # Автопродление по определению непрерывно — если у тарифа задана лоялти-цена
-        # ("цена навсегда"), списываем именно её.
-        tariff_amount = effective_price(tariff, user_has_active_sub=True)
+        # ("цена навсегда"), списываем именно её. Исключение — переход с вводного
+        # тарифа: в согласии обещана обычная цена, её и списываем.
+        if is_in_intro(user):
+            tariff_amount = conversion_price(tariff)
+        else:
+            tariff_amount = effective_price(tariff, user_has_active_sub=True)
 
         # Доп. устройства продлеваются вместе с подпиской и стоят столько же за
         # месяц, сколько при покупке. Без этого слагаемого автосписание навсегда

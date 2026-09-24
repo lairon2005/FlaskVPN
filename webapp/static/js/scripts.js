@@ -96,8 +96,11 @@ async function initPayment(tariffName, price, btn, allowCancelRetry = true) {
     btn.classList.add('btn-loading');
 
     try {
-        const payload = { tariff_name: tariffName, price: price, extra_devices: selectedSlots };
-        if (activePromo) {
+        const isIntro = btn.dataset.intro === '1';
+        const payload = { tariff_name: tariffName, price: price, extra_devices: isIntro ? 0 : selectedSlots };
+        if (btn.dataset.tariffId) payload.tariff_id = parseInt(btn.dataset.tariffId, 10);
+        // Вводный тариф: цена фиксированная, промокод и доп. устройства не применяются.
+        if (activePromo && !isIntro) {
             payload.promo_code = activePromo.code;
             payload.discount_percent = activePromo.discount_percent;
         }
@@ -120,6 +123,9 @@ async function initPayment(tariffName, price, btn, allowCancelRetry = true) {
             } else {
                 showToast("У вас уже есть неоплаченный счёт. Завершите оплату или попробуйте позже.", "warning");
             }
+        } else if (response.status === 400) {
+            const data = await response.json().catch(() => ({}));
+            showToast(data.detail || "Тариф недоступен.", "warning");
         } else {
             showToast("Ошибка при создании платежа. Попробуйте позже.", "error");
         }
@@ -363,20 +369,20 @@ function detectOSAndSetLink() {
         if (use) use.setAttribute('href', '#i-' + name);
     };
 
-    const HAPP_ANDROID = "https://play.google.com/store/apps/details?id=com.happproxy";
-    const HAPP_IOS = "https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643";
-    const HAPP_WIN = "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe";
+    const INCY_ANDROID = "https://play.google.com/store/apps/details?id=llc.itdev.incy";
+    const INCY_IOS = "https://apps.apple.com/ru/app/incy/id6756943388";
+    const INCY_WIN = "https://github.com/INCY-DEV/incy-platforms/releases/latest/download/incy-windows-setup.exe";
 
-    let url = HAPP_ANDROID, desc = "Выберите приложение для вашей ОС.", icon = "download", label = "Скачать";
+    let url = INCY_ANDROID, desc = "Выберите приложение для вашей ОС.", icon = "download", label = "Скачать";
 
     if (/android/i.test(userAgent)) {
-        url = HAPP_ANDROID; desc = "Для Android рекомендуем Happ."; icon = "android"; label = "Google Play";
+        url = INCY_ANDROID; desc = "Для Android рекомендуем INCY."; icon = "android"; label = "Google Play";
     } else if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
-        url = HAPP_IOS; desc = "Для iOS рекомендуем Happ."; icon = "apple"; label = "App Store";
+        url = INCY_IOS; desc = "Для iOS рекомендуем INCY."; icon = "apple"; label = "App Store";
     } else if (/Win/i.test(userAgent)) {
-        url = HAPP_WIN; desc = "Для Windows рекомендуем Happ."; icon = "windows"; label = "Скачать для Windows";
+        url = INCY_WIN; desc = "Для Windows рекомендуем INCY."; icon = "windows"; label = "Скачать для Windows";
     } else if (/Mac/i.test(userAgent)) {
-        url = HAPP_IOS; desc = "Для macOS рекомендуем Happ."; icon = "apple"; label = "Скачать для macOS";
+        url = INCY_IOS; desc = "Для macOS рекомендуем INCY."; icon = "apple"; label = "Скачать для macOS";
     }
 
     downloadBtn.href = url;

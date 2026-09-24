@@ -46,6 +46,7 @@ class AdminStatsService:
             "total_users": await self._stats_repo.count_all_users(),
             "active_subs": await self._stats_repo.count_active_subscriptions(),
             "first_payments": await self._stats_repo.count_users_with_first_payment(),
+            "intro_funnel": await self._stats_repo.get_intro_funnel(),
             "users_today": await self._stats_repo.count_new_users_for_period(1),
             "users_week": await self._stats_repo.count_new_users_for_period(7),
             "users_month": await self._stats_repo.count_new_users_for_period(30),

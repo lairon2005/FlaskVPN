@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 from remnawave.client import RemnawaveTransportError
+from real_intro_offer import real_intro_offer
 
 
 def _real_device_pricing():
@@ -55,6 +56,7 @@ def load_device_slot_service_module():
         "loader": loader_module,
         "tgbot": tgbot_module,
         "tgbot.services": tgbot_services_module,
+        "tgbot.services.intro_offer": real_intro_offer(),
         "tgbot.services.device_pricing": device_pricing_module,
     }
     with patch.dict(sys.modules, stubs):

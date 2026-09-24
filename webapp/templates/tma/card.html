@@ -1,0 +1,65 @@
+{% extends "tma/base.html" %}
+{% import "_icons.html" as ic %}
+
+{% block content %}
+<h1 class="font-display font-black text-xl mb-3 flex items-center gap-2 animate-in">
+    {{ ic.icon('card', 'w-5 h-5 text-orange') }} Моя карта
+</h1>
+
+{% if card %}
+<section class="sticker p-4 animate-in">
+    <p class="font-bold">
+        {% if card.card_type == 'SBP' %}
+            СБП
+        {% else %}
+            {{ card.card_type or 'Карта' }}{% if card.card_last4 %} ···· {{ card.card_last4 }}{% endif %}
+        {% endif %}
+    </p>
+
+    <dl class="mt-3 space-y-1.5 text-sm">
+        <div class="flex justify-between gap-3">
+            <dt class="text-muted">Автопродление</dt>
+            <dd class="font-semibold">{{ 'включено' if card.auto_renew_enabled else 'выключено' }}</dd>
+        </div>
+        <div class="flex justify-between gap-3">
+            <dt class="text-muted">Тариф продления</dt>
+            <dd class="font-semibold text-right">
+                {% if renew_tariff %}{{ renew_tariff.name }} — {{ renew_price | int }} ₽{% else %}не выбран{% endif %}
+            </dd>
+        </div>
+    </dl>
+
+    <p class="mt-3 text-xs text-muted">
+        {% if in_intro %}
+            Списание — в день окончания пробной недели, напомним за сутки.
+        {% else %}
+            Подписка продлевается автоматически за 3 дня до окончания.
+        {% endif %}
+    </p>
+
+    <div class="mt-4 flex flex-wrap gap-2">
+        <form action="/tma/card/toggle-renew" method="post">
+            <button type="submit"
+                    class="btn-pop {% if card.auto_renew_enabled %}btn-pop-outline{% endif %} !min-h-[44px] !py-2 !px-4 text-sm">
+                {{ 'Отключить автопродление' if card.auto_renew_enabled else 'Включить автопродление' }}
+            </button>
+        </form>
+        <form action="/tma/card/delete" method="post"
+              onsubmit="return confirm('Удалить сохранённый способ оплаты? Автопродление отключится.');">
+            <button type="submit"
+                    class="btn-pop btn-pop-outline !min-h-[44px] !py-2 !px-4 text-sm !border-danger !text-danger hover:!bg-danger/10">
+                {{ ic.icon('trash', 'w-4 h-4') }} Удалить
+            </button>
+        </form>
+    </div>
+</section>
+{% else %}
+<div class="sticker p-8 text-center animate-in">
+    <div class="w-12 h-12 mx-auto rounded-2xl bg-sky-soft text-blue grid place-items-center">
+        {{ ic.icon('card', 'w-6 h-6') }}
+    </div>
+    <p class="mt-3 font-display font-extrabold">Карта не сохранена</p>
+    <p class="mt-1 text-sm text-muted">Она сохранится при следующей оплате — тогда здесь можно будет управлять автопродлением.</p>
+</div>
+{% endif %}
+{% endblock %}

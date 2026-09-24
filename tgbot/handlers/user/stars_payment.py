@@ -45,7 +45,9 @@ async def stars_pre_checkout(query: PreCheckoutQuery):
         return
 
     tariff = await tariff_repo.get_by_id(tariff_id)
-    if not tariff or not tariff.price_stars:
+    # Вводный тариф без сохранённой карты теряет смысл (переход на полную
+    # цену списывается с карты), поэтому Stars для него не принимаем никогда.
+    if not tariff or not tariff.price_stars or not tariff.is_active or tariff.is_intro:
         await query.answer(ok=False, error_message="Тариф больше недоступен. Откройте приложение заново.")
         return
 

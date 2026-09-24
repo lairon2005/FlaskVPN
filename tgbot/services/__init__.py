@@ -30,6 +30,6 @@ admin_stats_service = AdminStatsService(stats_repo, remnawave_client, payment_re
 payment_method_service = PaymentMethodService(payment_method_repo)
 payment_service = PaymentService(
     subscription_service, referral_service, user_repo, tariff_repo, payment_repo,
-    payment_method_service, device_slot_service,
+    payment_method_service, device_slot_service, promo_service,
 )
 support_service = SupportService(user_repo)

@@ -47,11 +47,16 @@
         {% for tariff in tariffs %}
             {# Флаг ставит админка (Tariff.is_highlighted). #}
             {% set is_popular = tariff.is_highlighted %}
-            <div class="tariff-card sticker {% if is_popular %}border-[3px] border-orange{% endif %}"
+            <div class="tariff-card sticker {% if is_popular or tariff.is_intro %}border-[3px] border-orange{% endif %}"
+                 data-tariff-id="{{ tariff.id }}"
                  data-tariff-name="{{ tariff.name }}" data-tariff-price="{{ tariff.price | int }}"
-                 data-tariff-days="{{ tariff.duration_days }}">
+                 data-tariff-days="{{ tariff.duration_days }}"
+                 {% if tariff.is_intro %}data-intro="1"{% endif %}>
 
-                {% if is_popular %}
+                {% if tariff.is_intro %}
+                    <span class="inline-block mb-2 px-2.5 py-0.5 rounded-full bg-orange text-paper
+                                 font-display font-extrabold text-[0.68rem]">Пробная неделя</span>
+                {% elif is_popular %}
                     <span class="inline-block mb-2 px-2.5 py-0.5 rounded-full bg-orange text-paper
                                  font-display font-extrabold text-[0.68rem]">Выбор большинства</span>
                 {% endif %}
@@ -65,12 +70,18 @@
                         </p>
                     </div>
                     <div class="flex items-center gap-3 shrink-0">
-                        <span class="tariff-price font-display font-black text-blue text-[1.7rem] tabular-nums">{{ tariff.price | int }}<span class="text-[0.5em]"> ₽</span></span>
+                        {# У вводного цена фиксированная: класс tariff-price не ставим, #}
+                        {# чтобы промокод не перерисовал её со скидкой. #}
+                        <span class="{% if not tariff.is_intro %}tariff-price {% endif %}font-display font-black text-blue text-[1.7rem] tabular-nums">{{ tariff.price | int }}<span class="text-[0.5em]"> ₽</span></span>
                         <span class="tma-radio" aria-hidden="true"></span>
                     </div>
                 </div>
 
-                {% if tariff.price_stars and not current_extra_devices %}
+                {% if tariff.is_intro and (intro_consents or {}).get(tariff.id) %}
+                <p class="text-xs text-muted mt-2">{{ (intro_consents or {})[tariff.id] }}</p>
+                {% endif %}
+
+                {% if tariff.price_stars and not current_extra_devices and not tariff.is_intro %}
                 <button type="button" class="btn-pop btn-pop-outline w-full mt-3 tma-stars-btn"
                         data-tariff-id="{{ tariff.id }}" data-price-stars="{{ tariff.price_stars }}">
                     ⭐ {{ tariff.price_stars }}

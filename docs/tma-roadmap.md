@@ -43,7 +43,7 @@
 1. **`templates/tma/base.html`:** без navbar/footer, подключает `https://telegram.org/js/telegram-web-app.js`; `Telegram.WebApp.ready()` + `expand()`; тема сайта остаётся общей с вебом — сейчас это светлая тема бренд-бука FLASK (`--bg-body: #F7F1E8`, акцент `#2457C5`, см. `docs/brand.md`); на `themeParams` клиента не завязываемся, вместо этого красим хром Telegram через `setHeaderColor` / `setBackgroundColor` / `setBottomBarColor` в `tma.js`.
 2. **Экраны** (SSR как на сайте, данные из тех же сервисов):
    - **Главная `/tma/`** — статус подписки (`status-badge`), дата окончания, кнопка продления; адаптация `dashboard.html`;
-   - **Ключ и импорт `/tma/import`** — VPN-ключ (`copy-field`), определение ОС, кнопка «Добавить в Happ» через `build_import_url()`/`build_deeplink()` из `utils/url.py` (percent-encoding уже починен), ссылки на приложения (iOS/macOS id6783623643, Android com.happproxy), пошаговая инструкция — перенос логики `etc/nginx/static/import.html`;
+   - **Ключ и импорт `/tma/import`** — VPN-ключ (`copy-field`), определение ОС, кнопка «Добавить в INCY» через `build_import_url()`/`build_deeplink()` из `utils/url.py` (percent-encoding уже починен), ссылки на приложения (iOS/macOS id6756943388, Android llc.itdev.incy), пошаговая инструкция — перенос логики `etc/nginx/static/import.html`;
    - **Тарифы `/tma/tariffs`** — карточки тарифов, промокод (`/payment/validate-promo` работает как есть), кнопка оплаты через **MainButton**;
    - **Рефералка** — вместо веб-ссылки шарить `https://t.me/<bot>/<app>?startapp={user_id}` через `Telegram.WebApp.shareURL` / `switchInlineQuery`;
    - **История платежей** — таблица `.data-table` как на сайте;
@@ -88,7 +88,7 @@
 ## Фаза 5 — Деплой, QA, полировка (1 день)
 
 1. **Деплой:** rsync на bot-server → `./refresh.sh` (пересоздаёт `flask_bot`/`flask_site`); nginx-конфиг — через template, **не** заливать `etc/nginx/conf/default.conf`.
-2. **QA-матрица:** iOS / Android / Telegram Desktop / macOS — auth, cookie vs Bearer, openLink, openInvoice, deeplink Happ, BackButton/MainButton.
+2. **QA-матрица:** iOS / Android / Telegram Desktop / macOS — auth, cookie vs Bearer, openLink, openInvoice, deeplink INCY, BackButton/MainButton.
 3. **Безопасность:** заголовки для webview (не отдавать `X-Frame-Options: DENY` на `/tma`), rate-limit на `/tma/auth`.
 4. **Аналитика:** `source='tma'` в платежах — сравнение конверсии сайт vs TMA vs бот.
 

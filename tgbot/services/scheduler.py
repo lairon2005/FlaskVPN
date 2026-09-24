@@ -14,6 +14,7 @@ from tgbot.keyboards.inline import (
 )
 from utils import broadcaster
 from .utils import decline_word
+from .intro_offer import is_in_intro, conversion_price, format_rub
 from loader import logger, config
 
 # --- 1. Основная функция, которую будет вызывать планировщик ---
@@ -100,6 +101,11 @@ async def check_subscriptions(bot: Bot):
         "Чтобы не потерять доступ, пожалуйста, продлите ее."
     )
     for user in users_to_remind:
+        # С включённым автопродлением продлевать руками не нужно — «продлите»
+        # сбивает с толку (особенно на пробной неделе, где до конца те же 7 дней).
+        card = await payment_method_repo.get_by_user(user.user_id)
+        if card and card.auto_renew_enabled:
+            continue
         ok = await send_reminder(bot, user, text.format(user_full_name=user.full_name))
         if ok:
             count += 1
@@ -154,44 +160,8 @@ async def auto_renew_subscriptions(bot: Bot):
 
         elif status == 'failed':
             failed_count += 1
-            # Перечитываем запись — charge_renewal уже увеличил fail_count
-            try:
-                fresh = await payment_method_repo.get_by_user(card.user_id)
-            except Exception as e:
-                logger.error(f"Автопродление: не удалось перечитать запись для user_id={card.user_id}: {e}")
-                continue
-
-            if fresh and fresh.fail_count >= 3:
-                try:
-                    await payment_method_repo.set_auto_renew(card.user_id, False)
-                    disabled_count += 1
-                    logger.warning(
-                        f"Автопродление: карта user_id={card.user_id} отклонена {fresh.fail_count} раз. "
-                        "Автопродление отключено."
-                    )
-                except Exception as e:
-                    logger.error(f"Автопродление: не удалось отключить автопродление для user_id={card.user_id}: {e}")
-
-                # Уведомляем пользователя
-                try:
-                    user = await user_repo.get(card.user_id)
-                    if user is None:
-                        logger.warning(f"Автопродление: пользователь user_id={card.user_id} не найден в БД, уведомление не отправлено.")
-                        continue
-                    await send_reminder(
-                        bot,
-                        user,
-                        "❌ Не удалось автоматически продлить подписку (карта отклонена банком). "
-                        "Автопродление отключено. Продлите вручную:"
-                    )
-                except Exception as e:
-                    logger.error(f"Автопродление: не удалось уведомить user_id={card.user_id}: {e}")
-            else:
-                fail_count_val = fresh.fail_count if fresh else '?'
-                logger.info(
-                    f"Автопродление: временная ошибка списания для user_id={card.user_id} "
-                    f"(попытка {fail_count_val}/3). Повтор при следующем запуске."
-                )
+            if await handle_renewal_failure(bot, card.user_id):
+                disabled_count += 1
 
     logger.info(
         f"Автопродление завершено: успешно={succeeded_count}, "
@@ -204,6 +174,105 @@ async def auto_renew_subscriptions(bot: Bot):
         f"🗂 Карт к списанию: {len(due)}\n"
         f"👍 Успешно: {succeeded_count}\n"
         f"👎 Ошибок: {failed_count}\n"
+        f"⏭ Пропущено: {skipped_count}\n"
+        f"🚫 Автопродление отключено (3 неудачи): {disabled_count}"
+    )
+
+
+async def handle_renewal_failure(bot: Bot, user_id: int) -> bool:
+    """Реакция на отказ автосписания (fail_count уже увеличен вызывающим).
+
+    Вызывается и джобами, и вебхуком payment.canceled — отказ банка часто
+    приходит асинхронно. После 3 отказов автопродление выключается и человек
+    получает ссылку на ручную оплату. На пробной неделе предупреждаем сразу
+    о каждом отказе: иначе доступ пропадёт молча в день окончания.
+    Возвращает True, если автопродление отключено.
+    """
+    try:
+        fresh = await payment_method_repo.get_by_user(user_id)
+        user = await user_repo.get(user_id)
+    except Exception as e:
+        logger.error(f"Автопродление: не удалось перечитать данные user_id={user_id}: {e}")
+        return False
+    if fresh is None or user is None:
+        return False
+
+    if fresh.fail_count >= 3:
+        try:
+            await payment_method_repo.set_auto_renew(user_id, False)
+        except Exception as e:
+            logger.error(f"Автопродление: не удалось отключить автопродление для user_id={user_id}: {e}")
+            return False
+        logger.warning(
+            f"Автопродление: карта user_id={user_id} отклонена {fresh.fail_count} раз. "
+            "Автопродление отключено."
+        )
+        await send_reminder(
+            bot, user,
+            "❌ Не удалось автоматически продлить подписку (карта отклонена банком). "
+            "Автопродление отключено. Продлите вручную:"
+        )
+        return True
+
+    if is_in_intro(user):
+        tariff = await tariff_repo.get_by_id(fresh.renew_tariff_id) if fresh.renew_tariff_id else None
+        amount = f"{format_rub(conversion_price(tariff))} ₽" if tariff else "оплату"
+        card_part = f" с карты *{fresh.card_last4}" if fresh.card_last4 else ""
+        await send_reminder(
+            bot, user,
+            f"⚠️ Не удалось списать {amount}{card_part} — пробная неделя закончилась, "
+            f"доступ приостановлен. Попробуем ещё раз через сутки "
+            f"(попытка {fresh.fail_count}/3), или оплатите сейчас:"
+        )
+    else:
+        logger.info(
+            f"Автопродление: временная ошибка списания для user_id={user_id} "
+            f"(попытка {fresh.fail_count}/3). Повтор при следующем запуске."
+        )
+    return False
+
+
+async def convert_intro_subscriptions(bot: Bot):
+    """Переход с вводного тарифа на тариф продления — в день окончания.
+
+    Почасовой: списываем, когда до конца пробной недели остаётся меньше часа,
+    а не за 3 дня, как обычное автопродление (auto_renew_subscriptions
+    вводных не берёт). Отказ — повтор через сутки, до 3 попыток.
+    """
+    from tgbot.services import payment_service
+
+    due = await payment_method_repo.get_intro_due_for_conversion()
+    if not due:
+        return
+
+    logger.info(f"Переход с вводного тарифа: {len(due)} карт к списанию.")
+    ok_count = failed_count = skipped_count = disabled_count = 0
+    for card in due:
+        # Отметку ставим до списания: упади процесс посередине, следующий
+        # прогон через час не спишет второй раз.
+        await payment_method_repo.mark_attempt(card.user_id)
+        try:
+            status = await payment_service.charge_renewal(card.user_id)
+        except Exception as e:
+            logger.error(f"Переход с вводного тарифа: ошибка списания для user_id={card.user_id}: {e}")
+            failed_count += 1
+            continue
+
+        if status in ('succeeded', 'pending'):
+            ok_count += 1
+        elif status == 'skipped':
+            skipped_count += 1
+        else:
+            failed_count += 1
+            if await handle_renewal_failure(bot, card.user_id):
+                disabled_count += 1
+
+    await notify_admins(
+        bot,
+        "🎁 <b>Переход с пробной недели</b>\n\n"
+        f"🗂 Карт к списанию: {len(due)}\n"
+        f"👍 Списание создано: {ok_count}\n"
+        f"👎 Отказов: {failed_count}\n"
         f"⏭ Пропущено: {skipped_count}\n"
         f"🚫 Автопродление отключено (3 неудачи): {disabled_count}"
     )
@@ -317,7 +386,29 @@ async def lifecycle_renewal_reminders(bot: Bot):
                 if await lifecycle_repo.was_sent(user.user_id, 'renewal', step):
                     continue
 
-                if step_name == 'd-3':
+                intro_card = None
+                if is_in_intro(user):
+                    intro_card = await payment_method_repo.get_by_user(user.user_id)
+                    if intro_card is not None and not intro_card.auto_renew_enabled:
+                        intro_card = None
+                    if step_name == 'd-3' and intro_card is not None:
+                        # На пробной неделе с автопродлением «продлите заранее»
+                        # не нужно — обо всём предупредим за сутки.
+                        continue
+
+                if intro_card is not None:  # d-1 на пробной неделе
+                    renew = await tariff_repo.get_by_id(intro_card.renew_tariff_id) if intro_card.renew_tariff_id else None
+                    amount = f"{format_rub(conversion_price(renew))} ₽" if renew else "оплату"
+                    card_part = f" с карты *{intro_card.card_last4}" if intro_card.card_last4 else ""
+                    date_str = user.subscription_end_date.strftime('%d.%m.%Y')
+                    text = (
+                        f"🎁 Пробная неделя заканчивается завтра. {date_str} спишем {amount}"
+                        f"{card_part}, и подписка продолжится"
+                        + (f" на {renew.duration_days} дн." if renew else ".")
+                        + "\n\nНе хотите продолжать — отключите автопродление в «💳 Моя карта»."
+                    )
+                    kb = lifecycle_cta_keyboard(("💳 Моя карта", "manage_card"))
+                elif step_name == 'd-3':
                     date_str = user.subscription_end_date.strftime('%d.%m.%Y')
                     text = (
                         f"⏳ Подписка закончится {date_str} — через 3 дня. Продлите заранее, "
@@ -878,6 +969,15 @@ def schedule_jobs(scheduler: AsyncIOScheduler, bot: Bot):
         trigger='cron',
         hour=12,
         minute=0,
+        kwargs={'bot': bot}
+    )
+
+    # Переход с пробной недели на тариф продления — в день окончания, поэтому
+    # каждый час (см. convert_intro_subscriptions)
+    scheduler.add_job(
+        convert_intro_subscriptions,
+        trigger='cron',
+        minute=5,
         kwargs={'bot': bot}
     )
 

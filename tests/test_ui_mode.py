@@ -20,6 +20,7 @@ import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from real_intro_offer import real_intro_offer
 
 
 def load_inline_module(ui_mode: str = "bot", domain: str = "flaskvpn.ru"):
@@ -50,6 +51,7 @@ def load_inline_module(ui_mode: str = "bot", domain: str = "flaskvpn.ru"):
         "loader": loader_module,
         "tgbot": tgbot_module,
         "tgbot.services": tgbot_services_module,
+        "tgbot.services.intro_offer": real_intro_offer(),
         "tgbot.services.pricing": pricing_module,
     }
 

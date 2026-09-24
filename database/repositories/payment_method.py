@@ -1,6 +1,6 @@
 import datetime
 
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, or_
 
 from db import User, UserPaymentMethod
 
@@ -48,10 +48,15 @@ class PaymentMethodRepository:
 
     async def set_auto_renew(self, user_id: int, enabled: bool) -> bool:
         async with self._session_maker() as session:
+            values = {'auto_renew_enabled': enabled}
+            if enabled:
+                # Включение вручную = новый шанс: иначе карта, отключённая после
+                # трёх отказов, никогда бы не попала в выборку (fail_count < 3).
+                values['fail_count'] = 0
             stmt = (
                 update(UserPaymentMethod)
                 .where(UserPaymentMethod.user_id == user_id)
-                .values(auto_renew_enabled=enabled)
+                .values(**values)
             )
             result = await session.execute(stmt)
             await session.commit()
@@ -85,6 +90,16 @@ class PaymentMethodRepository:
             result = await session.execute(stmt_select)
             row = result.scalar_one_or_none()
             return row if row is not None else 0
+
+    async def mark_attempt(self, user_id: int) -> None:
+        async with self._session_maker() as session:
+            stmt = (
+                update(UserPaymentMethod)
+                .where(UserPaymentMethod.user_id == user_id)
+                .values(last_attempt_at=datetime.datetime.now())
+            )
+            await session.execute(stmt)
+            await session.commit()
 
     async def reset_fail(self, user_id: int) -> None:
         async with self._session_maker() as session:
@@ -123,6 +138,35 @@ class PaymentMethodRepository:
                     UserPaymentMethod.fail_count < 3,
                     User.subscription_end_date >= lower,
                     User.subscription_end_date <= upper,
+                    # Вводный тариф переходит на полную цену в день окончания —
+                    # это делает отдельный джоб (get_intro_due_for_conversion).
+                    or_(User.intro_used == False, User.is_first_payment_made == True),
+                )
+            )
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    async def get_intro_due_for_conversion(self) -> list[UserPaymentMethod]:
+        """Карты пользователей на вводном тарифе, которым пора списать полную цену.
+
+        Окно: подписка кончается в ближайший час (джоб почасовой — списываем
+        в день окончания, не отбирая у человека пробные дни) или уже кончилась,
+        но не больше 3 дней назад (ретраи после отказа карты). Повтор — не
+        чаще раза в сутки, до 3 попыток."""
+        async with self._session_maker() as session:
+            now = datetime.datetime.now()
+            stmt = (
+                select(UserPaymentMethod)
+                .join(User, User.user_id == UserPaymentMethod.user_id)
+                .where(
+                    UserPaymentMethod.auto_renew_enabled == True,
+                    UserPaymentMethod.fail_count < 3,
+                    User.intro_used == True,
+                    User.is_first_payment_made == False,
+                    User.subscription_end_date > now - datetime.timedelta(days=3),
+                    User.subscription_end_date <= now + datetime.timedelta(hours=1),
+                    (UserPaymentMethod.last_attempt_at.is_(None))
+                    | (UserPaymentMethod.last_attempt_at < now - datetime.timedelta(hours=23)),
                 )
             )
             result = await session.execute(stmt)
