@@ -207,9 +207,15 @@ python3 tools/make_collage.py  # пересобрать коллажную ка�
 MAIL_TIMEOUT = 15  # секунд, asyncio.wait_for()
 ```
 
-Порт 465 → `MAIL_SSL_TLS=True`; порт 587 → `MAIL_STARTTLS=True` (определяется автоматически).
+**Транспорт:** если задан `RESEND_API_KEY` — HTTP API Resend (`POST api.resend.com/emails`, порт 443),
+иначе SMTP через `fastapi-mail` (порт 465 → SSL/TLS, 587 → STARTTLS, определяется автоматически).
+HTTP предпочтителен: на VPS исходящие 25/465/587 часто закрыты.
 
-**Env vars:** `MAIL_SERVER, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD, MAIL_FROM, MAIL_FROM_NAME`
+**Env vars:** `RESEND_API_KEY`, `MAIL_FROM`, `MAIL_FROM_NAME`; для SMTP-фолбэка — `MAIL_SERVER, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD`.
+
+**Настройка домена:** в Resend подтвердить домен, записи SPF/DKIM добавить в DNS Cloudflare
+(режим «DNS only», без оранжевого облака), `MAIL_FROM` — адрес на этом домене. Cloudflare Email Routing
+только принимает/пересылает почту, отправлять не умеет.
 
 **Ошибки:** `MailSendError` — содержит безопасное сообщение для пользователя; техническая ошибка только в логах.
 
@@ -217,7 +223,19 @@ MAIL_TIMEOUT = 15  # секунд, asyncio.wait_for()
 Обе собирают HTML через `_brand_code_email()` — таблицы + инлайн-цвета бренда
 (почтовые клиенты режут `<style>` и веб-шрифты).
 
-> ⚠️ Яндекс SMTP блокирует соединения с VPS-IP. Нужен transactional-провайдер (Resend, SendGrid и т.п.).
+> ⚠️ Яндекс SMTP блокирует соединения с VPS-IP — используйте Resend (или другой transactional-провайдер).
+
+**Коды подтверждения** (`core/verification.py`): генерация через `secrets`; в `registration_token` (JWT читается
+клиентом) лежит `code_hash` = HMAC(SECRET_KEY, email+код), а не сам код. Проверка — `check_code()`.
+
+**Защита от перебора кодов:**
+- nginx (`etc/nginx/templates/default.conf.template`): зона `auth_code` (10 запросов/мин с IP, burst 5) на `/verify-email` и `/reset-password`,
+  зона `auth_mail` (6/мин, burst 6) на `/register`, `/resend-code`, `/forgot-password`; ответ 429. Блоки продублированы
+  в `app.$DOMAIN` — иначе лимит обходится через второй хост. Если сайт встанет за Cloudflare-прокси, лимит пойдёт по IP
+  Cloudflare — нужен `set_real_ip_from` для его подсетей + `real_ip_header CF-Connecting-IP`.
+- Сброс пароля: `User.reset_attempts`, максимум `MAX_RESET_ATTEMPTS` (5) неверных вводов, затем код гасится.
+  Инкремент атомарный (`UPDATE ... RETURNING`) и идёт до сверки кода. Миграция — `python3 fix_db.py`.
+- Регистрация: счётчик попыток лежит в самом токене и сбрасывается его повторной отправкой — реальный лимит там только nginx.
 
 ---
 
@@ -321,7 +339,8 @@ fixed-слой с блендом роняет плавность прокрут�
 | Переменная | Дефолт | Где используется |
 |-----------|--------|-----------------|
 | `SECRET_KEY` | `"CHANGE_THIS..."` | JWT подпись |
-| `MAIL_SERVER` | `smtp.gmail.com` | SMTP хост |
+| `RESEND_API_KEY` | `""` | Ключ Resend; если пуст — SMTP |
+| `MAIL_SERVER` | `smtp.gmail.com` | SMTP хост (фолбэк) |
 | `MAIL_PORT` | `587` | SMTP порт |
 | `MAIL_USERNAME` | `""` | SMTP логин |
 | `MAIL_PASSWORD` | `""` | SMTP пароль |

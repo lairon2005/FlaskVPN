@@ -1,8 +1,6 @@
 # tgbot/handlers/user/link_email.py
 
 import re
-import random
-import string
 import logging
 from datetime import datetime, timedelta
 
@@ -15,6 +13,7 @@ from tgbot.keyboards.inline import main_menu_keyboard, back_to_main_menu_keyboar
 from database import user_repo
 from webapp.core.security import get_password_hash
 from webapp.core.mail import send_verification_email, MailSendError
+from webapp.core.verification import generate_code
 
 link_email_router = Router(name="link_email")
 EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$')
@@ -59,7 +58,7 @@ async def process_email(message: Message, state: FSMContext):
         return
 
     # Генерируем код
-    code = ''.join(random.choices(string.digits, k=6))
+    code = generate_code()
 
     # Отправляем на email
     try:

@@ -48,6 +48,7 @@ class User(Base):
     
     reset_code: Mapped[str] = mapped_column(String(10), nullable=True)
     reset_code_expire: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+    reset_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
 
     verification_code: Mapped[str] = mapped_column(String(10), nullable=True)
     verification_code_expire: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)

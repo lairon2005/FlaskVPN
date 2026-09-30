@@ -28,6 +28,11 @@ async def fix_database():
         ))
         print("  ✅ reset_code / reset_code_expire")
 
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_attempts INTEGER NOT NULL DEFAULT 0;"
+        ))
+        print("  ✅ reset_attempts")
+
         # ── 2. Таблица users: новые колонки верификации email ────────────────
         print("\n📋 Таблица users — колонки верификации email...")
         await conn.execute(text(

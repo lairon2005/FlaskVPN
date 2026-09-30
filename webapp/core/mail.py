@@ -1,54 +1,87 @@
 # webapp/core/mail.py
+"""Отправка писем с кодами.
+
+Основной путь — HTTP API Resend (порт 443: не упирается в закрытые на VPS
+25/465/587). Включается, если задан RESEND_API_KEY. Без него работает SMTP
+(`MAIL_*`) как запасной вариант.
+"""
 import os
 import asyncio
 import logging
+import httpx
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 from pydantic import EmailStr
 
 logger = logging.getLogger(__name__)
 
 MAIL_TIMEOUT = 15  # секунд на отправку письма
+RESEND_API_URL = "https://api.resend.com/emails"
 
-# Читаем настройки прямо из ENV для простоты
-_port = int(os.getenv("MAIL_PORT", 587))
-# Порт 465 = SSL/TLS; 587/25 = STARTTLS
-_use_ssl = _port == 465
-conf = ConnectionConfig(
-    MAIL_USERNAME=os.getenv("MAIL_USERNAME", ""),
-    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD", ""),
-    MAIL_FROM=os.getenv("MAIL_FROM", "noreply@flaskvpn.ru"),
-    MAIL_FROM_NAME=os.getenv("MAIL_FROM_NAME", "FlaskVPN"),
-    MAIL_PORT=_port,
-    MAIL_SERVER=os.getenv("MAIL_SERVER", "smtp.gmail.com"),
-    MAIL_STARTTLS=not _use_ssl,
-    MAIL_SSL_TLS=_use_ssl,
-    USE_CREDENTIALS=True,
-    VALIDATE_CERTS=True
-)
+MAIL_FROM = os.getenv("MAIL_FROM", "noreply@flaskvpn.ru")
+MAIL_FROM_NAME = os.getenv("MAIL_FROM_NAME", "FlaskVPN")
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 
 
-async def _send_mail(subject: str, recipients: list[str], html: str):
-    """Отправляет email с таймаутом."""
+class MailSendError(Exception):
+    """Ошибка отправки email — содержит безопасное сообщение для пользователя."""
+    pass
+
+
+def _smtp_config() -> ConnectionConfig:
+    port = int(os.getenv("MAIL_PORT", 587))
+    use_ssl = port == 465  # 465 = SSL/TLS; 587/25 = STARTTLS
+    return ConnectionConfig(
+        MAIL_USERNAME=os.getenv("MAIL_USERNAME", ""),
+        MAIL_PASSWORD=os.getenv("MAIL_PASSWORD", ""),
+        MAIL_FROM=MAIL_FROM,
+        MAIL_FROM_NAME=MAIL_FROM_NAME,
+        MAIL_PORT=port,
+        MAIL_SERVER=os.getenv("MAIL_SERVER", "smtp.gmail.com"),
+        MAIL_STARTTLS=not use_ssl,
+        MAIL_SSL_TLS=use_ssl,
+        USE_CREDENTIALS=True,
+        VALIDATE_CERTS=True,
+    )
+
+
+async def _send_via_resend(subject: str, recipients: list[str], html: str):
+    async with httpx.AsyncClient(timeout=MAIL_TIMEOUT) as client:
+        response = await client.post(
+            RESEND_API_URL,
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}"},
+            json={
+                "from": f"{MAIL_FROM_NAME} <{MAIL_FROM}>",
+                "to": recipients,
+                "subject": subject,
+                "html": html,
+            },
+        )
+    if response.status_code >= 400:
+        # Тело ответа Resend — описание ошибки (домен не подтверждён, неверный ключ), без секретов
+        raise RuntimeError(f"Resend HTTP {response.status_code}: {response.text[:300]}")
+
+
+async def _send_via_smtp(subject: str, recipients: list[str], html: str):
     message = MessageSchema(
         subject=subject,
         recipients=recipients,
         body=html,
         subtype=MessageType.html
     )
-    fm = FastMail(conf)
+    await asyncio.wait_for(FastMail(_smtp_config()).send_message(message), timeout=MAIL_TIMEOUT)
+
+
+async def _send_mail(subject: str, recipients: list[str], html: str):
+    """Отправляет email с таймаутом; наружу — только безопасные сообщения."""
+    send = _send_via_resend if RESEND_API_KEY else _send_via_smtp
     try:
-        await asyncio.wait_for(fm.send_message(message), timeout=MAIL_TIMEOUT)
-    except asyncio.TimeoutError:
+        await send(subject, recipients, html)
+    except (asyncio.TimeoutError, httpx.TimeoutException):
         logger.error(f"Mail send timeout ({MAIL_TIMEOUT}s) for {recipients}")
         raise MailSendError("Сервер почты не отвечает. Попробуйте позже.")
     except Exception as e:
         logger.error(f"Mail send failed for {recipients}: {e}")
         raise MailSendError("Не удалось отправить письмо. Попробуйте позже.")
-
-
-class MailSendError(Exception):
-    """Ошибка отправки email — содержит безопасное сообщение для пользователя."""
-    pass
 
 
 def _brand_code_email(heading: str, lead: str, code: str, footnote: str) -> str:

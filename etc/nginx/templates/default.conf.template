@@ -1,3 +1,15 @@
+# Лимиты на эндпоинты с кодами из писем (по IP клиента). Зоны объявляются в http-контексте:
+# conf.d подключается внутрь http{}. Переменные nginx ($binary_remote_addr) envsubst не трогает —
+# он подставляет только переменные окружения контейнера.
+#
+# auth_code — перебор 6-значного кода: 10 попыток в минуту с одного IP (10^6 вариантов
+#   за 15 минут жизни кода не переберёшь). Серверный счётчик по email — в webapp/routers/auth.py.
+# auth_mail — всё, что отправляет письмо (защита от почтового флуда и от расхода лимитов Resend).
+# 429 вместо дефолтного 503: это не ошибка сервера.
+limit_req_zone $binary_remote_addr zone=auth_code:10m rate=10r/m;
+limit_req_zone $binary_remote_addr zone=auth_mail:10m rate=6r/m;
+limit_req_status 429;
+
 server {
     listen 80;
     listen [::]:80;
@@ -81,6 +93,35 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # Эндпоинты с кодами подтверждения. Только точное совпадение пути; тот же proxy_pass,
+    # что и у location / — свой блок нужен лишь ради limit_req.
+    location = /verify-email {
+        limit_req zone=auth_code burst=5 nodelay;
+        proxy_pass http://flask_site:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /reset-password {
+        limit_req zone=auth_code burst=5 nodelay;
+        proxy_pass http://flask_site:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location ~ ^/(register|resend-code|forgot-password)$ {
+        limit_req zone=auth_mail burst=6 nodelay;
+        proxy_pass http://flask_site:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     location / {
         proxy_pass http://flask_site:8000;
         proxy_set_header Host $host;
@@ -140,6 +181,35 @@ server {
 
     location = / {
         return 302 /tma/;
+    }
+
+    # Те же лимиты, что на основном хосте: app.$DOMAIN проксирует тот же flask_site,
+    # без них /verify-email и /reset-password обошли бы limit_req через этот хост.
+    location = /verify-email {
+        limit_req zone=auth_code burst=5 nodelay;
+        proxy_pass http://flask_site:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /reset-password {
+        limit_req zone=auth_code burst=5 nodelay;
+        proxy_pass http://flask_site:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location ~ ^/(register|resend-code|forgot-password)$ {
+        limit_req zone=auth_mail burst=6 nodelay;
+        proxy_pass http://flask_site:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     location / {

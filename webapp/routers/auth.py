@@ -1,22 +1,25 @@
 # webapp/routers/auth.py
+import hmac
 import random
 import logging
-import string
 from jose import jwt
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
 from fastapi.responses import RedirectResponse, HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, update
 
 from db import async_session_maker, User
 from webapp.core.mail import send_reset_code, send_verification_email, MailSendError
+from webapp.core.verification import generate_code, hash_code, check_code
 from webapp.core.security import get_password_hash, verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, SECRET_KEY, ALGORITHM
 from webapp.dependencies import get_current_user
 from webapp.templating import templates
 from datetime import timedelta, datetime
 
 router = APIRouter()
+
+MAX_RESET_ATTEMPTS = 5  # неверных вводов кода сброса, после чего код гасится
 
 # Зависимость для получения сессии БД
 async def get_db():
@@ -95,7 +98,7 @@ async def register_user(
         })
 
     # 2. Генерируем код верификации
-    code = ''.join(random.choices(string.digits, k=6))
+    code = generate_code()
     hashed_password = get_password_hash(password)
 
     # 3. Создаём подписанный JWT с pending-данными (пользователь НЕ создаётся в БД)
@@ -105,7 +108,7 @@ async def register_user(
         "full_name": full_name,
         "password_hash": hashed_password,
         "ref": ref,
-        "code": code,
+        "code_hash": hash_code(email, code),
         "code_expire": (datetime.utcnow() + timedelta(minutes=15)).isoformat(),
         "code_sent_at": datetime.utcnow().isoformat(),
         "attempts": 0,
@@ -172,7 +175,7 @@ async def verify_email(
         })
 
     # 4. Проверяем код
-    if code.strip() != payload["code"]:
+    if not check_code(payload["email"], code, payload.get("code_hash", "")):
         # Создаём новый токен с увеличенным счётчиком попыток
         payload["attempts"] = attempts + 1
         new_token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
@@ -263,10 +266,10 @@ async def resend_code(
         })
 
     # 3. Генерируем новый код
-    new_code = ''.join(random.choices(string.digits, k=6))
+    new_code = generate_code()
 
     # 4. Создаём новый токен
-    payload["code"] = new_code
+    payload["code_hash"] = hash_code(payload["email"], new_code)
     payload["code_expire"] = (datetime.utcnow() + timedelta(minutes=15)).isoformat()
     payload["code_sent_at"] = datetime.utcnow().isoformat()
     payload["attempts"] = 0
@@ -339,11 +342,12 @@ async def send_reset_email(
         })
 
     # 2. Генерируем код (6 цифр)
-    code = ''.join(random.choices(string.digits, k=6))
+    code = generate_code()
     
     # 3. Сохраняем в БД (время жизни 15 мин)
     user.reset_code = code
     user.reset_code_expire = datetime.now() + timedelta(minutes=15)
+    user.reset_attempts = 0
     await db.commit()
 
     # 4. Отправляем письмо
@@ -385,15 +389,36 @@ async def process_reset_password(
             "request": request, "email": email, "error": "Пользователь не найден"
         })
 
-    # 2. Проверяем код и время
-    if user.reset_code != code:
+    # 2. Код должен быть выдан и не истёк
+    if not user.reset_code or not user.reset_code_expire or user.reset_code_expire < datetime.now():
         return templates.TemplateResponse("reset_password.html", {
-            "request": request, "email": email, "error": "Неверный код"
+            "request": request, "email": email, "error": "Код не запрашивался или срок его действия истёк. Запросите новый."
         })
-    
-    if not user.reset_code_expire or user.reset_code_expire < datetime.now():
+
+    # 3. Счётчик попыток. Инкремент атомарный (UPDATE ... RETURNING), чтобы параллельные
+    # запросы не могли перебирать код в обход лимита; считается каждая попытка, включая последнюю.
+    stored_code = user.reset_code
+    attempts = (await db.execute(
+        update(User).where(User.user_id == user.user_id)
+        .values(reset_attempts=User.reset_attempts + 1)
+        .returning(User.reset_attempts)
+        .execution_options(synchronize_session=False)
+    )).scalar_one()
+
+    if attempts > MAX_RESET_ATTEMPTS:
+        user.reset_code = None
+        user.reset_code_expire = None
+        await db.commit()
         return templates.TemplateResponse("reset_password.html", {
-            "request": request, "email": email, "error": "Срок действия кода истек"
+            "request": request, "email": email, "error": "Превышено количество попыток. Запросите новый код."
+        })
+
+    # bytes: compare_digest на str падает с TypeError при не-ASCII вводе
+    if not hmac.compare_digest(stored_code.encode(), code.strip().encode()):
+        await db.commit()
+        return templates.TemplateResponse("reset_password.html", {
+            "request": request, "email": email,
+            "error": f"Неверный код. Осталось попыток: {MAX_RESET_ATTEMPTS - attempts}"
         })
 
     # 3. Меняем пароль
@@ -402,6 +427,7 @@ async def process_reset_password(
     # 4. Очищаем код (чтобы нельзя было использовать повторно)
     user.reset_code = None
     user.reset_code_expire = None
+    user.reset_attempts = 0
     await db.commit()
 
     # 5. Отправляем на логин
