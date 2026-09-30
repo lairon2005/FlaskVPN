@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---|---|
 | `tgbot/CLAUDE.md` | Хендлеры, сервисы, клавиатуры, FSM-состояния бота |
 | `webapp/CLAUDE.md` | Web-dashboard: все маршруты, JWT, шаблоны, CSS/JS-паттерны, деплой |
-| `docs/*.md` | Эксплуатация нод Remnawave (setup, cover-сайт, XHTTP/Hysteria2, анти-флуд, proxy-failover), `tma-roadmap.md` — план Mini App, `brand.md` — бренд-бук FLASK (палитра, шрифты, где что лежит) |
+| `docs/*.md` | Эксплуатация нод Remnawave (setup, cover-сайт, XHTTP/Hysteria2, анти-флуд, proxy-failover), `panel-server.md` — панель + нода fl-1, `node-pl-1.md` — нода pl-1 рядом с чужим marzban-node, `tma-roadmap.md` — план Mini App, `brand.md` — бренд-бук FLASK (палитра, шрифты, где что лежит) |
 
 ## Project Overview
 
