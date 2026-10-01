@@ -1,0 +1,10 @@
+{% extends "manager/base.html" %}
+
+{% block content %}
+<h1 class="font-display font-black text-2xl mb-4">История операций</h1>
+{% include "manager/_ops_table.html" %}
+<div class="mt-4 flex gap-2">
+    {% if page > 0 %}<a class="btn-pop btn-pop-outline !min-h-0 !py-2" href="/manager/history?page={{ page - 1 }}">← Новее</a>{% endif %}
+    {% if has_next %}<a class="btn-pop btn-pop-outline !min-h-0 !py-2" href="/manager/history?page={{ page + 1 }}">Старее →</a>{% endif %}
+</div>
+{% endblock %}

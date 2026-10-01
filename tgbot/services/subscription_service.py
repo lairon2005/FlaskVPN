@@ -6,7 +6,10 @@ from remnawave.client import RemnawaveClient
 from loader import logger
 
 
-DEFAULT_TRAFFIC_LIMIT_BYTES = 1_000 * 1024 ** 3  # 1000 ГБ
+# Базовая квота нового пользователя (триал, бонусы) — 500 ГБ/мес. Настоящее
+# значение правит админ (app_settings.base_traffic_gb), этот дефолт — запасной,
+# если провайдер настройки не подключён или недоступен.
+DEFAULT_TRAFFIC_LIMIT_BYTES = 500 * 1024 ** 3  # 500 ГБ
 MONTHLY_TRAFFIC_LIMIT_STRATEGY = "MONTH"
 
 
@@ -21,9 +24,24 @@ def _days_to_expire_at(days: int) -> str:
 
 
 class SubscriptionService:
-    def __init__(self, user_repo: UserRepository, remnawave: RemnawaveClient):
+    def __init__(self, user_repo: UserRepository, remnawave: RemnawaveClient,
+                 base_traffic_gb=None):
         self._user_repo = user_repo
         self._remnawave = remnawave
+        # async () -> int: базовая квота из настроек. Отдельным вызовом, а не
+        # репозиторием, чтобы сервис не знал про app_settings.
+        self._base_traffic_gb = base_traffic_gb
+
+    async def _default_limit_bytes(self) -> int:
+        """Квота нового Remnawave-пользователя, когда тариф её не задаёт."""
+        if self._base_traffic_gb is not None:
+            try:
+                gb = int(await self._base_traffic_gb())
+                if gb > 0:
+                    return gb * 1024 ** 3
+            except Exception:
+                logger.warning("Не удалось прочитать base_traffic_gb — берём дефолт", exc_info=True)
+        return DEFAULT_TRAFFIC_LIMIT_BYTES
 
     async def extend(self, user_id: int, days: int, data_limit_gb: int | None = None) -> ExtensionResult:
         """
@@ -108,11 +126,11 @@ class SubscriptionService:
             # Пользователь был удалён из Remnawave вручную (панель/скрипт) — пересоздаём
 
         # Для нового пользователя data_limit_bytes=None означает не «безлимит», а
-        # прежний дефолт сервиса: 1000 ГБ с ежемесячным сбросом. Значение None
+        # базовую квоту сервиса (500 ГБ с ежемесячным сбросом). Значение None
         # используется как «не менять квоту» только при продлении уже существующего
         # пользователя. Явный 0 по-прежнему означает настоящий безлимит.
         create_limit_bytes = (
-            DEFAULT_TRAFFIC_LIMIT_BYTES
+            await self._default_limit_bytes()
             if data_limit_bytes is None
             else data_limit_bytes
         )

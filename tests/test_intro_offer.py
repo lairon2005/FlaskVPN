@@ -25,7 +25,7 @@ intro = real_intro_offer()
 
 def _user(**overrides):
     defaults = {"user_id": 42, "is_first_payment_made": False, "intro_used": False,
-                "extra_devices": 0, "email": None}
+                "extra_devices": 0, "extra_traffic_gb": 0, "email": None}
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 
@@ -124,7 +124,8 @@ class IntroPaymentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_week_is_granted(self):
         service, _, _ = await self._process(user=_user(), tariff=WEEK)
-        service._subscription_service.extend.assert_awaited_once_with(42, 7, data_limit_gb=0)
+        # Тариф без явного лимита теперь получает базовую квоту 500 ГБ, а не безлимит.
+        service._subscription_service.extend.assert_awaited_once_with(42, 7, data_limit_gb=500)
 
     async def test_card_renews_into_monthly_tariff(self):
         _, pm_service, result = await self._process(user=_user(), tariff=WEEK)

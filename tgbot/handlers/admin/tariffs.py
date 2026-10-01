@@ -8,6 +8,8 @@ from loader import logger, config
 from tgbot.filters.admin import IsAdmin
 from database import tariff_repo
 from tgbot.services.intro_offer import is_sellable_intro
+from tgbot.services import traffic_service
+from tgbot.services.pricing import format_quota
 from tgbot.keyboards.inline import (tariffs_list_keyboard, single_tariff_manage_keyboard,
                                     confirm_delete_tariff_keyboard, cancel_fsm_keyboard,
                                     tariff_highlight_choice_keyboard)
@@ -25,7 +27,10 @@ async def show_tariff_card(call: CallbackQuery, tariff_id: int):
         return
 
     status = "Активен ✅" if tariff.is_active else "Отключен ❌"
-    limit_str = "Безлимит" if not tariff.data_limit_gb else f"{tariff.data_limit_gb} ГБ/мес."
+    base_gb = await traffic_service.base_gb()
+    limit_str = format_quota(tariff.data_limit_gb, base_gb)
+    if tariff.data_limit_gb is None:
+        limit_str += " (базовая квота)"
     loyalty_str = f"{tariff.loyalty_price} RUB" if tariff.loyalty_price else "не задана"
     highlight_str = "⭐ да" if tariff.is_highlighted else "нет"
     intro_str = "нет"
@@ -208,7 +213,7 @@ async def add_tariff_duration(message: Message, state: FSMContext):
     await state.set_state(TariffFSM.add_data_limit)
     await message.answer(
         "<b>Шаг 4/6:</b> Введите лимит трафика в ГБ/месяц (0 = безлимит), "
-        "или отправьте «-», чтобы оставить безлимит."
+        "или отправьте «-», чтобы взять базовую квоту (настраивается в «📊 Трафик»)."
     )
 
 @admin_tariffs_router.message(TariffFSM.add_data_limit)
@@ -280,7 +285,7 @@ async def edit_tariff_start(call: CallbackQuery, state: FSMContext):
         "name": "название",
         "price": "цену (число)",
         "duration": "срок в днях (целое число)",
-        "datalimit": "лимит трафика в ГБ (0 = безлимит; «-» чтобы сделать безлимитным)",
+        "datalimit": "лимит трафика в ГБ (0 = безлимит; «-» — базовая квота из «📊 Трафик»)",
         "loyalty": "цену навсегда (лояльти) в рублях («-» чтобы убрать лоялти-цену)",
     }
     prompt_text = f"Введите новое(ую) {field_map[field_to_edit]} для тарифа <code>{tariff_id}</code>"

@@ -268,7 +268,7 @@
     }
 
     // tariff — {id, name, basePrice}; сервер ищет тариф по id.
-    function tmaInitPayment(tariff, btn, activePromo, extraDevices, allowCancelRetry) {
+    function tmaInitPayment(tariff, btn, activePromo, extraDevices, allowCancelRetry, extraPacks) {
         if (!btn) return Promise.resolve();
         btn.classList.add('btn-loading');
         if (tg && tg.MainButton) tg.MainButton.showProgress(true);
@@ -277,6 +277,7 @@
             tariff_id: tariff.id,
             source: 'tma',
             extra_devices: extraDevices || 0,
+            extra_traffic_packs: extraPacks || 0,
         };
         if (activePromo) {
             payload.promo_code = activePromo.code;
@@ -304,7 +305,7 @@
                     // Один повтор: если и после отмены 409, дальше просто сообщаем.
                     if (allowCancelRetry !== false) {
                         offerCancelPending(function () {
-                            tmaInitPayment(tariff, btn, activePromo, extraDevices, false);
+                            tmaInitPayment(tariff, btn, activePromo, extraDevices, false, extraPacks);
                         });
                     } else {
                         showToast('У вас уже есть неоплаченный счёт. Завершите оплату или попробуйте позже.', 'warning');
@@ -433,9 +434,22 @@
         // трогал счётчик, не должно снимать его доп. устройства.
         var slots = slotBox ? parseInt(slotBox.dataset.currentSlots || '0', 10) : 0;
 
+        // Пакеты доп. трафика: тоже одно количество на все тарифы с лимитом.
+        var trafficBox = document.getElementById('trafficSelector');
+        var packPrice = trafficBox ? parseInt(trafficBox.dataset.packPrice || '0', 10) : 0;
+        var packMax = trafficBox ? parseInt(trafficBox.dataset.packMax || '0', 10) : 0;
+        var packGb = trafficBox ? parseInt(trafficBox.dataset.packGb || '0', 10) : 0;
+        var packs = trafficBox ? parseInt(trafficBox.dataset.currentPacks || '0', 10) : 0;
+
         function billingMonths(days) {
             // Тот же расчёт, что на сервере (device_pricing.billing_months).
             return Math.max(1, Math.round(days / 30));
+        }
+
+        function trafficCost() {
+            // Вводный тариф и безлимит (квота 0) пакетов не продают — как и сервер.
+            if (!selected || !packs || selected.intro || !(selected.quota > 0)) return 0;
+            return packPrice * billingMonths(selected.days) * packs;
         }
 
         function slotsCost() {
@@ -449,7 +463,7 @@
             var discount = tmaActivePromo ? tmaActivePromo.discount_percent : 0;
             // Скидка применяется только к тарифу — устройства идут по полной.
             var tariffPart = discount ? Math.round(basePrice * (1 - discount / 100)) : basePrice;
-            return tariffPart + slotsCost();
+            return tariffPart + slotsCost() + trafficCost();
         }
 
         function refreshMainButton() {
@@ -474,6 +488,30 @@
             }
         }
 
+        function refreshTrafficLabels() {
+            var label = document.getElementById('trafficExtraLabel');
+            if (label) label.textContent = '+' + (packs * packGb);
+
+            var costLabel = document.getElementById('trafficCostLabel');
+            if (costLabel) {
+                costLabel.textContent = packs && selected
+                    ? (trafficCost() ? '+' + trafficCost() + ' ₽ к тарифу' : 'для этого тарифа не нужен')
+                    : (packs ? 'выберите тариф' : '');
+            }
+        }
+
+        if (trafficBox) {
+            trafficBox.addEventListener('click', function (event) {
+                var action = event.target.getAttribute('data-pack-action');
+                if (!action) return;
+                packs = Math.max(0, Math.min(packMax, packs + (action === 'inc' ? 1 : -1)));
+                haptic('light');
+                refreshTrafficLabels();
+                refreshMainButton();
+            });
+            refreshTrafficLabels();
+        }
+
         if (slotBox) {
             slotBox.addEventListener('click', function (event) {
                 var action = event.target.getAttribute('data-slot-action');
@@ -490,9 +528,9 @@
                 if (!selected) return;
                 var fakeBtn = document.createElement('button'); // tmaInitPayment ожидает элемент для .btn-loading
                 if (selected.intro) {
-                    tmaInitPayment(selected, fakeBtn, null, 0);
+                    tmaInitPayment(selected, fakeBtn, null, 0, true, 0);
                 } else {
-                    tmaInitPayment(selected, fakeBtn, tmaActivePromo, slots);
+                    tmaInitPayment(selected, fakeBtn, tmaActivePromo, slots, true, packs);
                 }
             };
             tg.MainButton.onClick(mainButtonHandler);
@@ -509,8 +547,10 @@
                     name: card.dataset.tariffName,
                     basePrice: parseFloat(card.dataset.tariffPrice),
                     days: parseInt(card.dataset.tariffDays || '30', 10),
+                    quota: parseInt(card.dataset.tariffQuota || '0', 10),
                 };
                 refreshSlotLabels();
+                refreshTrafficLabels();
                 refreshMainButton();
             });
         });
@@ -843,6 +883,81 @@
     }
 
     // ============================================================
+    // Докупка трафика (блок на главном экране)
+    // ============================================================
+
+    function initTrafficTopUp() {
+        var box = document.getElementById('buyTrafficBox');
+        if (!box) return;
+
+        var unitPrice = parseInt(box.dataset.trafficUnitPrice || '0', 10);
+        var available = parseInt(box.dataset.trafficAvailable || '1', 10);
+        var packGb = parseInt(box.dataset.trafficPackGb || '0', 10);
+        var count = 1;
+
+        var gbEl = document.getElementById('buyTrafficGb');
+        var priceEl = document.getElementById('buyTrafficPrice');
+        var buyBtn = document.getElementById('buyTrafficBtn');
+
+        function refresh() {
+            if (gbEl) gbEl.textContent = '+' + (packGb * count);
+            if (priceEl) priceEl.textContent = unitPrice * count;
+        }
+
+        box.addEventListener('click', function (event) {
+            var action = event.target.getAttribute('data-traffic-action');
+            if (!action) return;
+            count = Math.max(1, Math.min(available, count + (action === 'inc' ? 1 : -1)));
+            haptic('light');
+            refresh();
+        });
+
+        if (!buyBtn) return;
+
+        function submitTraffic(allowCancelRetry) {
+            buyBtn.classList.add('btn-loading');
+
+            tmaFetch('/payment/traffic', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ packs: count, source: 'tma' }),
+            })
+                .then(function (response) {
+                    if (response.ok) {
+                        return response.json().then(function (data) {
+                            if (tg && tg.openLink) {
+                                tg.openLink(data.payment_url);
+                            } else {
+                                window.open(data.payment_url, '_blank');
+                            }
+                            showToast('Счёт открыт в браузере. Вернитесь сюда после оплаты.', 'info');
+                        });
+                    }
+                    if (response.status === 401) {
+                        showToast('Сессия истекла, перезагрузите Mini App.', 'error');
+                        return null;
+                    }
+                    if (response.status === 409 && allowCancelRetry !== false) {
+                        offerCancelPending(function () { submitTraffic(false); });
+                        return null;
+                    }
+                    // Текст отказа присылает сервер (нет подписки, потолок, счёт в работе).
+                    return response.json().catch(function () { return {}; }).then(function (data) {
+                        showToast(data.detail || 'Не удалось создать счёт. Попробуйте позже.', 'error');
+                    });
+                })
+                .catch(function () {
+                    showToast('Ошибка соединения с сервером.', 'error');
+                })
+                .finally(function () {
+                    buyBtn.classList.remove('btn-loading');
+                });
+        }
+
+        buyBtn.addEventListener('click', function () { submitTraffic(true); });
+    }
+
+    // ============================================================
     // Init
     // ============================================================
 
@@ -855,6 +970,7 @@
         detectOSAndSetLink();
         initTariffsScreen();
         initDeviceSlots();
+        initTrafficTopUp();
         initStarsButtons();
         initShareRefLink();
         initOpenSubLink();

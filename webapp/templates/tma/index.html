@@ -76,6 +76,58 @@
 
 {% endif %}
 
+{% if user.vpn_username and vpn_data %}
+<!-- Трафик: расход за месяц и докупка -->
+{% set limit_bytes = vpn_data.data_limit or 0 %}
+{% set used_pct = ([((vpn_data.used_traffic or 0) / limit_bytes * 100) | int, 100] | min) if limit_bytes else 0 %}
+<section class="sticker p-4 mt-3 animate-in [animation-delay:0.12s]">
+    <div class="flex items-center justify-between gap-3">
+        <p class="font-bold flex items-center gap-2">
+            {{ ic.icon('wifi', 'w-4 h-4 text-orange') }} Трафик
+        </p>
+        <span class="text-xs text-muted tabular-nums">
+            {% if limit_bytes %}{{ vpn_data.used_traffic | bytes_to_gb }} из {{ limit_bytes | bytes_to_gb }} ГБ{% else %}безлимит{% endif %}
+        </span>
+    </div>
+    {% if limit_bytes %}
+    <div class="mt-2 h-2.5 rounded-full bg-blue/10 overflow-hidden" role="progressbar"
+         aria-valuenow="{{ used_pct }}" aria-valuemin="0" aria-valuemax="100">
+        <div class="h-full rounded-full {{ 'bg-danger' if used_pct >= 90 else 'bg-blue' }}" style="width: {{ used_pct }}%"></div>
+    </div>
+    {% endif %}
+
+    {% if traffic_quote.ok %}
+    {# Докупка: цену считает сервер по остатку срока подписки. #}
+    <div class="panel panel-dashed mt-3 p-3" id="buyTrafficBox"
+         data-traffic-unit-price="{{ traffic_quote.price_per_pack }}"
+         data-traffic-available="{{ traffic_quote.available }}"
+         data-traffic-pack-gb="{{ traffic_quote.pack_gb }}">
+        <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+                <p class="font-bold text-sm">Не хватает трафика?</p>
+                <p class="text-xs text-muted mt-0.5">
+                    {{ traffic_quote.price_per_pack }} ₽ за +{{ traffic_quote.pack_gb }} ГБ до конца подписки
+                    ({{ traffic_quote.remaining_days }} дн.)
+                </p>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+                <button type="button" class="stepper-btn" data-traffic-action="dec" aria-label="Меньше">−</button>
+                <span class="font-display font-black text-base w-14 text-center tabular-nums" id="buyTrafficGb">+{{ traffic_quote.pack_gb }}</span>
+                <button type="button" class="stepper-btn" data-traffic-action="inc" aria-label="Больше">+</button>
+            </div>
+        </div>
+        <button type="button" class="btn-pop w-full mt-3" id="buyTrafficBtn">
+            <span class="btn-text">Докупить за <span id="buyTrafficPrice">{{ traffic_quote.price | int }}</span> ₽</span>
+        </button>
+        <p class="text-xs text-muted mt-2">
+            При продлении подписки докупленный трафик автоматически войдёт в счёт
+            ({{ traffic_settings.pack_price }} ₽ в месяц за каждый пакет).
+        </p>
+    </div>
+    {% endif %}
+</section>
+{% endif %}
+
 <!-- Реферальная программа -->
 <a href="/tma/referral"
    class="sticker sticker-hover p-4 mt-3 flex items-center justify-between gap-3 animate-in [animation-delay:0.15s]">

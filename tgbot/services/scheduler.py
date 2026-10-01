@@ -39,8 +39,9 @@ async def send_reminder(bot: Bot, user, text: str) -> bool:
     вызывающей стороной для подсчёта статистики (см. check_subscriptions).
     """
     # Заблокировавшие бота помечены is_active=False — не дёргаем Telegram
-    # впустую и не засоряем логи тысячами Forbidden.
-    if not user.is_active:
+    # впустую и не засоряем логи тысячами Forbidden. Веб- и офлайн-клиенты
+    # (отрицательный id) вообще не имеют чата — писать им некуда.
+    if not user.is_active or user.user_id < 0:
         return False
     try:
         active_tariffs = await tariff_repo.get_active()
@@ -327,8 +328,9 @@ def _cycle_key(dt: datetime) -> str:
 
 async def _send_lifecycle_message(bot: Bot, user, text: str, reply_markup) -> bool:
     """Отправляет одно lifecycle-касание. True — если отправлено успешно (можно mark_sent)."""
-    # Заблокировавшие бота помечены is_active=False — пропускаем.
-    if not user.is_active:
+    # Заблокировавшие бота помечены is_active=False — пропускаем; клиентам без
+    # Telegram (веб, офлайн: отрицательный id) писать некуда.
+    if not user.is_active or user.user_id < 0:
         return False
     try:
         await bot.send_message(chat_id=user.user_id, text=text, reply_markup=reply_markup)
@@ -643,7 +645,7 @@ async def lifecycle_activation_drip(bot: Bot):
                 if step_name == 'touch1':
                     text = (
                         "Вы настроили бота, но не выбрали тариф. Внутри: 5 локаций, "
-                        "безлимитный трафик, протоколы, которые работают стабильно. "
+                        "без ограничения скорости, протоколы, которые работают стабильно. "
                         "От 74 ₽ за неделю."
                     )
                     kb = lifecycle_cta_keyboard(
@@ -918,6 +920,132 @@ async def _notify_slots_expired(bot: Bot, user, removed: int) -> None:
         logger.error(f"Не удалось уведомить user_id={user.user_id} об отключении устройств: {e}")
 
 
+# =============================================================================
+# --- 4.5b СВЕРКА ЛИМИТОВ ТРАФИКА И ПРЕДУПРЕЖДЕНИЯ ОБ ИСЧЕРПАНИИ КВОТЫ ---
+#
+# Зеркало sync_device_limits: докупленный трафик живёт до конца подписки,
+# а PATCH в панель мог не пройти в момент оплаты. Джоб доводит лимит до БД и
+# гасит докупленное у тех, у кого подписка закончилась.
+# =============================================================================
+
+TRAFFIC_SERIES = 'traffic_usage'
+TRAFFIC_WARN_RATIO = 0.9
+
+
+async def sync_traffic_limits(bot: Bot):
+    """Сверяет лимиты трафика с панелью и гасит докупленное после окончания подписки."""
+    from tgbot.services import traffic_service
+    from tgbot.services.device_pricing import days_left
+
+    logger.info("Scheduler job: сверка лимитов трафика запущена.")
+
+    try:
+        users = await user_repo.get_with_extra_traffic()
+    except Exception as e:
+        logger.error(f"Сверка лимитов трафика: не удалось получить список пользователей: {e}")
+        return
+
+    expired_count = synced_count = failed_count = 0
+    for user in users:
+        try:
+            if days_left(user.subscription_end_date) <= 0:
+                await traffic_service.expire_extra(user.user_id)
+                expired_count += 1
+                continue
+
+            result = await traffic_service.sync_limit(user.user_id)
+            if result is None:
+                failed_count += 1
+            else:
+                synced_count += 1
+        except Exception as e:
+            failed_count += 1
+            logger.error(f"Сверка лимитов трафика: ошибка для user_id={user.user_id}: {e}")
+
+    logger.info(
+        f"Сверка лимитов трафика завершена: синхронизировано={synced_count}, "
+        f"докупленное сгорело={expired_count}, ошибок={failed_count}."
+    )
+
+
+def traffic_alert_step(level: str, now: datetime) -> str:
+    """Шаг трекера касаний: одно предупреждение каждого уровня за расчётный месяц.
+
+    Квота обнуляется 1-го числа (стратегия MONTH), поэтому месяц — естественный цикл.
+    """
+    return f"{level}_{now.strftime('%Y%m')}"
+
+
+async def traffic_usage_alerts(bot: Bot):
+    """Предупреждает о 90% и 100% квоты трафика — с кнопкой докупки."""
+    from tgbot.services import traffic_service
+    from loader import remnawave_client
+
+    logger.info("Scheduler job: предупреждения об исчерпании трафика запущены.")
+
+    try:
+        users = await user_repo.get_active_telegram_subscribers()
+        panel_users = await remnawave_client.get_all_users()
+    except Exception as e:
+        logger.error(f"Предупреждения о трафике: не удалось получить данные: {e}")
+        return
+
+    panel_by_name = {u.get("username"): u for u in panel_users if u.get("username")}
+    now = datetime.now()
+    sent = errors = 0
+
+    for user in users:
+        rw_user = panel_by_name.get(user.vpn_username)
+        if not rw_user:
+            continue
+        limit = int(rw_user.get("trafficLimitBytes") or 0)
+        if limit <= 0:  # безлимит
+            continue
+        used = int(
+            (rw_user.get("userTraffic") or {}).get("usedTrafficBytes", rw_user.get("usedTrafficBytes", 0)) or 0
+        )
+        ratio = used / limit
+
+        if ratio >= 1 or str(rw_user.get("status", "")).upper() == "LIMITED":
+            level = "full"
+        elif ratio >= TRAFFIC_WARN_RATIO:
+            level = "warn"
+        else:
+            continue
+
+        step = traffic_alert_step(level, now)
+        if await lifecycle_repo.was_sent(user.user_id, TRAFFIC_SERIES, step):
+            continue
+        # Предупреждение 90% после уже отправленного «закончился» бессмысленно.
+        if level == "warn" and await lifecycle_repo.was_sent(
+            user.user_id, TRAFFIC_SERIES, traffic_alert_step("full", now)
+        ):
+            continue
+
+        limit_gb = limit // (1024 ** 3)
+        if level == "full":
+            text = (
+                f"📊 <b>Трафик закончился</b> ({limit_gb} ГБ в этом месяце).\n\n"
+                "Доступ вернётся 1-го числа, когда квота обновится, — или добавьте "
+                "гигабайты прямо сейчас, VPN заработает сразу."
+            )
+        else:
+            text = (
+                f"📊 Использовано {int(ratio * 100)}% месячного трафика "
+                f"({used // (1024 ** 3)} из {limit_gb} ГБ).\n\n"
+                "Если не хватает — можно докупить гигабайты до конца подписки."
+            )
+        kb = lifecycle_cta_keyboard(("📊 Докупить трафик", "buy_traffic"))
+
+        if await _send_lifecycle_message(bot, user, text, kb):
+            await lifecycle_repo.mark_sent(user.user_id, TRAFFIC_SERIES, step)
+            sent += 1
+        else:
+            errors += 1
+
+    logger.info(f"Предупреждения о трафике завершены: отправлено={sent}, ошибок={errors}.")
+
+
 # --- 4.6 АВТООТМЕНА ЗАВИСШИХ НЕОПЛАЧЕННЫХ СЧЕТОВ ---
 
 # Локальный таймаут неоплаченного счёта, минуты.
@@ -954,6 +1082,62 @@ async def cancel_stale_payments():
         )
     else:
         logger.info("Автоотмена зависших счетов завершена: зависших счетов нет.")
+
+
+# =============================================================================
+# --- 4.7 МЕНЕДЖЕРЫ: временные ключи, сверка онлайн-оплат, дайджест продлений ---
+# =============================================================================
+
+async def expire_temp_keys():
+    """Удаляет из панели истёкшие временные ключи менеджеров (раз в минуту)."""
+    from tgbot.services import manager_service
+
+    try:
+        deleted, failed = await manager_service.expire_temp_keys()
+    except Exception as e:
+        logger.error(f"Временные ключи: прогон не удался: {e}", exc_info=True)
+        return
+    if deleted or failed:
+        logger.info(f"Временные ключи: удалено={deleted}, ошибок={failed}")
+
+
+async def sync_manager_operations():
+    """Сверяет висящие онлайн-операции менеджеров с платежами (каждые 2 минуты)."""
+    from tgbot.services import manager_service
+
+    try:
+        changed = await manager_service.sync_pending_operations()
+    except Exception as e:
+        logger.error(f"Сверка операций менеджеров: прогон не удался: {e}", exc_info=True)
+        return
+    if changed:
+        logger.info(f"Сверка операций менеджеров: обновлено {changed}")
+
+
+async def manager_renewal_digest(bot: Bot):
+    """
+    Менеджеру — его клиенты, у которых подписка кончается в ближайшие дни и
+    автопродление не включено: у офлайн-клиентов нет Telegram, напомнить им
+    может только человек, который их подключал.
+    """
+    from tgbot.services import manager_service
+
+    try:
+        digest = await manager_service.renewal_digest(days=3)
+    except Exception as e:
+        logger.error(f"Дайджест продлений менеджерам: не удалось собрать: {e}", exc_info=True)
+        return
+
+    for telegram_id, lines in digest:
+        text = (
+            "⏳ <b>Скоро закончится подписка у ваших клиентов</b> "
+            "(автопродление не включено):\n\n" + "\n".join(lines) +
+            "\n\nПредложите продлить — это быстро в «Мои клиенты»."
+        )
+        try:
+            await bot.send_message(telegram_id, text)
+        except Exception as e:
+            logger.warning(f"Дайджест продлений: не доставлен менеджеру {telegram_id}: {e}")
 
 
 # --- 5. Функция для добавления всех задач в планировщик ---
@@ -1033,6 +1217,29 @@ def schedule_jobs(scheduler: AsyncIOScheduler, bot: Bot):
         kwargs={'bot': bot}
     )
 
+    # Сверка лимитов трафика — каждый час (после сверки устройств в :20).
+    scheduler.add_job(
+        sync_traffic_limits,
+        trigger='cron',
+        minute=25,
+        kwargs={'bot': bot}
+    )
+
+    # Предупреждения о 90% / 100% квоты — каждые 3 часа, днём (не будим ночью).
+    scheduler.add_job(
+        traffic_usage_alerts,
+        trigger='cron',
+        hour='9-21/3',
+        minute=40,
+        kwargs={'bot': bot}
+    )
+
+    # Менеджеры: временные ключи удаляем с точностью до минуты, висящие онлайн-
+    # операции сверяем каждые 2 минуты, дайджест продлений — утром.
+    scheduler.add_job(expire_temp_keys, trigger='cron', minute='*')
+    scheduler.add_job(sync_manager_operations, trigger='cron', minute='*/2')
+    scheduler.add_job(manager_renewal_digest, trigger='cron', hour=11, minute=0, kwargs={'bot': bot})
+
     # Автоотмена зависших счетов — каждые 15 минут. Задача чисто служебная
     # (пометка в БД), пользователю и админам писать не о чем, поэтому bot не нужен.
     scheduler.add_job(
@@ -1045,5 +1252,8 @@ def schedule_jobs(scheduler: AsyncIOScheduler, bot: Bot):
         "Scheduler jobs added: auto_renew_subscriptions (12:00), check_subscriptions (12:49), "
         "lifecycle_renewal_reminders (10:00), lifecycle_winback (10:15), "
         "lifecycle_activation_drip (10:30), award_referral_leaderboard (1st day 09:00), "
-        "sync_device_limits (каждый час в :20), cancel_stale_payments (каждые 15 мин)."
+        "sync_device_limits (каждый час в :20), sync_traffic_limits (в :25), "
+        "traffic_usage_alerts (9-21 каждые 3 ч), expire_temp_keys (каждую минуту), "
+        "sync_manager_operations (каждые 2 мин), manager_renewal_digest (11:00), "
+        "cancel_stale_payments (каждые 15 мин)."
     )

@@ -43,6 +43,33 @@
         </p>
     </section>
 
+    {% if traffic_settings.max_packs %}
+    <section class="sticker p-4 mt-3 animate-in" id="trafficSelector"
+             data-pack-price="{{ traffic_settings.pack_price }}"
+             data-pack-max="{{ traffic_settings.max_packs }}"
+             data-pack-gb="{{ traffic_settings.pack_gb }}"
+             data-current-packs="{{ current_traffic_packs }}">
+        <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+                <p class="font-bold flex items-center gap-2">
+                    {{ ic.icon('wifi', 'w-4 h-4 text-orange') }} Доп. трафик
+                </p>
+                <p class="text-xs text-muted mt-0.5">
+                    В тариф входит {{ traffic_settings.base_gb }} ГБ/мес, далее +{{ traffic_settings.pack_gb }} ГБ за
+                    {{ traffic_settings.pack_price }} ₽/мес
+                </p>
+                <p class="text-xs text-muted" id="trafficCostLabel"></p>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+                <button type="button" class="stepper-btn" data-pack-action="dec" aria-label="Меньше">−</button>
+                <span class="font-display font-black text-lg w-14 text-center tabular-nums"
+                      id="trafficExtraLabel">+{{ current_traffic_packs * traffic_settings.pack_gb }}</span>
+                <button type="button" class="stepper-btn" data-pack-action="inc" aria-label="Больше">+</button>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
     <div class="tma-tariffs mt-3 animate-in [animation-delay:0.1s]">
         {% for tariff in tariffs %}
             {# Флаг ставит админка (Tariff.is_highlighted). #}
@@ -51,6 +78,7 @@
                  data-tariff-id="{{ tariff.id }}"
                  data-tariff-name="{{ tariff.name }}" data-tariff-price="{{ tariff.price | int }}"
                  data-tariff-days="{{ tariff.duration_days }}"
+                 data-tariff-quota="{{ traffic_settings.base_gb if tariff.data_limit_gb is none else tariff.data_limit_gb }}"
                  {% if tariff.is_intro %}data-intro="1"{% endif %}>
 
                 {% if tariff.is_intro %}
@@ -65,7 +93,8 @@
                     <div class="min-w-0">
                         <p class="font-display font-extrabold">{{ tariff.name }}</p>
                         <p class="text-xs text-muted mt-0.5">
-                            {{ tariff.duration_days }} дней · безлимит скорости ·
+                            {{ tariff.duration_days }} дней ·
+                            {% if tariff.data_limit_gb == 0 %}безлимитный трафик{% else %}{{ traffic_settings.base_gb if tariff.data_limit_gb is none else tariff.data_limit_gb }} ГБ/мес{% endif %} ·
                             {{ device_settings.base_limit }} устройств
                         </p>
                     </div>

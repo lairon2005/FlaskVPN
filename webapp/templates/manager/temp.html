@@ -1,0 +1,41 @@
+{% extends "manager/base.html" %}
+
+{% block content %}
+<h1 class="font-display font-black text-2xl mb-2">⏱ Временный ключ</h1>
+<p class="text-subtle max-w-2xl">
+    Работает <b>{{ minutes }} мин</b>, до <b>{{ gb }} ГБ</b>, <b>{{ devices }}</b> устройство. Потом удаляется автоматически и перестаёт действовать.
+    Бесплатно, но каждый ключ попадает в журнал и в чат чеков. Лимит: {{ manager.temp_keys_per_day }} в день.
+    Понравилось — оформите подписку на этот же ключ, переустанавливать ничего не придётся.
+</p>
+
+<div class="mt-4"><button class="btn-pop" type="button" id="issueTempBtn"><span class="btn-text">Выдать временный ключ</span></button></div>
+
+<div id="tempResult" class="sticker p-4 mt-4 hidden">
+    <p class="font-display font-extrabold text-lg">✅ Ключ выдан · <span id="tempOp"></span></p>
+    <p class="text-sm text-subtle">Действует до <b id="tempUntil"></b> МСК, затем удаляется.</p>
+    <div class="copy-field mt-3"><input type="text" id="tempLink" readonly><button class="copy-btn" type="button" id="copyTempBtn" aria-label="Скопировать">⧉</button></div>
+    <img id="tempQr" class="mt-3 w-48 h-48 rounded-xl border-2 border-blue/20" alt="QR для установки">
+    <div class="mt-3"><a id="tempConvert" class="btn-pop btn-pop-outline" href="#">💳 Оформить подписку на этот ключ</a></div>
+</div>
+
+<h2 class="font-display font-extrabold text-lg mt-8 mb-3">Активные ключи</h2>
+{% if keys %}
+<div class="sticker overflow-x-auto">
+    <table class="data-table w-full text-sm">
+        <thead><tr><th>Ключ</th><th>Действует до</th><th>Статус</th><th></th></tr></thead>
+        <tbody>
+        {% for key in keys %}
+            <tr>
+                <td class="font-mono">…{{ key.fingerprint }}</td>
+                <td>{{ fmt_dt(key.expires_at) }}</td>
+                <td>{{ 'оформляется' if key.status == 'converting' else 'активен' }}</td>
+                <td class="text-right">{% if key.status == 'active' %}<a class="btn-pop btn-pop-outline !min-h-0 !py-1.5 !px-3 text-sm" href="/manager/issue?temp={{ key.id }}">Оформить подписку</a>{% endif %}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="text-muted">Активных временных ключей нет.</p>
+{% endif %}
+{% endblock %}

@@ -73,6 +73,18 @@ async def stars_pre_checkout(query: PreCheckoutQuery):
         )
         return
 
+    # С докупленным трафиком то же самое: продление звёздами продлило бы и
+    # неоплаченные в этом периоде ГБ.
+    if user and (getattr(user, "extra_traffic_gb", 0) or 0):
+        await query.answer(
+            ok=False,
+            error_message=(
+                "У вас докуплен дополнительный трафик — такая подписка "
+                "продлевается только картой или через СБП."
+            ),
+        )
+        return
+
     await query.answer(ok=True)
 
 

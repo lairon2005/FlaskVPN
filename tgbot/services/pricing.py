@@ -21,6 +21,17 @@ def effective_price(tariff, user_has_active_sub: bool) -> float:
     return tariff.price
 
 
-def format_quota(data_limit_gb) -> str:
-    """Человекочитаемая квота трафика тарифа: '100 ГБ/мес' или 'Безлимит' (None/0)."""
+# Базовая квота по умолчанию (то же, что app_settings.base_traffic_gb). Живёт здесь,
+# а не в traffic_pricing, чтобы форматирование не тянуло зависимости.
+DEFAULT_BASE_QUOTA_GB = 500
+
+
+def format_quota(data_limit_gb, base_gb: int = DEFAULT_BASE_QUOTA_GB) -> str:
+    """Человекочитаемая квота трафика тарифа.
+
+    None → базовая квота ('500 ГБ/мес'), 0 → 'Безлимит', N → 'N ГБ/мес'.
+    Раньше None означал безлимит: безлимит теперь задаётся явным нулём.
+    """
+    if data_limit_gb is None:
+        return f"{base_gb} ГБ/мес"
     return f"{data_limit_gb} ГБ/мес" if data_limit_gb else "Безлимит"

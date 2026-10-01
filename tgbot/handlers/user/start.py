@@ -61,8 +61,10 @@ async def _show_main_menu(target: Message | CallbackQuery, user_id: int, full_na
         "<b>«Подключиться»</b>."
     )
 
+    from tgbot.services import manager_service
     reply_markup = main_menu_keyboard(
         has_active_sub=has_active_sub, has_email=has_email,
+        is_manager=await manager_service.get_by_telegram(user_id) is not None,
     )
 
     if isinstance(target, CallbackQuery):
@@ -317,7 +319,7 @@ async def show_referral_info(message: Message, bot: Bot):
     place_text = f"Ваше место: {user_rank}" if user_rank else "Вы пока не в топ-10"
 
     share_text = (
-        "Пользуюсь стабильным VPN: 5 стран, безлимит, от 74 ₽. "
+        "Пользуюсь стабильным VPN: 5 стран, без ограничения скорости, от 74 ₽. "
         f"По моей ссылке {REFERRAL_TRIAL_DAYS} {_days_word(REFERRAL_TRIAL_DAYS)} бесплатно → {referral_link}"
     )
 

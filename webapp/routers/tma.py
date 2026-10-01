@@ -27,6 +27,7 @@ from tgbot.services import (
     payment_service,
     profile_service,
     referral_service,
+    traffic_service,
     user_service,
 )
 from tgbot.services import support_service
@@ -34,6 +35,7 @@ from tgbot.services.key_service import CODE_OK, REVOKE_NOTICES
 from tgbot.services.referral_service import REFERRAL_TRIAL_DAYS
 from tgbot.services.intro_offer import consent_text, conversion_price, is_in_intro
 from tgbot.services.pricing import effective_price
+from tgbot.services.traffic_pricing import gb_to_packs
 from webapp.core.security import ACCESS_TOKEN_EXPIRE_MINUTES, create_access_token
 from webapp.core.support import (
     SupportValidationError,
@@ -107,6 +109,9 @@ async def tma_home(request: Request, user: User | None = Depends(get_current_use
         "title": "FlaskVPN",
         "tma_root": True,
         "active_tab": "home",
+        # Докупка трафика: quote решает, показывать ли блок, и считает цену.
+        "traffic_quote": await traffic_service.quote(user.user_id, packs=1),
+        "traffic_settings": await traffic_service.settings(),
         **ctx,
     })
 
@@ -141,6 +146,7 @@ async def tma_tariffs(request: Request, user: User | None = Depends(get_current_
         user, allow_intro=config.yookassa.save_payment_method
     )
     device_settings = await device_slot_service.settings()
+    traffic_settings = await traffic_service.settings()
     return templates.TemplateResponse("tma/tariffs.html", {
         "request": request,
         "user": user,
@@ -152,6 +158,9 @@ async def tma_tariffs(request: Request, user: User | None = Depends(get_current_
         # Оплата Stars при активных слотах отклоняется (см. stars_payment.py),
         # поэтому кнопка ⭐ у таких пользователей просто не показывается.
         "current_extra_devices": user.extra_devices or 0,
+        # То же для докупленного трафика: продление не должно молча снимать пакеты.
+        "traffic_settings": traffic_settings,
+        "current_traffic_packs": gb_to_packs(traffic_settings, user.extra_traffic_gb or 0),
         "title": "Тарифы",
         "active_tab": "tariffs",
     })

@@ -13,19 +13,23 @@ from database import tariff_repo, user_repo
 from remnawave.client import RemnawaveClient
 from tgbot.services import (
     promo_service, subscription_service, payment_service, device_slot_service,
+    traffic_service,
 )
 from tgbot.services.promo_code_service import PromoClaimError
 from tgbot.promo import get_promo_reward
 from tgbot.services.pricing import effective_price, format_quota
 from tgbot.services.device_pricing import build_checkout, receipt_items
 from tgbot.services.intro_offer import intro_block_reason, consent_text
+from tgbot.services.traffic_pricing import (
+    gb_to_packs, packs_cost_for_tariff, packs_to_gb, tariff_quota_gb,
+)
 from tgbot.handlers.user.profile import show_profile_logic
 from tgbot.keyboards.inline import (
     cancel_fsm_keyboard,
     tariffs_keyboard,
     back_to_main_menu_keyboard,
     payment_method_choice_keyboard,
-    tariff_slots_keyboard,
+    tariff_traffic_keyboard,
 )
 from tgbot.services import payment
 from tgbot.states.payment_states import PromoApplyFSM
@@ -61,7 +65,8 @@ async def show_tariffs_logic(event: Message | CallbackQuery, state: FSMContext):
         text = f"✅ Промокод на <b>{discount}%</b> применен!\n\n" + text
 
     reply_markup = tariffs_keyboard(
-        tariffs_list, promo_procent=discount or 0, user_has_active_sub=user_has_active_sub
+        tariffs_list, promo_procent=discount or 0, user_has_active_sub=user_has_active_sub,
+        base_traffic_gb=await traffic_service.base_gb(),
     )
 
     if not tariffs_list:
@@ -356,6 +361,26 @@ def _compute_price(
     return original_price, final_price, price_text
 
 
+async def _apply_traffic(checkout, tariff, packs: int):
+    """
+    Добавляет в чекаут пакеты трафика. Возвращает (checkout, packs, settings).
+
+    Количество приходит из callback_data, то есть от клиента: режем по серверному
+    потолку и обнуляем там, где пакеты не продаются (безлимит, вводный тариф).
+    """
+    settings = await traffic_service.settings()
+    if tariff.is_intro or tariff_quota_gb(settings, tariff.data_limit_gb) == 0:
+        return checkout, 0, settings
+    packs = max(0, min(settings.max_packs, packs))
+    if packs:
+        checkout = checkout.with_traffic(
+            packs,
+            packs_cost_for_tariff(settings, tariff.duration_days, packs),
+            packs_to_gb(settings, packs),
+        )
+    return checkout, packs, settings
+
+
 async def _create_and_send_payment(
     call: CallbackQuery,
     state: FSMContext,
@@ -364,11 +389,13 @@ async def _create_and_send_payment(
     payment_method_type: str | None,
     save_card: bool,
     slots: int = 0,
+    packs: int = 0,
 ) -> None:
     """Создаёт платёж в YooKassa, сохраняет его в БД и отправляет ссылку на оплату.
 
-    `slots` — сколько доп. устройств оплачивается вместе с тарифом. Скидка на них
-    не распространяется, в чек они уходят отдельной позицией (54-ФЗ).
+    `slots` и `packs` — сколько доп. устройств и пакетов трафика оплачивается
+    вместе с тарифом. Скидка на них не распространяется, в чек они уходят
+    отдельными позициями (54-ФЗ).
     """
     user_id = call.from_user.id
 
@@ -407,14 +434,22 @@ async def _create_and_send_payment(
     checkout = build_checkout(
         device_settings, original_price, tariff.duration_days, slots, discount_percent or 0
     )
+    checkout, packs, traffic_settings = await _apply_traffic(checkout, tariff, packs)
     if checkout.has_slots:
         price_text += (
             f"\n+ {checkout.slots} доп. "
             f"{'устройство' if checkout.slots == 1 else 'устройства'} "
             f"({device_settings.price} ₽ × {checkout.months} мес): "
-            f"<b>{checkout.slots_cost:.0f} RUB</b>\n"
-            f"Итого: <b>{checkout.total:.2f} RUB</b>"
+            f"<b>{checkout.slots_cost:.0f} RUB</b>"
         )
+    if checkout.has_traffic:
+        price_text += (
+            f"\n+ Доп. трафик +{checkout.traffic_gb} ГБ/мес "
+            f"({traffic_settings.pack_price} ₽ × {checkout.months} мес × {packs}): "
+            f"<b>{checkout.traffic_cost:.0f} RUB</b>"
+        )
+    if checkout.has_slots or checkout.has_traffic:
+        price_text += f"\nИтого: <b>{checkout.total:.2f} RUB</b>"
 
     try:
         payment_url, yookassa_payment_id = payment.create_payment(
@@ -422,7 +457,8 @@ async def _create_and_send_payment(
             amount=checkout.total,
             description=f"Оплата тарифа '{tariff.name}'" + (f" (скидка {discount_percent}%)" if discount_percent else ""),
             return_url=f"https://t.me/{(await bot.get_me()).username}",
-            metadata={'user_id': str(user_id), 'tariff_id': tariff.id, 'slots': str(slots)},
+            metadata={'user_id': str(user_id), 'tariff_id': tariff.id, 'slots': str(slots),
+                      'traffic_gb': str(checkout.traffic_gb)},
             shop_id=config.yookassa.shop_id,
             secret_key=config.yookassa.secret_key,
             save_payment_method=save_card,
@@ -453,11 +489,12 @@ async def _create_and_send_payment(
         promo_code=promo_code,
         discount_percent=discount_percent or 0,
         extra_devices=slots,
+        extra_traffic_gb=checkout.traffic_gb,
     )
 
     logger.info(
         f"Payment created: user={user_id}, tariff={tariff.name}, "
-        f"amount={checkout.total}, slots={slots}, original={original_price}, "
+        f"amount={checkout.total}, slots={slots}, traffic_gb={checkout.traffic_gb}, original={original_price}, "
         f"discount={discount_percent or 0}%, promo={promo_code or 'none'}, "
         f"method={payment_method_type or 'any'}, save_card={save_card}, "
         f"yookassa_id={yookassa_payment_id}"
@@ -490,8 +527,9 @@ async def _create_and_send_payment(
     await state.update_data(payment_message_id=sent_message.message_id)
 
 
-async def _show_slots_step(call: CallbackQuery, state: FSMContext, tariff, slots: int) -> None:
-    """Шаг чекаута «сколько устройств»: сумма тарифа + слотов и степпер."""
+async def _show_slots_step(call: CallbackQuery, state: FSMContext, tariff, slots: int,
+                           packs: int = 0) -> None:
+    """Шаг чекаута «устройства и трафик»: сумма тарифа + надстроек и два степпера."""
     user_id = call.from_user.id
     fsm_data = await state.get_data()
     discount_percent = fsm_data.get("discount")
@@ -507,6 +545,8 @@ async def _show_slots_step(call: CallbackQuery, state: FSMContext, tariff, slots
     checkout = build_checkout(
         device_settings, original_price, tariff.duration_days, slots, discount_percent or 0
     )
+    checkout, packs, traffic_settings = await _apply_traffic(checkout, tariff, packs)
+    quota_gb = tariff_quota_gb(traffic_settings, tariff.data_limit_gb)
 
     devices_line = f"Устройств: <b>{device_settings.base_limit}</b> (входит в тариф)"
     total_line = ""
@@ -515,23 +555,42 @@ async def _show_slots_step(call: CallbackQuery, state: FSMContext, tariff, slots
             f"Устройств: <b>{device_settings.base_limit + slots}</b> "
             f"({device_settings.base_limit} + {slots} доп.)"
         )
-        total_line = (
+        total_line += (
             f"\n+ Доп. устройства: {slots} × {device_settings.price} ₽ × "
-            f"{checkout.months} мес = <b>{checkout.slots_cost:.0f} RUB</b>\n"
-            f"<b>Итого: {checkout.total:.2f} RUB</b>"
+            f"{checkout.months} мес = <b>{checkout.slots_cost:.0f} RUB</b>"
         )
+    traffic_line = f"Трафик: <b>{format_quota(tariff.data_limit_gb, traffic_settings.base_gb)}</b>"
+    if checkout.has_traffic:
+        traffic_line = f"Трафик: <b>{quota_gb + checkout.traffic_gb} ГБ/мес</b> ({quota_gb} + {checkout.traffic_gb} доп.)"
+        total_line += (
+            f"\n+ Доп. трафик: {packs} × {traffic_settings.pack_gb} ГБ × {traffic_settings.pack_price} ₽ × "
+            f"{checkout.months} мес = <b>{checkout.traffic_cost:.0f} RUB</b>"
+        )
+    if total_line:
+        total_line += f"\n<b>Итого: {checkout.total:.2f} RUB</b>"
+
+    hints = (
+        f"📱 Нужно больше устройств? Каждое дополнительное — "
+        f"{device_settings.price} ₽ в месяц, оплачивается вместе с подпиской.\n"
+    )
+    if quota_gb > 0:
+        hints += (
+            f"📊 Не хватает трафика? +{traffic_settings.pack_gb} ГБ в месяц — "
+            f"{traffic_settings.pack_price} ₽ в месяц.\n"
+        )
+    hints += "<i>Трафик общий на аккаунт и от количества устройств не меняется.</i>"
 
     await call.message.edit_text(
         f"Вы выбрали тариф: <b>{tariff.name}</b>\n"
         f"Срок: <b>{tariff.duration_days} дней</b>\n"
-        f"Трафик: <b>{format_quota(tariff.data_limit_gb)}</b>\n"
+        f"{traffic_line}\n"
         f"{devices_line}\n\n"
         f"Сумма к оплате: {price_text}{total_line}\n\n"
-        f"📱 Нужно больше устройств? Каждое дополнительное — "
-        f"{device_settings.price} ₽ в месяц, оплачивается вместе с подпиской.\n"
-        f"<i>Трафик общий на аккаунт и от количества устройств не меняется.</i>",
-        reply_markup=tariff_slots_keyboard(
-            tariff.id, slots, device_settings.max_extra, device_settings.base_limit
+        f"{hints}",
+        reply_markup=tariff_traffic_keyboard(
+            tariff.id, slots, packs, device_settings.max_extra,
+            traffic_settings.max_packs if quota_gb > 0 else 0,
+            device_settings.base_limit, traffic_settings.pack_gb,
         ),
     )
 
@@ -564,7 +623,12 @@ async def select_tariff_handler(call: CallbackQuery, state: FSMContext, bot: Bot
     # Дефолт — то, за сколько слотов человек уже платит: при продлении они
     # должны сохраниться сами, без лишних нажатий.
     user = await user_repo.get(user_id)
-    await _show_slots_step(call, state, tariff, (user.extra_devices or 0) if user else 0)
+    traffic_settings = await traffic_service.settings()
+    await _show_slots_step(
+        call, state, tariff,
+        (user.extra_devices or 0) if user else 0,
+        gb_to_packs(traffic_settings, (user.extra_traffic_gb or 0) if user else 0),
+    )
 
 
 @payment_router.callback_query(F.data.startswith("tslots_"))
@@ -572,9 +636,10 @@ async def change_tariff_slots_handler(call: CallbackQuery, state: FSMContext):
     """Степпер количества доп. устройств на чекауте."""
     await call.answer()
 
-    parts = call.data.split("_")  # ['tslots', '<tariff_id>', '<slots>']
+    parts = call.data.split("_")  # ['tslots', '<tariff_id>', '<slots>'[, '<packs>']]
     try:
         tariff_id, slots = int(parts[1]), int(parts[2])
+        packs = int(parts[3]) if len(parts) > 3 else 0
     except (IndexError, ValueError):
         return
 
@@ -588,7 +653,7 @@ async def change_tariff_slots_handler(call: CallbackQuery, state: FSMContext):
             await _show_intro_checkout(call, tariff)
         return
 
-    await _show_slots_step(call, state, tariff, slots)
+    await _show_slots_step(call, state, tariff, slots, packs)
 
 
 @payment_router.callback_query(F.data.startswith("tpay_"))
@@ -597,9 +662,10 @@ async def tariff_to_payment_handler(call: CallbackQuery, state: FSMContext, bot:
     await call.answer()
 
     user_id = call.from_user.id
-    parts = call.data.split("_")  # ['tpay', '<tariff_id>', '<slots>']
+    parts = call.data.split("_")  # ['tpay', '<tariff_id>', '<slots>'[, '<packs>']]
     try:
         tariff_id, slots = int(parts[1]), int(parts[2])
+        packs = int(parts[3]) if len(parts) > 3 else 0
     except (IndexError, ValueError):
         return
 
@@ -634,12 +700,14 @@ async def tariff_to_payment_handler(call: CallbackQuery, state: FSMContext, bot:
         checkout = build_checkout(
             device_settings, original_price, tariff.duration_days, slots, discount_percent or 0
         )
+        checkout, packs, _ = await _apply_traffic(checkout, tariff, packs)
         total_line = ""
         if checkout.has_slots:
-            total_line = (
-                f"\n+ Доп. устройства ({slots} шт.): <b>{checkout.slots_cost:.0f} RUB</b>\n"
-                f"<b>Итого: {checkout.total:.2f} RUB</b>"
-            )
+            total_line += f"\n+ Доп. устройства ({slots} шт.): <b>{checkout.slots_cost:.0f} RUB</b>"
+        if checkout.has_traffic:
+            total_line += f"\n+ Доп. трафик (+{checkout.traffic_gb} ГБ/мес): <b>{checkout.traffic_cost:.0f} RUB</b>"
+        if total_line:
+            total_line += f"\n<b>Итого: {checkout.total:.2f} RUB</b>"
 
         await call.message.edit_text(
             f"Вы выбрали тариф: <b>{tariff.name}</b>\n"
@@ -648,13 +716,14 @@ async def tariff_to_payment_handler(call: CallbackQuery, state: FSMContext, bot:
             f"Сумма к оплате: {price_text}{total_line}\n\n"
             "Выберите способ оплаты. Он будет сохранён для автоматического "
             "продления подписки — отключить можно в любой момент в профиле.",
-            reply_markup=payment_method_choice_keyboard(tariff_id, slots)
+            reply_markup=payment_method_choice_keyboard(tariff_id, slots, packs=packs)
         )
         return
 
     # Автопродление выключено → обычный платёж без сохранения карты
     await _create_and_send_payment(
-        call, state, bot, tariff, payment_method_type=None, save_card=False, slots=slots
+        call, state, bot, tariff, payment_method_type=None, save_card=False,
+        slots=slots, packs=packs,
     )
 
 
@@ -664,11 +733,12 @@ async def select_payment_method_handler(call: CallbackQuery, state: FSMContext, 
     await call.answer()
 
     user_id = call.from_user.id
-    parts = call.data.split("_")  # ['paymethod', 'card'|'sbp', '<tariff_id>', '<slots>']
+    parts = call.data.split("_")  # ['paymethod', 'card'|'sbp', '<tariff_id>', '<slots>', '<packs>']
     method = parts[1]
     tariff_id = int(parts[2])
-    # Старые сообщения (до появления доп. устройств) приходят без слотов.
+    # Старые сообщения (до появления доп. устройств / трафика) приходят без них.
     slots = int(parts[3]) if len(parts) > 3 else 0
+    packs = int(parts[4]) if len(parts) > 4 else 0
 
     tariff = await tariff_repo.get_by_id(tariff_id)
     if not tariff:
@@ -691,6 +761,7 @@ async def select_payment_method_handler(call: CallbackQuery, state: FSMContext, 
         payment_method_type=payment_method_type,
         save_card=True,
         slots=slots,
+        packs=packs,
     )
 
 

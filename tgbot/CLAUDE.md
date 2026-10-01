@@ -172,6 +172,30 @@ FSM: `EmailLinkFSM` → запрашивает email → отправляет к
 
 ---
 
+## Handlers — менеджер (`handlers/manager/`)
+
+Панель офлайн-продавца, callback-префикс `mgr:`. Роутер `manager_router` с фильтром `IsManager`
+(`filters/manager.py`, TTL-кэш 30 с), `manager_invite_router` (`/start mgr_<токен>`) — без фильтра роли.
+Оба стоят в `routers_list` после `admin_router`, до `user_router`.
+
+| Файл | Что делает |
+|---|---|
+| `menu.py` | `/manager`, меню, история, статистика, ссылка входа на сайт |
+| `issue.py` | Выдача: кому → что (тариф / свои дни) → предпросмотр → наличные/QR → результат; проверка и отмена счёта |
+| `clients.py` | Мои клиенты, карточка, ссылка для установки, выключить автопродление, новая ссылка кабинета |
+| `temp_keys.py` | Временный ключ, список живых, оформление подписки на такой ключ |
+| `invite.py` | Принятие приглашения |
+| `common.py` | Хелперы: `current_manager`, `show`, `quote_text`, QR |
+
+FSM: `ManagerFSM` (`enter_code`, `enter_days`); остальное — кнопки, выбор лежит в FSM-данных
+(клиент по коду, продукт, nonce подтверждения). Цена и права из FSM НЕ верятся: на «Подтвердить»
+сервис пересчитывает и проверяет заново.
+
+Клиентская сторона — `handlers/user/manager_code.py` («👔 Код для менеджера», закрыть доступ),
+докупка трафика — `handlers/user/traffic.py`. Админка: `handlers/admin/managers.py`
+(приглашения, права, журнал, CSV, инкассация), `pricing_settings.py` («Свои дни и врем. ключи»),
+`traffic_settings.py` («Трафик»).
+
 ## Handlers — администраторские (`handlers/admin/`)
 
 | Файл | Что делает |
@@ -206,6 +230,12 @@ FSM: `EmailLinkFSM` → запрашивает email → отправляет к
 | `payment_service` | `PaymentService` | `subscription_service`, `referral_service`, `user_repo`, `tariff_repo`, `payment_repo`, `payment_method_service`, `device_slot_service` | `create_payment_record(...)`, `process_successful_payment(...)`, `process_stars_payment(...)`, `process_refund(...)`, `cancel_pending_payment(user_id)`, `cancel_stale_payments(minutes)`, `charge_renewal(user_id)` |
 | `admin_stats_service` | `AdminStatsService` | `stats_repo`, `remnawave_client`, `payment_repo`, `lifecycle_repo` | `get_dashboard_stats()`, `get_cohort_metrics()` |
 | `support_service` | `SupportService` | `user_repo` | управление состоянием чата поддержки |
+| `traffic_service` | `TrafficService` | `user_repo`, `settings_repo`, `remnawave_client` | `quote(user_id, packs)`, `add_gb`, `record_purchase`, `sync_limit`, `expire_extra`, `settings()`, `base_gb()` |
+| `manager_service` | `ManagerService` | репозитории менеджеров, `payment_service`, `subscription_service`, `traffic_service`, `device_slot_service`, `remnawave_client` | `quote`, `issue(…)`, `issue_temp`, `expire_temp_keys`, `on_payment_succeeded`, `sync_pending_operations`, `get_client_card`, `add_client_by_code`, `stats`, `settle`, … — см. `docs/managers.md` |
+
+Чистые модули без класса: `traffic_pricing.py`, `custom_pricing.py` (цена «своих дней»),
+`manager_receipts.py` (формат чеков), `manager_security.py` (коды, токены, отпечатки),
+`manager_notifier.py` (отправка чеков и уведомлений в Telegram).
 
 ### `services/payment.py` (не класс, а модуль)
 Низкоуровневая работа с YooKassa API:

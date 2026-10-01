@@ -2,8 +2,8 @@
 import logging
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from db import User
 from webapp.dependencies import get_current_user
@@ -17,6 +17,8 @@ from tgbot.services import (
     device_service,
     device_slot_service,
     key_service,
+    manager_service,
+    traffic_service,
 )
 from tgbot.services.key_service import CODE_OK, REVOKE_NOTICES
 from webapp.routers.tma import intro_consents
@@ -93,6 +95,10 @@ async def dashboard_page(
     slot_quote = await device_slot_service.quote(user.user_id, slots=1)
     device_settings = await device_slot_service.settings()
 
+    # Докупка трафика: то же — quote решает, можно ли, и считает цену по остатку.
+    traffic_quote = await traffic_service.quote(user.user_id, packs=1)
+    traffic_settings = await traffic_service.settings()
+
     # Referral info
     referral_count = await stats_repo.count_user_referrals(user.user_id)
     referral_bonus = user.referral_bonus_days or 0
@@ -126,6 +132,8 @@ async def dashboard_page(
         "devices": devices,
         "slot_quote": slot_quote,
         "device_settings": device_settings,
+        "traffic_quote": traffic_quote,
+        "traffic_settings": traffic_settings,
         "title": "Личный кабинет"
     })
 
@@ -242,3 +250,21 @@ async def revoke_key(
     result = await key_service.revoke(user.user_id)
     code = CODE_OK if result.ok else (result.code or "generic")
     return RedirectResponse(url=f"/profile/?key={code}", status_code=303)
+
+
+@router.post("/manager-code")
+async def manager_code(user: User = Depends(get_current_user)):
+    """Одноразовый код доступа для менеджера (15 минут). JSON — чтобы код не попадал в URL и логи."""
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    code = await manager_service.create_access_code(user.user_id)
+    return JSONResponse({"code": code, "ttl_minutes": 15}, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/manager-access/revoke")
+async def manager_access_revoke(user: User = Depends(get_current_user)):
+    """Клиент закрывает доступ всем менеджерам."""
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    revoked = await manager_service.revoke_access_by_client(user.user_id)
+    return JSONResponse({"revoked": revoked})

@@ -1,8 +1,16 @@
+import secrets
 from datetime import datetime, timedelta
 
 from sqlalchemy import select, update, delete, func
+from sqlalchemy.exc import IntegrityError
 
 from db import User, UsedPromoCode
+
+# Офлайн-клиенты живут в своём диапазоне отрицательных id: веб-пользователи занимают
+# -1…-1 000 000 000 (webapp/routers/auth.py), эти — ниже. Так по id сразу видно
+# происхождение, а генераторы не конфликтуют.
+OFFLINE_ID_MIN = -2_000_000_000
+OFFLINE_ID_MAX = -1_000_000_001
 
 
 class UserRepository:
@@ -29,6 +37,80 @@ class UserRepository:
             await session.commit()
             await session.refresh(user)
             return user, True
+
+    async def create_offline_client(self, code_factory, cabinet_token_hash: str,
+                                    manager_id: int | None) -> User:
+        """
+        Создаёт клиента офлайн-продажи: без Telegram и email, с кодом и кабинетом по ссылке.
+
+        `code_factory` — генератор кода клиента. Коллизия id или кода (уникальные
+        ключи) ловится IntegrityError и пробуется заново, а не проверяется
+        заранее: проверка-потом-вставка проиграла бы гонке двух менеджеров.
+        """
+        for _ in range(20):
+            code = code_factory()
+            user = User(
+                user_id=-secrets.randbelow(OFFLINE_ID_MAX - OFFLINE_ID_MIN) + OFFLINE_ID_MAX,
+                full_name=f"Клиент {code}",
+                username=None,
+                origin='offline',
+                client_code=code,
+                cabinet_token_hash=cabinet_token_hash,
+                vpn_username=f"off_{code.lower()}",
+                acquired_by_manager_id=manager_id,
+                # В Telegram этому человеку писать некуда — рассылки его пропускают.
+                is_active=False,
+            )
+            async with self._session_maker() as session:
+                session.add(user)
+                try:
+                    await session.commit()
+                except IntegrityError:
+                    await session.rollback()
+                    continue
+                await session.refresh(user)
+                return user
+        raise RuntimeError("Не удалось подобрать свободные id/код клиента за 20 попыток")
+
+    async def get_by_client_code(self, code: str) -> User | None:
+        async with self._session_maker() as session:
+            result = await session.execute(select(User).where(User.client_code == code))
+            return result.scalar_one_or_none()
+
+    async def set_client_code(self, user_id: int, code: str) -> bool:
+        """Присваивает код клиенту, у которого его ещё нет. False — код занят."""
+        async with self._session_maker() as session:
+            try:
+                result = await session.execute(
+                    update(User).where(User.user_id == user_id, User.client_code.is_(None))
+                    .values(client_code=code)
+                )
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                return False
+            return result.rowcount > 0
+
+    async def get_by_cabinet_token_hash(self, token_hash: str) -> User | None:
+        async with self._session_maker() as session:
+            result = await session.execute(select(User).where(User.cabinet_token_hash == token_hash))
+            return result.scalar_one_or_none()
+
+    async def set_cabinet_token_hash(self, user_id: int, token_hash: str | None) -> None:
+        async with self._session_maker() as session:
+            await session.execute(
+                update(User).where(User.user_id == user_id).values(cabinet_token_hash=token_hash)
+            )
+            await session.commit()
+
+    async def bind_panel_user(self, user_id: int, vpn_username: str, remnawave_uuid: str | None) -> None:
+        """Привязывает клиента к уже существующему пользователю панели (конвертация временного ключа)."""
+        async with self._session_maker() as session:
+            await session.execute(
+                update(User).where(User.user_id == user_id)
+                .values(vpn_username=vpn_username, remnawave_uuid=remnawave_uuid)
+            )
+            await session.commit()
 
     async def set_active(self, user_id: int, active: bool) -> None:
         """Помечает пользователя активным/неактивным (заблокировал ли он бота).
@@ -133,6 +215,52 @@ class UserRepository:
             await session.commit()
             return new_value or 0
 
+    async def set_traffic_quota(self, user_id: int, quota_gb: int) -> None:
+        """Записывает квоту подписки (ГБ/мес, 0 = безлимит)."""
+        async with self._session_maker() as session:
+            stmt = update(User).where(User.user_id == user_id).values(traffic_quota_gb=max(0, quota_gb))
+            await session.execute(stmt)
+            await session.commit()
+
+    async def set_traffic_state(self, user_id: int, quota_gb: int, extra_gb: int) -> None:
+        """Квота и докупленные ГБ одним апдейтом — после оплаты тарифа."""
+        async with self._session_maker() as session:
+            stmt = (
+                update(User)
+                .where(User.user_id == user_id)
+                .values(traffic_quota_gb=max(0, quota_gb), extra_traffic_gb=max(0, extra_gb))
+            )
+            await session.execute(stmt)
+            await session.commit()
+
+    async def set_extra_traffic(self, user_id: int, extra_gb: int) -> None:
+        """Устанавливает докупленные ГБ/мес (абсолютное значение)."""
+        async with self._session_maker() as session:
+            stmt = update(User).where(User.user_id == user_id).values(extra_traffic_gb=max(0, extra_gb))
+            await session.execute(stmt)
+            await session.commit()
+
+    async def get_with_extra_traffic(self) -> list[User]:
+        """Все, у кого есть докупленный трафик — для джоба сверки лимитов."""
+        async with self._session_maker() as session:
+            stmt = select(User).where(User.extra_traffic_gb > 0)
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
+    async def get_active_telegram_subscribers(self) -> list[User]:
+        """Telegram-пользователи с живой подпиской и VPN-аккаунтом — адресаты
+        предупреждений об исчерпании трафика."""
+        async with self._session_maker() as session:
+            stmt = select(User).where(
+                User.user_id > 0,
+                User.is_active == True,
+                User.vpn_username.is_not(None),
+                User.subscription_end_date.is_not(None),
+                User.subscription_end_date > datetime.now(),
+            )
+            result = await session.execute(stmt)
+            return result.scalars().all()
+
     async def get_with_extra_devices(self) -> list[User]:
         """Все, у кого есть оплаченные доп. слоты — для джоба сверки лимитов."""
         async with self._session_maker() as session:
@@ -156,9 +284,12 @@ class UserRepository:
         async with self._session_maker() as session:
             target_date_start = datetime.now().date() + timedelta(days=days_left)
             target_date_end = target_date_start + timedelta(days=1)
+            # Только Telegram-пользователи: у веб- и офлайн-клиентов (id < 0) чата нет,
+            # а напоминания им раздували бы счётчик ошибок в отчётах админам.
             stmt = select(User).where(
                 User.subscription_end_date >= target_date_start,
-                User.subscription_end_date < target_date_end
+                User.subscription_end_date < target_date_end,
+                User.user_id > 0,
             )
             result = await session.execute(stmt)
             return result.scalars().all()
@@ -226,6 +357,7 @@ class UserRepository:
             stmt = select(User).where(
                 User.subscription_end_date.is_not(None),
                 User.subscription_end_date <= threshold,
+                User.user_id > 0,   # у веб- и офлайн-клиентов чата нет
             )
             result = await session.execute(stmt)
             return result.scalars().all()
@@ -241,6 +373,7 @@ class UserRepository:
                 User.is_first_payment_made == True,
                 User.subscription_end_date.is_not(None),
                 User.subscription_end_date <= threshold,
+                User.user_id > 0,   # win-back — Telegram-рассылка
             )
             result = await session.execute(stmt)
             return result.scalars().all()

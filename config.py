@@ -14,6 +14,18 @@ class TgBot:
     tg_bot_username: str | None
     tma_app_name: str
     ui_mode: str
+    # Служебная группа с чеками менеджеров. Не заданы — чеки уходят в тот же
+    # чат и топик, что и лог транзакций (support_chat_id / transaction_log_topic_id).
+    manager_log_chat_id: int | None = None
+    manager_log_topic_id: int | None = None
+
+    @property
+    def manager_receipts_target(self) -> tuple[int, int | None]:
+        """(chat_id, topic_id), куда уходят групповые чеки менеджеров."""
+        if self.manager_log_chat_id:
+            return self.manager_log_chat_id, self.manager_log_topic_id
+        return self.support_chat_id, self.transaction_log_topic_id
+
     @staticmethod
     def from_env(env: Env):
         token = env.str("BOT_TOKEN")
@@ -40,6 +52,8 @@ class TgBot:
             # Падаем на старте, а не молча откатываемся: опечатка в UI_MODE иначе
             # выглядела бы как "переключатель не работает".
             raise ValueError(f"UI_MODE должен быть 'bot' или 'tma', получено: {ui_mode!r}")
+        manager_log_chat_id = env.int("MANAGER_LOG_CHAT_ID", default=None)
+        manager_log_topic_id = env.int("MANAGER_LOG_TOPIC_ID", default=None)
         return TgBot(token=token, admin_ids=admin_ids,
                      support_chat_id=support_chat_id,
                      transaction_log_topic_id=transaction_log_topic_id,
@@ -47,7 +61,9 @@ class TgBot:
                      proxy_url=proxy_url,
                      tg_bot_username=tg_bot_username,
                      tma_app_name=tma_app_name,
-                     ui_mode=ui_mode)
+                     ui_mode=ui_mode,
+                     manager_log_chat_id=manager_log_chat_id,
+                     manager_log_topic_id=manager_log_topic_id)
 @dataclass
 class YooKassa:
     shop_id: str

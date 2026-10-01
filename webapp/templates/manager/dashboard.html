@@ -1,0 +1,40 @@
+{% extends "manager/base.html" %}
+{% import "_icons.html" as ic %}
+
+{% macro stat(title, period) %}
+<div class="sticker p-4">
+    <p class="text-xs font-bold text-muted uppercase tracking-wide">{{ title }}</p>
+    <p class="mt-1 font-display font-black text-2xl tabular-nums">{{ fmt_money(period.revenue) }}</p>
+    <p class="text-sm text-subtle">{{ period.count }} операц.</p>
+</div>
+{% endmacro %}
+
+{% block content %}
+<h1 class="font-display font-black text-2xl mb-4">Здравствуйте, {{ manager.display_name }}</h1>
+
+<div class="grid gap-3 sm:grid-cols-3">
+    {{ stat('Сегодня', stats.today) }}
+    {{ stat('Неделя', stats.week) }}
+    {{ stat('Месяц', stats.month) }}
+</div>
+
+{% if manager.can_accept_cash %}
+<div class="sticker p-4 mt-3 flex flex-wrap items-center justify-between gap-3">
+    <div>
+        <p class="font-bold">💵 К сдаче</p>
+        <p class="text-sm text-subtle">{{ stats.cash_operations }} наличных операций без инкассации</p>
+    </div>
+    <p class="font-display font-black text-2xl tabular-nums">{{ fmt_money(stats.cash_outstanding) }}</p>
+</div>
+{% endif %}
+
+<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mt-4">
+    <a href="/manager/issue" class="btn-pop">{{ ic.icon('key', 'w-5 h-5') }} Выдать ключ</a>
+    {% if manager.can_issue_temp %}<a href="/manager/temp" class="btn-pop btn-pop-outline">⏱ Временный ключ</a>{% endif %}
+    <a href="/manager/clients" class="btn-pop btn-pop-outline">{{ ic.icon('users', 'w-5 h-5') }} Мои клиенты ({{ stats.clients }})</a>
+    <a href="/manager/history" class="btn-pop btn-pop-outline">{{ ic.icon('receipt', 'w-5 h-5') }} История</a>
+</div>
+
+<h2 class="font-display font-extrabold text-lg mt-8 mb-3">Последние операции</h2>
+{% include "manager/_ops_table.html" %}
+{% endblock %}

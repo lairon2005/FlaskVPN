@@ -1,0 +1,31 @@
+{% set op_titles = {'issue_tariff': 'Выдача по тарифу', 'issue_custom': 'Свои дни', 'issue_temp': 'Временный ключ',
+                    'convert_temp': 'Подписка на ключ', 'access_grant': 'Доступ к клиенту', 'key_view': 'Просмотр ссылки',
+                    'autorenew_off': 'Автопродление выкл.', 'cabinet_link_reset': 'Новая ссылка кабинета'} %}
+{% set status_badges = {'completed': ('badge-active', 'выдано'), 'pending_payment': ('badge-pending', 'ждём оплату'),
+                        'cancelled': ('badge-muted', 'отменено'), 'failed': ('badge-expired', 'ошибка'),
+                        'processing': ('badge-info', 'в работе')} %}
+{% if rows is defined %}{% set ops = rows %}{% else %}{% set ops = recent %}{% endif %}
+{% if ops %}
+<div class="sticker overflow-x-auto">
+    <table class="data-table w-full text-sm">
+        <thead>
+            <tr><th>№</th><th>Когда</th><th>Операция</th><th>Клиент</th><th>Сумма</th><th>Статус</th></tr>
+        </thead>
+        <tbody>
+        {% for op in ops %}
+            {% set badge = status_badges.get(op.status, ('badge-muted', op.status)) %}
+            <tr>
+                <td class="tabular-nums">M-{{ '%06d' % op.id }}</td>
+                <td class="whitespace-nowrap">{{ fmt_dt(op.created_at) }}</td>
+                <td>{{ op_titles.get(op.op_type, op.op_type) }}{% if op.tariff_name %}<br><span class="text-muted">{{ op.tariff_name }}{% if op.days %} · {{ op.days }} дн.{% endif %}</span>{% endif %}</td>
+                <td>{% if op.client_code %}<a class="font-mono font-bold text-blue" href="/manager/clients/{{ op.client_code }}">{{ op.client_code }}</a>{% else %}—{% endif %}</td>
+                <td class="tabular-nums whitespace-nowrap">{% if op.price %}{{ fmt_money(op.price) }}{% if op.payment_method == 'cash' %} <span class="text-muted">нал.</span>{% endif %}{% else %}—{% endif %}</td>
+                <td><span class="badge {{ badge[0] }}">{{ badge[1] }}</span></td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="text-muted">Пока операций нет.</p>
+{% endif %}

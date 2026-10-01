@@ -1,0 +1,55 @@
+{% extends "manager/base.html" %}
+{% import "_icons.html" as ic %}
+
+{% block content %}
+<a href="/manager/clients" class="text-sm font-bold text-muted hover:text-orange">← Все клиенты</a>
+<h1 class="font-display font-black text-2xl mt-2">Клиент <span class="font-mono">{{ card.client_code }}</span>
+    {% if card.label %}<span class="text-muted text-lg">· {{ card.label }}</span>{% endif %}</h1>
+
+<div class="grid gap-3 sm:grid-cols-2 mt-4" id="clientCard" data-code="{{ card.client_code }}">
+    <section class="sticker p-4">
+        <h2 class="font-display font-extrabold">Подписка</h2>
+        <p class="mt-2"><span class="badge {{ 'badge-active' if card.subscription_active else 'badge-expired' }}">{{ 'активна' if card.subscription_active else 'закончилась' }}</span></p>
+        <p class="mt-2 text-sm">До: <b>{{ fmt_dt(card.subscription_end) if card.subscription_end else '—' }}</b>
+            {% if card.subscription_active %}(ещё {{ card.days_left }} дн.){% endif %}</p>
+        {% if card.access_until %}<p class="text-xs text-muted mt-1">Ваш доступ к клиенту до {{ fmt_dt(card.access_until) }}</p>{% endif %}
+    </section>
+    <section class="sticker p-4">
+        <h2 class="font-display font-extrabold">Устройства и трафик</h2>
+        <p class="mt-2 text-sm">📱 {{ card.devices_used if card.devices_used is not none else '—' }} из {{ card.devices_limit }}
+            {% if card.device_platforms %}<span class="text-muted">({{ card.device_platforms | join(', ') }})</span>{% endif %}</p>
+        <p class="text-sm">📊 {% if card.traffic_limit_gb is none %}нет данных
+            {% elif card.traffic_limit_gb == 0 %}{{ card.traffic_used_gb or 0 }} ГБ (безлимит)
+            {% else %}{{ card.traffic_used_gb or 0 }} из {{ card.traffic_limit_gb }} ГБ{% endif %}</p>
+        {% if card.extra_devices or card.extra_traffic_gb %}
+        <p class="text-xs text-muted mt-1">Докуплено: {{ card.extra_devices }} устр., {{ card.extra_traffic_gb }} ГБ</p>
+        {% endif %}
+    </section>
+</div>
+
+<div class="mt-4 flex flex-wrap gap-2">
+    {% if manager.can_issue_tariff or manager.can_issue_custom %}
+        <a class="btn-pop" href="/manager/issue?client={{ card.client_code }}">💳 Продлить / выдать</a>
+    {% endif %}
+    {% if card.has_key %}
+        <button class="btn-pop btn-pop-outline" type="button" id="showLinkBtn">🔑 Ссылка для установки</button>
+    {% endif %}
+    <button class="btn-pop btn-pop-outline" type="button" id="noAutoBtn">🔕 Выключить автопродление</button>
+    <button class="btn-pop btn-pop-outline" type="button" id="cabinetResetBtn">🔗 Новая ссылка кабинета</button>
+</div>
+
+<div id="cabinetBox" class="sticker p-4 mt-4 hidden">
+    <p class="text-sm text-subtle">Новая ссылка кабинета — покажите клиенту сейчас, потом её не восстановить. Старая уже не работает.</p>
+    <div class="copy-field mt-2"><input type="text" id="cabinetValue" readonly></div>
+</div>
+
+<div id="linkBox" class="sticker p-4 mt-4 hidden">
+    <p class="text-sm text-subtle">Ссылка — секрет клиента. Просмотр записан в журнал.</p>
+    <div class="copy-field mt-2"><input type="text" id="linkValue" readonly><button class="copy-btn" type="button" id="copyLinkBtn">{{ ic.icon('copy', 'w-5 h-5') }}</button></div>
+    <img id="linkQr" class="mt-3 w-48 h-48 rounded-xl border-2 border-blue/20" alt="QR для установки">
+</div>
+
+<h2 class="font-display font-extrabold text-lg mt-8 mb-3">Ваши операции по клиенту</h2>
+{% set rows = card.operations %}
+{% include "manager/_ops_table.html" %}
+{% endblock %}

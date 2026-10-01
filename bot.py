@@ -16,6 +16,7 @@ from loader import bot, config, logger, remnawave_client, shutdown_logging
 # --- ШАГ 2: Импортируем наши новые модули и хендлеры ---
 from db import setup_database_sync
 from tgbot.handlers import routers_list
+from tgbot.commands import USER_COMMANDS, apply_commands
 from tgbot.middlewares.flood import ThrottlingMiddleware
 from tgbot.handlers.webhook_handlers import yookassa_webhook_handler
 from utils import broadcaster
@@ -67,29 +68,20 @@ async def register_commands(bot: Bot):
     logger.info("Registering bot commands...")
 
     # --- 1. Устанавливаем команды для ВСЕХ по умолчанию ---
-    user_commands = [
-        BotCommand(command='start', description='🏠 Главное меню'),
-        BotCommand(command='profile', description='👤 Мой профиль'),
-        BotCommand(command='support', description='💬 Поддержка'),
-        BotCommand(command='referral', description='🤝 Реф. программа'),
-        BotCommand(command='instruction', description='📲 Инструкция'),
-        BotCommand(command='promo', description='🎁Ввести промокод'),
-    ]
-    await bot.set_my_commands(user_commands, BotCommandScopeDefault())
+    await bot.set_my_commands(USER_COMMANDS, BotCommandScopeDefault())
 
-    # --- 2. Устанавливаем РАСШИРЕННЫЕ команды для АДМИНОВ ---
-    # Этот набор ПЕРЕЗАПИШЕТ дефолтный для конкретных пользователей
-    admin_commands = user_commands + [
-        BotCommand(command='admin', description='👑 Админ-панель'),
-        BotCommand(command='cancel', description='❌ Отменить действие'),
-    ]
-    if config.tg_bot.admin_ids:
-        for admin_id in config.tg_bot.admin_ids:
-            try:
-                # Устанавливаем команды персонально для каждого админа
-                await bot.set_my_commands(admin_commands, BotCommandScopeChat(chat_id=admin_id))
-            except Exception as e:
-                logger.error(f"Failed to set admin commands for {admin_id}: {e}")
+    # --- 2. Персональные наборы: админам — админские, менеджерам — менеджерские ---
+    # Набор ПЕРЕЗАПИШЕТ дефолтный для конкретного пользователя.
+    managers = []
+    try:
+        from database import manager_repo
+        managers = [m.telegram_id for m in await manager_repo.list_all()
+                    if m.status == 'active' and m.telegram_id]
+    except Exception as e:
+        logger.error(f"Failed to load managers for commands: {e}")
+
+    for telegram_id in dict.fromkeys(list(config.tg_bot.admin_ids or []) + managers):
+        await apply_commands(bot, telegram_id, is_manager=telegram_id in managers)
 
     # --- 3. Устанавливаем команды для чата поддержки ---
     support_chat_commands = [

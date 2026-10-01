@@ -14,14 +14,14 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 
 from db import User
-from webapp.routers import auth, dashboard, legal, payment, tma
+from webapp.routers import auth, client_link, dashboard, legal, manager, payment, tma
 from webapp.dependencies import get_current_user
 from webapp.templating import templates
 from loader import logger, remnawave_client, shutdown_logging, config
 from typing import Optional
 from db import Tariff
 from database import tariff_repo
-from tgbot.services import device_slot_service
+from tgbot.services import device_slot_service, traffic_service
 from webapp.routers.tma import intro_consents
 
 
@@ -63,6 +63,8 @@ app.include_router(dashboard.router)
 app.include_router(legal.router)
 app.include_router(payment.router)
 app.include_router(tma.router)
+app.include_router(manager.router)
+app.include_router(client_link.router)
 
 # --- Главная ---
 @app.get("/", response_class=HTMLResponse)
@@ -85,4 +87,6 @@ async def read_root(request: Request, user: User = Depends(get_current_user)):
         "tariffs": tariffs,
         "intro_consents": await intro_consents(tariffs),
         "device_settings": device_settings,
+        # Базовая квота правится из админки — лендинг не должен обещать другую.
+        "traffic_settings": await traffic_service.settings(),
     })

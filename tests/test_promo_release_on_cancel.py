@@ -35,6 +35,7 @@ def _payment(**overrides):
         "status": "pending",
         "kind": "subscription",
         "extra_devices": 0,
+        "extra_traffic_gb": 0,
         "source": "web",
         "discount_percent": 10,
         "promo_code": "SALE10",

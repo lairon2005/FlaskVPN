@@ -7,7 +7,7 @@ from aiogram.fsm.storage.base import StorageKey
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 
-from tgbot.services import payment_service
+from tgbot.services import payment_service, manager_service
 from tgbot.services.payment import parse_webhook_notification
 from tgbot.services.referral_service import REFERRER_PAYMENT_BONUS_DAYS
 from tgbot.services.intro_offer import conversion_price, format_rub
@@ -194,6 +194,53 @@ async def _log_device_slots_purchase(bot: Bot, result) -> None:
         logger.error(f"Failed to send device slots log: {e}")
 
 
+async def _notify_traffic_purchased(bot: Bot, result) -> None:
+    """Трафик начислен — сообщаем новый лимит."""
+    from tgbot.keyboards.inline import back_to_main_menu_keyboard
+
+    bought = result.payment.extra_traffic_gb or 0
+    try:
+        await bot.send_message(
+            result.payment.user_id,
+            f"✅ <b>Оплата прошла</b>\n\n"
+            f"Добавлено трафика: <b>+{bought} ГБ/мес</b>.\n"
+            f"Всего докупленного трафика: <b>{result.extra_traffic_gb} ГБ</b>.\n\n"
+            "Новый лимит уже действует — перевыпускать ключ не нужно. "
+            "Докупленное действует до конца текущей подписки.",
+            reply_markup=back_to_main_menu_keyboard(),
+        )
+    except Exception as e:
+        logger.error(f"Failed to notify user {result.payment.user_id} about traffic: {e}")
+
+
+async def _log_traffic_purchase(bot: Bot, result) -> None:
+    """Лог докупки трафика в админ-чат."""
+    user = await user_repo.get(result.payment.user_id)
+    if not user:
+        return
+
+    source_icon = "🌐 WEB" if result.payment.user_id < 0 else "🤖 BOT"
+    username_text = f"@{user.username}" if user.username else "Нет"
+
+    text = (
+        f"{source_icon} | 📊 Докупка трафика\n\n"
+        f"👤 <b>User:</b> {user.full_name} (ID: <code>{user.user_id}</code>)\n"
+        f"🏷 <b>Username:</b> {username_text}\n\n"
+        f"➕ <b>Куплено:</b> {result.payment.extra_traffic_gb} ГБ/мес\n"
+        f"📊 <b>Всего докупленного:</b> {result.extra_traffic_gb} ГБ\n"
+        f"💰 <b>Сумма:</b> {result.payment.final_amount:.2f} RUB"
+    )
+
+    try:
+        await bot.send_message(
+            chat_id=config.tg_bot.support_chat_id,
+            message_thread_id=config.tg_bot.transaction_log_topic_id,
+            text=text
+        )
+    except Exception as e:
+        logger.error(f"Failed to send traffic log: {e}")
+
+
 # --- ГЛАВНЫЙ ХЕНДЛЕР ---
 async def yookassa_webhook_handler(request: web.Request):
     try:
@@ -245,6 +292,13 @@ async def yookassa_webhook_handler(request: web.Request):
                     await _notify_slots_purchased(bot, result)
                 return web.Response(status=200)
 
+            # Докупка трафика — то же самое: подписка не менялась.
+            if result.kind == 'traffic':
+                await _log_traffic_purchase(bot, result)
+                if result.payment.user_id > 0:
+                    await _notify_traffic_purchased(bot, result)
+                return web.Response(status=200)
+
             # Уведомление реферера (Telegram-специфично)
             if result.referrer_id and result.referrer_id > 0:
                 try:
@@ -255,6 +309,17 @@ async def yookassa_webhook_handler(request: web.Request):
                     )
                 except Exception as e:
                     logger.error(f"Failed to notify referrer {result.referrer_id}: {e}")
+
+            # Офлайн-продажа через менеджера: чек менеджера, группы и клиента заменяет
+            # обычный лог транзакции и сообщение «оплата успешна».
+            if getattr(result.payment, 'manager_id', None):
+                try:
+                    await manager_service.on_payment_succeeded(yookassa_payment_id)
+                except Exception as e:
+                    # Деньги приняты и подписка выдана — сбой чека не должен вернуть YooKassa 500
+                    # (она станет повторять вебхук); сверка операций доведёт чек.
+                    logger.error(f"Manager payment hook failed for {yookassa_payment_id}: {e}", exc_info=True)
+                return web.Response(status=200)
 
             # Лог транзакции
             await _log_transaction(

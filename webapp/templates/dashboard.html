@@ -7,6 +7,8 @@
    значения здесь, а не расставляем guard'ы по всему файлу. #}
 {% set device_settings = device_settings | default({'base_limit': 0, 'price': 0, 'max_extra': 0}, true) %}
 {% set slot_quote = slot_quote | default({}, true) %}
+{% set traffic_quote = traffic_quote | default({}, true) %}
+{% set traffic_settings = traffic_settings | default({'base_gb': 500, 'pack_gb': 100, 'pack_price': 0, 'max_packs': 0}, true) %}
 {% set devices = devices | default(none, true) %}
 {% set vpn_data = vpn_data | default(none, true) %}
 {% set saved_card = saved_card | default(none, true) %}
@@ -159,6 +161,65 @@
             </div>
         </section>
 
+        <!-- ============ Трафик ============ -->
+        {% if has_sub %}
+        {% set limit_bytes = vpn_data.data_limit or 0 %}
+        {% set used_pct = ([((vpn_data.used_traffic or 0) / limit_bytes * 100) | int, 100] | min) if limit_bytes else 0 %}
+        <section class="sticker p-6 animate-in [animation-delay:0.12s]">
+            <h2 class="font-display font-extrabold text-lg flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                <span class="flex items-center gap-2">{{ ic.icon('wifi', 'w-5 h-5 text-orange') }} Трафик</span>
+                <span class="text-sm font-normal text-muted tabular-nums">
+                    {% if limit_bytes %}
+                        {{ vpn_data.used_traffic | bytes_to_gb }} из {{ limit_bytes | bytes_to_gb }} ГБ в этом месяце
+                    {% else %}
+                        безлимит
+                    {% endif %}
+                </span>
+            </h2>
+
+            {% if limit_bytes %}
+            <div class="mt-3 h-3 rounded-full bg-blue/10 overflow-hidden" role="progressbar"
+                 aria-valuenow="{{ used_pct }}" aria-valuemin="0" aria-valuemax="100">
+                <div class="h-full rounded-full {{ 'bg-danger' if used_pct >= 90 else 'bg-blue' }}"
+                     style="width: {{ used_pct }}%"></div>
+            </div>
+            {% if used_pct >= 100 %}
+                <div class="alert alert-warn mt-3">
+                    {{ ic.icon('alert', 'w-5 h-5 shrink-0') }}
+                    <span>Квота исчерпана. Доступ вернётся при обновлении квоты 1-го числа
+                        {% if traffic_quote.ok %}— или докупите гигабайты ниже, VPN заработает сразу{% endif %}.</span>
+                </div>
+            {% endif %}
+            {% endif %}
+
+            {% if traffic_quote.ok %}
+            {# Докупка в середине периода: цену считает сервер по остатку дней. #}
+            <div class="panel panel-dashed mt-4 p-4 flex flex-wrap items-center justify-between gap-4"
+                 id="buyTrafficBox"
+                 data-traffic-unit-price="{{ traffic_quote.price_per_pack }}"
+                 data-traffic-available="{{ traffic_quote.available }}"
+                 data-traffic-pack-gb="{{ traffic_quote.pack_gb }}">
+                <div class="min-w-0">
+                    <p class="font-bold">Не хватает трафика?</p>
+                    <p class="text-sm text-subtle">
+                        +{{ traffic_quote.pack_gb }} ГБ в месяц за {{ traffic_quote.price_per_pack }} ₽ до конца подписки
+                        ({{ traffic_quote.remaining_days }} дн.). Далее — {{ traffic_settings.pack_price }} ₽ в месяц
+                        вместе с продлением.
+                    </p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" class="stepper-btn" onclick="updateBuyTraffic(-1)" aria-label="Меньше">−</button>
+                    <span class="font-display font-black text-lg w-14 text-center tabular-nums" id="buyTrafficGb">+{{ traffic_quote.pack_gb }}</span>
+                    <button type="button" class="stepper-btn" onclick="updateBuyTraffic(1)" aria-label="Больше">+</button>
+                    <button type="button" class="btn-pop !min-h-0 !py-2.5 !px-4 text-sm" onclick="buyTraffic(this)">
+                        <span class="btn-text">Докупить за <span id="buyTrafficPrice">{{ traffic_quote.price | int }}</span> ₽</span>
+                    </button>
+                </div>
+            </div>
+            {% endif %}
+        </section>
+        {% endif %}
+
         <!-- ============ Устройства ============ -->
         {% if devices %}
         <section class="sticker p-6 animate-in [animation-delay:0.15s]">
@@ -236,6 +297,28 @@
                 </div>
             </div>
             {% endif %}
+        </section>
+        {% endif %}
+
+        <!-- ============ Код для менеджера ============ -->
+        {% if has_sub %}
+        <section class="sticker p-6 animate-in [animation-delay:0.18s]" id="managerCodeBox">
+            <h2 class="font-display font-extrabold text-lg flex items-center gap-2">
+                {{ ic.icon('users', 'w-5 h-5 text-orange') }} Помощь менеджера
+            </h2>
+            <p class="mt-2 text-sm text-subtle max-w-xl">
+                Если вам помогает менеджер с установкой или продлением, продиктуйте ему одноразовый код.
+                Он увидит срок подписки, трафик и число устройств — но не платёжные данные. Код живёт 15 минут.
+            </p>
+            <div class="mt-3 flex flex-wrap items-center gap-3">
+                <button type="button" class="btn-pop btn-pop-outline !min-h-0 !py-2 !px-4 text-sm" onclick="getManagerCode(this)">
+                    <span class="btn-text">Получить код</span>
+                </button>
+                <span id="managerCodeValue" class="hidden font-mono font-black text-2xl tracking-widest text-blue" aria-live="polite"></span>
+                <button type="button" class="text-sm font-semibold text-muted hover:text-danger" onclick="revokeManagerAccess()">
+                    Закрыть доступ менеджерам
+                </button>
+            </div>
         </section>
         {% endif %}
 
@@ -435,6 +518,32 @@
             </div>
         </div>
 
+        {# То же для пакетов трафика: одно количество на все тарифы с лимитом. #}
+        {% if traffic_settings.max_packs %}
+        <div class="panel p-4 mb-5 flex flex-wrap items-center justify-between gap-4"
+             id="trafficSelector"
+             data-pack-price="{{ traffic_settings.pack_price }}"
+             data-pack-gb="{{ traffic_settings.pack_gb }}"
+             data-pack-max="{{ traffic_settings.max_packs }}"
+             data-current-packs="{{ ((user.extra_traffic_gb or 0) / traffic_settings.pack_gb) | round(0, 'ceil') | int if traffic_settings.pack_gb else 0 }}">
+            <div class="min-w-0">
+                <p class="font-bold flex items-center gap-2">
+                    {{ ic.icon('wifi', 'w-4 h-4 text-orange') }} Дополнительный трафик
+                </p>
+                <p class="text-sm text-subtle">
+                    В тариф входит {{ traffic_settings.base_gb }} ГБ в месяц, каждый пакет +{{ traffic_settings.pack_gb }} ГБ —
+                    {{ traffic_settings.pack_price }} ₽ в месяц.
+                </p>
+            </div>
+            <div class="flex items-center gap-2">
+                <button type="button" class="stepper-btn" onclick="updateTrafficPacks(-1)" aria-label="Меньше">−</button>
+                <span class="font-display font-black text-lg w-14 text-center tabular-nums"
+                      id="trafficExtraLabel">+0</span>
+                <button type="button" class="stepper-btn" onclick="updateTrafficPacks(1)" aria-label="Больше">+</button>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 items-start" id="tariffCards">
             {% for tariff in tariffs %}
                 {% if tariff.is_intro %}
@@ -461,7 +570,8 @@
                 <div class="tariff-card sticker p-5 flex flex-col relative
                             {% if is_popular %}border-[3px] border-orange{% endif %}"
                      data-tariff-price="{{ tariff.price | int }}"
-                     data-tariff-days="{{ tariff.duration_days }}">
+                     data-tariff-days="{{ tariff.duration_days }}"
+                     data-tariff-quota="{{ traffic_settings.base_gb if tariff.data_limit_gb is none else tariff.data_limit_gb }}">
                     {% if is_popular %}
                         <span class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full
                                      bg-orange text-paper font-display font-extrabold text-[0.7rem] whitespace-nowrap">
@@ -479,9 +589,16 @@
                             {{ ic.icon('check', 'w-4 h-4 shrink-0 mt-0.5 text-success') }}
                             <span>{{ tariff.duration_days }} дней</span>
                         </li>
+                        <li class="tariff-traffic-line flex gap-2">
+                            {{ ic.icon('check', 'w-4 h-4 shrink-0 mt-0.5 text-success') }}
+                            <span>
+                                {% if tariff.data_limit_gb == 0 %}Безлимитный трафик
+                                {% else %}{{ traffic_settings.base_gb if tariff.data_limit_gb is none else tariff.data_limit_gb }} ГБ трафика в месяц{% endif %}
+                            </span>
+                        </li>
                         <li class="flex gap-2">
                             {{ ic.icon('check', 'w-4 h-4 shrink-0 mt-0.5 text-success') }}
-                            <span>Безлимит скорости</span>
+                            <span>Без ограничения скорости</span>
                         </li>
                         <li class="tariff-devices-line flex gap-2">
                             {{ ic.icon('check', 'w-4 h-4 shrink-0 mt-0.5 text-success') }}

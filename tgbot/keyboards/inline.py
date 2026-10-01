@@ -65,7 +65,7 @@ def tma_mode_enabled() -> bool:
 # =============================================================================
 
 def main_menu_keyboard(
-    has_active_sub: bool = True, has_email: bool = True
+    has_active_sub: bool = True, has_email: bool = True, is_manager: bool = False
 ) -> InlineKeyboardMarkup:
     """
     Главная клавиатура пользователя. Условные кнопки зависят от статуса подписки и email.
@@ -94,6 +94,10 @@ def main_menu_keyboard(
         rows.append(1)
     if not has_email:
         builder.button(text="📧 Привязать Email", callback_data="link_email")
+        rows.append(1)
+    if is_manager:
+        # Панель менеджера офлайн-продаж — callback-сценарий в обоих режимах.
+        builder.button(text="👔 Панель менеджера", callback_data="mgr:menu")
         rows.append(1)
     builder.adjust(*rows)
     return builder.as_markup()
@@ -138,6 +142,8 @@ def profile_keyboard(subscription_url: str, show_referral_cta: bool = False) -> 
     builder.button(text="🔗 Открыть страницу подписки", url=subscription_url)
     builder.button(text="🔄 Обновить", callback_data="my_profile")
     builder.button(text="📱 Мои устройства", callback_data="my_devices")
+    builder.button(text="📊 Докупить трафик", callback_data="buy_traffic")
+    builder.button(text="👔 Код для менеджера", callback_data="mgr_client_code")
     builder.button(text="💳 Моя карта", callback_data="manage_card")
     if show_referral_cta:
         builder.button(text="🎁 Поделиться и получить дни", callback_data="referral_program")
@@ -199,8 +205,12 @@ def tariffs_keyboard(
     tariffs: list[Tariff],
     promo_procent: int = 0,
     user_has_active_sub: bool = False,
+    base_traffic_gb: int | None = None,
 ) -> InlineKeyboardMarkup:
     """Создает клавиатуру со списком тарифов для покупки.
+
+    base_traffic_gb — базовая квота из настроек (для тарифов без своего лимита);
+    None — значение по умолчанию.
 
     user_has_active_sub: если True — тарифам с заданной loyalty_price показывается
     "цена навсегда" вместо обычной (§7.1). Скидка по промокоду применяется поверх
@@ -227,7 +237,8 @@ def tariffs_keyboard(
         loyalty_mark = " · ваша цена" if is_loyalty else ""
         star = "⭐ " if tariff.is_highlighted else ""
         highlight_mark = " · выбор большинства" if tariff.is_highlighted else ""
-        gb_part = format_quota(tariff.data_limit_gb)
+        gb_part = (format_quota(tariff.data_limit_gb) if base_traffic_gb is None
+                   else format_quota(tariff.data_limit_gb, base_traffic_gb))
 
         builder.button(
             text=f"{star}{tariff.name} · {gb_part} — {price_part}{loyalty_mark}{highlight_mark}",
@@ -271,15 +282,17 @@ def winback_survey_keyboard() -> InlineKeyboardMarkup:
 
 
 def payment_method_choice_keyboard(tariff_id: int, slots: int = 0,
-                                   back_callback: str | None = None) -> InlineKeyboardMarkup:
+                                   back_callback: str | None = None,
+                                   packs: int = 0) -> InlineKeyboardMarkup:
     """Выбор способа оплаты (карта / СБП) перед созданием платежа с автопродлением.
 
-    `slots` — сколько доп. устройств выбрано на предыдущем шаге; едет в
-    callback_data, чтобы количество не потерялось при смене способа оплаты.
+    `slots` и `packs` — сколько доп. устройств и пакетов трафика выбрано на
+    предыдущем шаге; едут в callback_data, чтобы количество не потерялось при
+    смене способа оплаты. Старые сообщения приходят без `packs` — это 0.
     """
     builder = InlineKeyboardBuilder()
-    builder.button(text="💳 Банковская карта", callback_data=f"paymethod_card_{tariff_id}_{slots}")
-    builder.button(text="🏦 СБП", callback_data=f"paymethod_sbp_{tariff_id}_{slots}")
+    builder.button(text="💳 Банковская карта", callback_data=f"paymethod_card_{tariff_id}_{slots}_{packs}")
+    builder.button(text="🏦 СБП", callback_data=f"paymethod_sbp_{tariff_id}_{slots}_{packs}")
     builder.button(text="⬅️ Назад", callback_data=back_callback or f"select_tariff_{tariff_id}")
     builder.adjust(1)
     return builder.as_markup()
@@ -344,6 +357,73 @@ def slot_invoice_keyboard(payment_url: str | None, slots: int = 1) -> InlineKeyb
     builder.button(text="❌ Отменить счёт", callback_data=f"slots_cancel_invoice:{slots}")
     builder.button(text="⬅️ К устройствам", callback_data="my_devices")
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def traffic_purchase_keyboard(packs: int, max_packs: int, total_gb: int) -> InlineKeyboardMarkup:
+    """Докупка трафика в середине оплаченного периода: степпер + оплата."""
+    builder = InlineKeyboardBuilder()
+
+    stepper = []
+    if packs > 1:
+        stepper.append(InlineKeyboardButton(text="➖", callback_data=f"traffic_qty:{packs - 1}"))
+    stepper.append(InlineKeyboardButton(text=f"📊 {total_gb} ГБ", callback_data="noop"))
+    if packs < max_packs:
+        stepper.append(InlineKeyboardButton(text="➕", callback_data=f"traffic_qty:{packs + 1}"))
+    builder.row(*stepper)
+
+    builder.row(InlineKeyboardButton(text="💳 Оплатить картой", callback_data=f"traffic_pay:card:{packs}"))
+    builder.row(InlineKeyboardButton(text="🏦 Оплатить через СБП", callback_data=f"traffic_pay:sbp:{packs}"))
+    builder.row(InlineKeyboardButton(text="⬅️ Назад в профиль", callback_data="my_profile"))
+    return builder.as_markup()
+
+
+def traffic_invoice_keyboard(payment_url: str | None, packs: int = 1) -> InlineKeyboardMarkup:
+    """Счёт на докупку трафика: оплатить, отменить, вернуться в профиль.
+
+    Отмена обязательна по той же причине, что и у счёта на устройства: пока счёт
+    висит, второй создать нельзя, а YooKassa сама снимет его только через ~30 минут.
+    """
+    builder = InlineKeyboardBuilder()
+    if payment_url:
+        builder.button(text="💳 Оплатить", url=payment_url)
+    builder.button(text="❌ Отменить счёт", callback_data=f"traffic_cancel_invoice:{packs}")
+    builder.button(text="⬅️ В профиль", callback_data="my_profile")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def tariff_traffic_keyboard(tariff_id: int, slots: int, packs: int, max_slots: int,
+                            max_packs: int, base_limit: int, pack_gb: int) -> InlineKeyboardMarkup:
+    """
+    Шаг чекаута «устройства и трафик»: два степпера и переход к оплате.
+
+    Оба количества едут в callback_data (а не в FSM) — по той же причине, что и
+    у tariff_slots_keyboard: экран могли открыть из старого сообщения.
+    """
+    builder = InlineKeyboardBuilder()
+
+    devices = []
+    if slots > 0:
+        devices.append(InlineKeyboardButton(text="➖", callback_data=f"tslots_{tariff_id}_{slots - 1}_{packs}"))
+    devices.append(InlineKeyboardButton(text=f"📱 {base_limit + slots} устройств", callback_data="noop"))
+    if slots < max_slots:
+        devices.append(InlineKeyboardButton(text="➕", callback_data=f"tslots_{tariff_id}_{slots + 1}_{packs}"))
+    builder.row(*devices)
+
+    if max_packs > 0:
+        traffic = []
+        if packs > 0:
+            traffic.append(InlineKeyboardButton(text="➖", callback_data=f"tslots_{tariff_id}_{slots}_{packs - 1}"))
+        traffic.append(InlineKeyboardButton(text=f"📊 +{packs * pack_gb} ГБ", callback_data="noop"))
+        if packs < max_packs:
+            traffic.append(InlineKeyboardButton(text="➕", callback_data=f"tslots_{tariff_id}_{slots}_{packs + 1}"))
+        builder.row(*traffic)
+
+    builder.row(InlineKeyboardButton(
+        text="💳 Перейти к оплате", callback_data=f"tpay_{tariff_id}_{slots}_{packs}"
+    ))
+    builder.row(InlineKeyboardButton(text="⬅️ К выбору тарифа", callback_data="buy_subscription"))
     return builder.as_markup()
 
 
@@ -487,6 +567,9 @@ def admin_main_menu_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="💳 Управление тарифами", callback_data="admin_tariffs_menu")
     builder.button(text="🎁 Промокоды", callback_data="admin_promo_codes")
     builder.button(text="📱 Доп. устройства", callback_data="admin_device_settings")
+    builder.button(text="📊 Трафик", callback_data="admin_traffic_settings")
+    builder.button(text="👔 Менеджеры", callback_data="admin_managers")
+    builder.button(text="💲 Свои дни и врем. ключи", callback_data="admin_pricing")
     builder.button(text="📤 Рассылка", callback_data="admin_broadcast")
     builder.button(text="⬅️ Выйти из админ-панели", callback_data="back_to_main_menu")
     builder.adjust(1)
@@ -498,6 +581,18 @@ def device_settings_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="💰 Цена слота", callback_data="admin_devset_extra_device_price")
     builder.button(text="📦 Базовый лимит", callback_data="admin_devset_base_device_limit")
     builder.button(text="🔝 Потолок докупки", callback_data="admin_devset_max_extra_devices")
+    builder.button(text="⬅️ Назад в админ-панель", callback_data="admin_main_menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def traffic_settings_keyboard() -> InlineKeyboardMarkup:
+    """Настройки трафика: базовая квота, размер и цена пакета, потолок докупки."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📦 Базовая квота", callback_data="admin_trafset_base_traffic_gb")
+    builder.button(text="➕ Размер пакета", callback_data="admin_trafset_traffic_pack_gb")
+    builder.button(text="💰 Цена пакета", callback_data="admin_trafset_traffic_pack_price")
+    builder.button(text="🔝 Потолок докупки", callback_data="admin_trafset_max_traffic_packs")
     builder.button(text="⬅️ Назад в админ-панель", callback_data="admin_main_menu")
     builder.adjust(1)
     return builder.as_markup()

@@ -10,7 +10,11 @@ from tgbot.services.referral_service import ReferralService
 from tgbot.services.promo_code_service import PromoClaimError
 from tgbot.services.pricing import effective_price
 from tgbot.services.device_pricing import slots_cost_for_tariff
+from tgbot.services.traffic_pricing import (
+    TrafficSettings, gb_to_packs, packs_cost_for_tariff, tariff_quota_gb, total_limit_gb,
+)
 from tgbot.services.intro_offer import is_in_intro, conversion_price
+from tgbot.services.custom_pricing import SETTING_RENEW_TARIFF
 from loader import logger, config
 
 
@@ -25,6 +29,8 @@ class PaymentResult:
     payment: Payment | None = None
     kind: str = 'subscription'
     extra_devices: int = 0  # сколько доп. устройств стало у пользователя после платежа
+    extra_traffic_gb: int = 0  # сколько докупленных ГБ/мес стало у пользователя после платежа
+    days: int | None = None  # kind='custom': на сколько дней выдана подписка (тарифа у платежа нет)
     # Оплачен вводный тариф: для текста уведомления — «пробная неделя до …,
     # потом спишем N ₽» (renew_tariff) либо предупреждение, что карта не
     # сохранилась и перехода не будет (card_saved=False).
@@ -50,7 +56,9 @@ class PaymentService:
                  payment_repo: PaymentRepository,
                  payment_method_service=None,
                  device_slot_service=None,
-                 promo_service=None):
+                 promo_service=None,
+                 traffic_service=None,
+                 settings_repo=None):
         self._subscription_service = subscription_service
         self._referral_service = referral_service
         self._user_repo = user_repo
@@ -61,16 +69,90 @@ class PaymentService:
         # Возврат промокода при отмене счёта и повторный захват при оплате по
         # старой ссылке — см. _release_promo / _reclaim_promo / hold_promo.
         self._promo_service = promo_service
+        # Квота тарифа, докупка и сверка лимита трафика. None — только в тестах:
+        # тогда берутся дефолтные настройки, а лимит в панель уходит через extend().
+        self._traffic_service = traffic_service
+        # Нужен одному месту: на какой тариф продлевается карта после «своих дней».
+        self._settings_repo = settings_repo
+
+    async def _custom_renew_tariff_id(self) -> int | None:
+        """
+        Тариф автопродления для карты, сохранённой при оплате «своих дней».
+
+        Берётся из настройки custom_renew_tariff_id; если она не задана или
+        указывает на скрытый/вводный тариф — активный обычный тариф, ближайший
+        к 30 дням. Без тарифа продления карта сохранилась бы, но списывать
+        было бы нечего.
+        """
+        wanted = 0
+        if self._settings_repo is not None:
+            wanted = await self._settings_repo.get_int(SETTING_RENEW_TARIFF, 0)
+        if wanted:
+            tariff = await self._tariff_repo.get_by_id(wanted)
+            if tariff and tariff.is_active and not tariff.is_intro:
+                return tariff.id
+        candidates = await self._tariff_repo.get_active()
+        if not candidates:
+            return None
+        return min(candidates, key=lambda t: abs((t.duration_days or 0) - 30)).id
+
+    async def custom_renew_tariff(self):
+        """Тариф, на который продлевается карта после «своих дней» (для текста согласия)."""
+        tariff_id = await self._custom_renew_tariff_id()
+        return await self._tariff_repo.get_by_id(tariff_id) if tariff_id else None
+
+    async def autorenew_enabled(self, user_id: int) -> bool | None:
+        """Автопродление клиента: True — карта сохранена и включена, False — выключена, None — карты нет."""
+        if self._payment_method_service is None:
+            return None
+        card = await self._payment_method_service.get_card(user_id)
+        if card is None:
+            return None
+        return bool(card.auto_renew_enabled)
+
+    async def disable_autorenew(self, user_id: int) -> bool:
+        """Выключает автопродление. False — карты нет или оно уже выключено."""
+        if self._payment_method_service is None:
+            return False
+        return await self._payment_method_service.disable_auto_renew(user_id)
+
+    async def get_payment(self, yookassa_payment_id: str) -> Payment | None:
+        return await self._payment_repo.get_by_yookassa_id(yookassa_payment_id)
+
+    async def mark_payment_failed(self, yookassa_payment_id: str) -> None:
+        await self._payment_repo.update_status(yookassa_payment_id, 'failed')
+
+    async def _traffic_settings(self) -> TrafficSettings:
+        if self._traffic_service is not None:
+            return await self._traffic_service.settings()
+        return TrafficSettings()
+
+    async def _record_traffic(self, user_id: int, quota_gb: int, extra_gb: int) -> None:
+        """Запоминает квоту и докупленные ГБ. Сбой не должен ронять обработку платежа."""
+        if self._traffic_service is None:
+            return
+        try:
+            await self._traffic_service.record_purchase(user_id, quota_gb, extra_gb)
+        except Exception:
+            logger.exception(
+                f"Не удалось записать квоту трафика для user={user_id} — "
+                f"лимит в панели уже выставлен, БД догонит сверка"
+            )
 
     async def create_payment_record(self, yookassa_payment_id: str, user_id: int,
                                     tariff_id: int | None, original_amount: float,
                                     final_amount: float, source: str = 'bot',
                                     promo_code: str = None, discount_percent: int = 0,
-                                    kind: str = 'subscription', extra_devices: int = 0) -> Payment:
+                                    kind: str = 'subscription', extra_devices: int = 0,
+                                    extra_traffic_gb: int = 0, manager_id: int | None = None,
+                                    days: int | None = None) -> Payment:
         """Create a payment record in DB when payment is initiated.
 
         kind='devices' — докупка слотов устройств: tariff_id = None, подписка не
         продлевается, extra_devices = сколько слотов добавить после оплаты.
+        kind='traffic' — докупка трафика: то же, extra_traffic_gb = сколько ГБ добавить.
+        kind='custom' — «свои дни» офлайн-продажи: tariff_id = None, срок в `days`.
+        manager_id — менеджер, проведший платёж (офлайн-продажа).
         kind='subscription' — extra_devices = сколько слотов человек оплатил
         на новый срок (абсолютное количество, выбранное на чекауте).
         """
@@ -85,6 +167,9 @@ class PaymentService:
             discount_percent=discount_percent,
             kind=kind,
             extra_devices=extra_devices,
+            extra_traffic_gb=extra_traffic_gb,
+            manager_id=manager_id,
+            days=days,
         )
 
     async def has_pending_payment(self, user_id: int) -> bool:
@@ -323,21 +408,45 @@ class PaymentService:
         if payment.kind == 'devices':
             return await self._process_device_payment(payment)
 
-        tariff = await self._tariff_repo.get_by_id(payment.tariff_id)
-        if not tariff:
-            logger.error(f"Tariff {payment.tariff_id} not found during payment processing")
-            return None
+        # Докупка трафика: так же — срок подписки не двигаем, счётчик не сбрасываем.
+        if payment.kind == 'traffic':
+            return await self._process_traffic_payment(payment)
+
+        # «Свои дни» (офлайн-продажа): тарифа нет, срок — в самом платеже, квота базовая.
+        is_custom = payment.kind == 'custom'
+        if is_custom:
+            tariff = None
+            duration_days = payment.days or 0
+            data_limit_cfg = None
+            if duration_days <= 0:
+                logger.error(f"Custom payment {yookassa_payment_id} has no days — cannot process")
+                return None
+        else:
+            tariff = await self._tariff_repo.get_by_id(payment.tariff_id)
+            if not tariff:
+                logger.error(f"Tariff {payment.tariff_id} not found during payment processing")
+                return None
+            duration_days = tariff.duration_days
+            data_limit_cfg = tariff.data_limit_gb
+        is_intro = bool(tariff and tariff.is_intro)
 
         is_first_payment = not user.is_first_payment_made
 
-        # 4. Extend subscription. Квота платного тарифа ВСЕГДА передаётся явно:
-        #    None (безлимитный тариф) приводим к 0 (=безлимит в Remnawave), иначе
-        #    апгрейд с лимитного тарифа на безлимитный не снял бы старый лимит
-        #    (None означает «не трогать квоту» — это только для бонусных продлений).
-        tariff_limit_gb = tariff.data_limit_gb if tariff.data_limit_gb is not None else 0
-        extension = await self._subscription_service.extend(
-            payment.user_id, tariff.duration_days, data_limit_gb=tariff_limit_gb
+        # 4. Extend subscription. Квоту всегда считаем явно (NULL → базовая 500 ГБ,
+        #    0 → безлимит, N → N): иначе апгрейд с лимитного тарифа на безлимитный
+        #    не снял бы старый лимит (None в extend() означает «не трогать квоту» —
+        #    только для бонусных продлений). К квоте прибавляются пакеты трафика,
+        #    выбранные на чекауте (для безлимита они не нужны).
+        traffic_settings = await self._traffic_settings()
+        quota_gb = tariff_quota_gb(traffic_settings, data_limit_cfg)
+        extra_traffic_gb = 0 if quota_gb == 0 else min(
+            traffic_settings.max_extra_gb, payment.extra_traffic_gb or 0
         )
+        extension = await self._subscription_service.extend(
+            payment.user_id, duration_days,
+            data_limit_gb=total_limit_gb(quota_gb, extra_traffic_gb),
+        )
+        await self._record_traffic(payment.user_id, quota_gb, extra_traffic_gb)
 
         # 4b. Слоты доп. устройств на новый срок. Количество человек выбрал на
         #     чекауте, поэтому применяем абсолютным значением — в том числе
@@ -360,7 +469,7 @@ class PaymentService:
         #      оплатой не считается: и то и другое наступит при первом списании
         #      полной цены тарифа продления (intro_offer.py).
         referrer_id = None
-        if tariff.is_intro:
+        if is_intro:
             is_first_payment = False
             await self._user_repo.set_intro_used(payment.user_id)
         else:
@@ -372,8 +481,14 @@ class PaymentService:
         await self._payment_repo.update_status(yookassa_payment_id, 'succeeded')
 
         # 8. Сохраняем метод оплаты для автопродления (не ломаем обработку при ошибке).
-        #    После вводного тарифа карта продлевает не его, а тариф продления.
-        renew_tariff_id = tariff.renew_tariff_id if tariff.is_intro else payment.tariff_id
+        #    После вводного тарифа карта продлевает не его, а тариф продления;
+        #    после «своих дней» — тариф из настройки custom_renew_tariff_id.
+        if is_intro:
+            renew_tariff_id = tariff.renew_tariff_id
+        elif is_custom:
+            renew_tariff_id = await self._custom_renew_tariff_id()
+        else:
+            renew_tariff_id = payment.tariff_id
         card_saved = False
         if payment_method is not None and self._payment_method_service is not None:
             try:
@@ -387,7 +502,7 @@ class PaymentService:
                 )
 
         renew_tariff = None
-        if tariff.is_intro:
+        if is_intro:
             renew_tariff = await self._tariff_repo.get_by_id(tariff.renew_tariff_id) if tariff.renew_tariff_id else None
             if not card_saved:
                 # Неделю человек получил, но автоперехода не будет — это надо видеть.
@@ -396,8 +511,9 @@ class PaymentService:
                     f"payment={yookassa_payment_id} — автопродления не будет"
                 )
 
+        label = tariff.name if tariff else f"custom {duration_days} дн."
         logger.info(
-            f"Payment processed: user={payment.user_id}, tariff={tariff.name}, "
+            f"Payment processed: user={payment.user_id}, tariff={label}, "
             f"amount={payment.final_amount}, discount={payment.discount_percent}%, "
             f"promo={payment.promo_code or 'none'}, first={is_first_payment}"
         )
@@ -407,9 +523,11 @@ class PaymentService:
             referrer_id=referrer_id,
             is_first_payment=is_first_payment,
             payment=payment,
-            kind='subscription',
+            kind='custom' if is_custom else 'subscription',
             extra_devices=extra_devices,
-            is_intro=bool(tariff.is_intro),
+            extra_traffic_gb=extra_traffic_gb,
+            days=duration_days if is_custom else None,
+            is_intro=is_intro,
             renew_tariff=renew_tariff,
             card_saved=card_saved,
         )
@@ -449,6 +567,41 @@ class PaymentService:
             extra_devices=total_extra,
         )
 
+    async def _process_traffic_payment(self, payment: Payment) -> PaymentResult | None:
+        """Оплачена докупка трафика: начисляем ГБ и поднимаем лимит в панели.
+
+        Статус платежа проставляем ДО обращения к панели — по той же причине, что
+        и для слотов: деньги списаны, повторная доставка вебхука не должна
+        начислить гигабайты второй раз, а недоставленный лимит доведёт джоб
+        sync_traffic_limits.
+        """
+        await self._payment_repo.update_status(payment.yookassa_payment_id, 'succeeded')
+
+        added = payment.extra_traffic_gb or 0
+        total_extra = added
+        if self._traffic_service is not None:
+            try:
+                total_extra = await self._traffic_service.add_gb(payment.user_id, added)
+            except Exception:
+                logger.exception(
+                    f"Не удалось начислить трафик для user={payment.user_id}, "
+                    f"payment={payment.yookassa_payment_id} — будет исправлено джобом сверки"
+                )
+
+        logger.info(
+            f"Traffic payment processed: user={payment.user_id}, gb=+{added}, "
+            f"total_extra={total_extra}, amount={payment.final_amount}"
+        )
+        return PaymentResult(
+            tariff=None,
+            extension=None,
+            referrer_id=None,
+            is_first_payment=False,
+            payment=payment,
+            kind='traffic',
+            extra_traffic_gb=total_extra,
+        )
+
     async def process_stars_payment(
         self, user_id: int, tariff_id: int, total_amount: int, telegram_payment_charge_id: str,
     ) -> StarsPaymentResult | None:
@@ -485,12 +638,15 @@ class PaymentService:
         is_first_payment = bool(user) and not user.is_first_payment_made
 
         # Та же логика квоты, что и в YooKassa-флоу выше: платный тариф всегда
-        # передаёт явную квоту (None → 0 безлимит), чтобы апгрейд/смена тарифа
-        # гарантированно перезаписывала старый лимит в Remnawave.
-        tariff_limit_gb = tariff.data_limit_gb if tariff.data_limit_gb is not None else 0
+        # передаёт явную квоту (None → базовая, 0 → безлимит), чтобы апгрейд/смена
+        # тарифа гарантированно перезаписывала старый лимит в Remnawave.
+        # Докупленный трафик Stars не продаёт (pre_checkout отклоняет оплату при
+        # extra_traffic_gb > 0), поэтому здесь только квота тарифа.
+        quota_gb = tariff_quota_gb(await self._traffic_settings(), tariff.data_limit_gb)
         extension = await self._subscription_service.extend(
-            user_id, tariff.duration_days, data_limit_gb=tariff_limit_gb
+            user_id, tariff.duration_days, data_limit_gb=quota_gb
         )
+        await self._record_traffic(user_id, quota_gb, 0)
 
         # yookassa_payment_id — NOT NULL/UNIQUE колонка, для Stars-платежей не
         # существует, поэтому используем синтетический "stars:{charge_id}" (тот же
@@ -574,8 +730,24 @@ class PaymentService:
             )
             return payment
 
+        # Возврат за докупку трафика: дни подписки ни при чём — снимаем ГБ.
+        if payment.kind == 'traffic':
+            await self._payment_repo.update_status(yookassa_payment_id, 'refunded')
+            if self._traffic_service is not None and payment.extra_traffic_gb:
+                try:
+                    await self._traffic_service.add_gb(payment.user_id, -payment.extra_traffic_gb)
+                except Exception:
+                    logger.exception(
+                        f"Refund: не удалось снять докупленный трафик для user={payment.user_id}"
+                    )
+            logger.info(
+                f"Refund processed (traffic): payment={yookassa_payment_id}, "
+                f"user={payment.user_id}, gb=-{payment.extra_traffic_gb}"
+            )
+            return payment
+
         tariff = await self._tariff_repo.get_by_id(payment.tariff_id) if payment.tariff_id else None
-        days_to_deduct = tariff.duration_days if tariff else 0
+        days_to_deduct = tariff.duration_days if tariff else (payment.days or 0)
 
         if days_to_deduct > 0:
             user = await self._user_repo.get(payment.user_id)
@@ -660,7 +832,23 @@ class PaymentService:
             device_settings = await self._device_slot_service.settings()
             slots_amount = slots_cost_for_tariff(device_settings, tariff.duration_days, slots)
 
-        charge_amount = tariff_amount + slots_amount
+        # Докупленный трафик продлевается так же, как слоты: без этого слагаемого
+        # купленные один раз гигабайты становились бы бесплатными навсегда.
+        # Безлимитному тарифу пакеты не нужны.
+        traffic_gb = (user.extra_traffic_gb or 0) if user else 0
+        packs = 0
+        traffic_amount = 0.0
+        if traffic_gb and self._traffic_service is not None:
+            traffic_settings = await self._traffic_service.settings()
+            if tariff_quota_gb(traffic_settings, tariff.data_limit_gb) > 0:
+                packs = gb_to_packs(traffic_settings, traffic_gb)
+                traffic_amount = packs_cost_for_tariff(traffic_settings, tariff.duration_days, packs)
+            else:
+                traffic_gb = 0
+        else:
+            traffic_gb = 0
+
+        charge_amount = tariff_amount + slots_amount + traffic_amount
 
         # Позиции чека: тариф и устройства — разные услуги (54-ФЗ).
         receipt_items = [{
@@ -673,6 +861,13 @@ class PaymentService:
                 "description": f"Дополнительные устройства ({tariff.duration_days} дн.)",
                 "quantity": slots,
                 "amount": slots_amount / slots,
+            })
+
+        if traffic_amount:
+            receipt_items.append({
+                "description": f"Дополнительный трафик ({tariff.duration_days} дн.)",
+                "quantity": packs,
+                "amount": traffic_amount / packs,
             })
 
         # 5. Создаём платёж в ЮKassa
@@ -702,12 +897,14 @@ class PaymentService:
             final_amount=charge_amount,
             source='auto',
             extra_devices=slots,
+            extra_traffic_gb=traffic_gb,
         )
 
         logger.info(
             f"charge_renewal: платёж создан — user={user_id}, tariff={tariff.name}, "
             f"amount={charge_amount} (тариф {tariff_amount} + устройства {slots_amount}, "
-            f"слотов {slots}), yk_id={yk_payment_id}, status={status}"
+            f"слотов {slots}, + трафик {traffic_amount}, пакетов {packs}), "
+            f"yk_id={yk_payment_id}, status={status}"
         )
 
         # 7. Обрабатываем итоговый статус

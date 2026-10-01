@@ -49,6 +49,16 @@ class SettingsRepository:
         except (TypeError, ValueError):
             return default
 
+    async def get_float(self, key: str, default: float) -> float:
+        """Значение как float (цены с копейками, коэффициенты). Мусор → дефолт."""
+        raw = await self.get(key)
+        if raw is None:
+            return default
+        try:
+            return float(str(raw).replace(",", "."))
+        except (TypeError, ValueError):
+            return default
+
     async def get_all(self) -> dict[str, str]:
         return dict(await self._load())
 

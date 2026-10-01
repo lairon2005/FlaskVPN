@@ -24,6 +24,8 @@ from unittest.mock import AsyncMock, Mock
 
 from fastapi import HTTPException
 
+from real_traffic_pricing import real_traffic_pricing
+
 
 def _load_module(module_name: str, relative_path: str, stubs: dict):
     module_path = Path(__file__).resolve().parents[1] / relative_path
@@ -64,6 +66,7 @@ def load_payment_router():
 
     tariff = SimpleNamespace(
         id=5, name="Месяц", price=100, duration_days=30, is_active=True, is_intro=False,
+        data_limit_gb=None,
     )
     database_module = types.ModuleType("database")
     database_module.tariff_repo = AsyncMock()
@@ -83,6 +86,9 @@ def load_payment_router():
     services.subscription_service = AsyncMock()
     services.device_slot_service = AsyncMock()
     services.device_slot_service.settings.return_value = device_pricing.DeviceSettings()
+    traffic_pricing = real_traffic_pricing()
+    services.traffic_service = AsyncMock()
+    services.traffic_service.settings.return_value = traffic_pricing.TrafficSettings()
 
     payment_module = types.ModuleType("tgbot.services.payment")
     payment_module.create_payment = Mock(return_value=("https://pay.example/1", "yk-1"))
@@ -113,6 +119,7 @@ def load_payment_router():
             "tgbot.services.payment": payment_module,
             "tgbot.services.pricing": pricing_module,
             "tgbot.services.device_pricing": device_pricing,
+            "tgbot.services.traffic_pricing": traffic_pricing,
             "tgbot.services.promo_code_service": promo_code_service_module,
             "config": config_module,
         },
@@ -122,6 +129,7 @@ def load_payment_router():
         payment_service=services.payment_service,
         promo_service=services.promo_service,
         create_payment=payment_module.create_payment,
+        traffic_service=services.traffic_service,
     )
     return module, stubs
 
@@ -252,6 +260,119 @@ class WebPaymentPromoTests(unittest.TestCase):
         self.assertEqual(self.stubs.create_payment.call_args.kwargs["amount"], 100)
         self.assertEqual(self._record_kwargs()["discount_percent"], 0)
         self.assertIsNone(self._record_kwargs()["promo_code"])
+
+
+class WebPaymentTrafficTests(unittest.TestCase):
+    """Пакеты трафика на чекауте и докупка в середине срока."""
+
+    def setUp(self):
+        self.module, self.stubs = load_payment_router()
+
+    def _create(self, **fields):
+        fields.setdefault("tariff_id", 5)
+        payload = self.module.PaymentRequest(**fields)
+        return asyncio.run(self.module.create_payment_route(payload, user=_user()))
+
+    def _record_kwargs(self):
+        return self.stubs.payment_service.create_payment_record.await_args.kwargs
+
+    def test_packs_are_added_to_amount_and_recorded(self):
+        # 100 ₽ тариф на 30 дней + 2 пакета × 49 ₽ × 1 мес
+        self._create(extra_traffic_packs=2)
+
+        self.assertEqual(self.stubs.create_payment.call_args.kwargs["amount"], 100 + 98)
+        self.assertEqual(self._record_kwargs()["extra_traffic_gb"], 200)
+
+    def test_traffic_is_a_separate_receipt_line(self):
+        self._create(extra_traffic_packs=2)
+
+        items = self.stubs.create_payment.call_args.kwargs["items"]
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[1]["quantity"], 2)
+        self.assertAlmostEqual(sum(i["quantity"] * i["amount"] for i in items), 198)
+
+    def test_packs_are_not_discounted_by_promo(self):
+        self.stubs.promo_service.validate.return_value = _valid(_promo(discount_percent=50))
+        self._create(extra_traffic_packs=1, promo_code="SALE10")
+
+        self.assertEqual(self.stubs.create_payment.call_args.kwargs["amount"], 50 + 49)
+
+    def test_client_cannot_exceed_server_cap(self):
+        self._create(extra_traffic_packs=999)
+
+        self.assertEqual(self._record_kwargs()["extra_traffic_gb"], 1000)
+
+    def test_negative_packs_are_ignored(self):
+        self._create(extra_traffic_packs=-5)
+
+        self.assertEqual(self.stubs.create_payment.call_args.kwargs["amount"], 100)
+        self.assertEqual(self._record_kwargs()["extra_traffic_gb"], 0)
+
+    def test_unlimited_tariff_does_not_sell_packs(self):
+        self.stubs.tariff.data_limit_gb = 0
+        self._create(extra_traffic_packs=3)
+
+        self.assertEqual(self.stubs.create_payment.call_args.kwargs["amount"], 100)
+        self.assertEqual(self._record_kwargs()["extra_traffic_gb"], 0)
+
+    def test_intro_tariff_does_not_sell_packs(self):
+        self.stubs.tariff.is_intro = True
+        self.stubs.tariff.renew_tariff_id = 1
+        self._create(extra_traffic_packs=3)
+
+        self.assertEqual(self.stubs.create_payment.call_args.kwargs["amount"], 100)
+        self.assertEqual(self._record_kwargs()["extra_traffic_gb"], 0)
+
+
+class WebTrafficTopUpTests(unittest.TestCase):
+    def setUp(self):
+        self.module, self.stubs = load_payment_router()
+
+    def _topup(self, quote, packs=1):
+        self.stubs.traffic_service.quote.return_value = quote
+        payload = self.module.TrafficRequest(packs=packs)
+        return asyncio.run(self.module.create_traffic_payment(payload, user=_user()))
+
+    def test_creates_traffic_invoice_without_tariff(self):
+        quote = SimpleNamespace(ok=True, error=None, price=147.0, packs=3, added_gb=300, remaining_days=40)
+
+        result = self._topup(quote, packs=3)
+
+        self.assertEqual(result, {"payment_url": "https://pay.example/1"})
+        self.assertEqual(self.stubs.create_payment.call_args.kwargs["amount"], 147.0)
+        kwargs = self.stubs.payment_service.create_payment_record.await_args.kwargs
+        self.assertEqual(kwargs["kind"], "traffic")
+        self.assertIsNone(kwargs["tariff_id"])
+        self.assertEqual(kwargs["extra_traffic_gb"], 300)
+        self.assertEqual(kwargs["final_amount"], 147.0)
+
+    def test_unavailable_quote_is_rejected_before_invoice(self):
+        quote = SimpleNamespace(ok=False, error="Докупить трафик можно только при активной подписке.")
+
+        with self.assertRaises(HTTPException) as ctx:
+            self._topup(quote)
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.stubs.create_payment.assert_not_called()
+
+    def test_pending_invoice_blocks_new_one(self):
+        self.stubs.payment_service.has_pending_payment.return_value = True
+
+        with self.assertRaises(HTTPException) as ctx:
+            self._topup(SimpleNamespace(ok=True))
+
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.stubs.create_payment.assert_not_called()
+
+    def test_gateway_failure_is_a_500(self):
+        quote = SimpleNamespace(ok=True, error=None, price=49.0, packs=1, added_gb=100, remaining_days=30)
+        self.stubs.create_payment.side_effect = RuntimeError("YooKassa down")
+
+        with self.assertRaises(HTTPException) as ctx:
+            self._topup(quote)
+
+        self.assertEqual(ctx.exception.status_code, 500)
+        self.stubs.payment_service.create_payment_record.assert_not_awaited()
 
 
 if __name__ == "__main__":

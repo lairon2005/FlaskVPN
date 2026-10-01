@@ -65,6 +65,14 @@ class PaymentMethodService:
         await self._repo.set_auto_renew(user_id, new_state)
         return new_state
 
+    async def disable_auto_renew(self, user_id: int) -> bool:
+        """Выключает автопродление явно (не переключателем). False — карты нет или уже выключено."""
+        pm = await self._repo.get_by_user(user_id)
+        if not pm or not pm.auto_renew_enabled:
+            return False
+        await self._repo.set_auto_renew(user_id, False)
+        return True
+
     async def set_renew_tariff(self, user_id: int, tariff_id: int) -> bool:
         """Меняет тариф, на который будет автоматически продлеваться подписка.
         Возвращает True, если запись существовала и была обновлена."""

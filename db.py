@@ -3,8 +3,9 @@
 import datetime
 from sqlalchemy import (
     create_engine, BigInteger, String, DateTime, Boolean, ForeignKey,
-    Integer, Float, select, func, UniqueConstraint
+    Integer, Float, select, func, UniqueConstraint, Index
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -74,6 +75,27 @@ class User(Base):
     # цены при переходе на тариф продления (см. tgbot/services/intro_offer.py).
     intro_used: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false', nullable=False)
 
+    # Квота трафика текущей подписки, ГБ/мес (0 = безлимит, NULL = ещё не
+    # записана — тогда берём из панели). И докупленные сверху ГБ: они живут
+    # до subscription_end_date, как слоты устройств, и сгорают джобом
+    # sync_traffic_limits. В панель пишется сумма: квота + extra_traffic_gb.
+    traffic_quota_gb: Mapped[int] = mapped_column(Integer, nullable=True)
+    extra_traffic_gb: Mapped[int] = mapped_column(Integer, default=0, server_default='0', nullable=False)
+
+    # Откуда клиент: 'bot' — Telegram, 'web' — кабинет с email, 'offline' — создан
+    # менеджером при офлайн-продаже (без Telegram и email, user_id отрицательный).
+    origin: Mapped[str] = mapped_column(String(8), default='bot', server_default='bot', nullable=False)
+    # Короткий код клиента (6 символов base32 без 0/O/1/I): менеджеру вместо
+    # Telegram ID, клиенту — чтобы назвать его при обращении. Только у офлайн-клиентов
+    # и у тех, кто сам запросил «код для менеджера».
+    client_code: Mapped[str] = mapped_column(String(8), unique=True, nullable=True)
+    # Хэш токена личного кабинета офлайн-клиента (ссылка из чека /c/<token>).
+    # Сам токен нигде не хранится — только sha256.
+    cabinet_token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=True)
+    acquired_by_manager_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey('managers.id', ondelete='SET NULL'), nullable=True
+    )
+
 class Tariff(Base):
     __tablename__ = 'tariffs'
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -136,18 +158,29 @@ class Payment(Base):
     promo_code: Mapped[str] = mapped_column(String, nullable=True)
     discount_percent: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String, default='pending')  # pending / succeeded / failed / refunded / cancelled
-    source: Mapped[str] = mapped_column(String, default='bot')  # bot / web / tma / auto / stars
+    source: Mapped[str] = mapped_column(String, default='bot')  # bot / web / tma / auto / stars / manager (QR) / cash
 
-    # 'subscription' — покупка/продление тарифа (в т.ч. вместе со слотами устройств),
-    # 'devices' — докупка слотов в середине оплаченного периода (tariff_id = NULL,
-    # подписка не продлевается). Вебхуку нужно различать: во втором случае
-    # трогать expireAt и квоту трафика нельзя.
+    # 'subscription' — покупка/продление тарифа (в т.ч. вместе со слотами устройств
+    # и пакетами трафика), 'custom' — «свои дни» офлайн-продажи (tariff_id = NULL,
+    # срок в days), 'devices' / 'traffic' — докупка слотов или ГБ в середине
+    # оплаченного периода (tariff_id = NULL, подписка не продлевается).
+    # Вебхуку нужно различать: в этих случаях трогать expireAt нельзя.
     kind: Mapped[str] = mapped_column(String(16), default='subscription', server_default='subscription', nullable=False)
 
     # Сколько слотов устройств оплачено этим платежом. Для kind='subscription'
     # это подтверждение уже имеющихся слотов на новый срок, для kind='devices' —
     # сколько слотов добавить к User.extra_devices.
     extra_devices: Mapped[int] = mapped_column(Integer, default=0, server_default='0', nullable=False)
+
+    # Сколько ГБ/мес докупленного трафика оплачено этим платежом. Для
+    # kind='subscription' — абсолютное значение на новый срок (как extra_devices),
+    # для kind='traffic' — сколько ГБ добавить к User.extra_traffic_gb.
+    extra_traffic_gb: Mapped[int] = mapped_column(Integer, default=0, server_default='0', nullable=False)
+
+    # Офлайн-продажа: кто из менеджеров провёл платёж (NULL — обычная оплата) и,
+    # для kind='custom' («свои дни»), на сколько дней — у такого платежа нет тарифа.
+    manager_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('managers.id', ondelete='SET NULL'), nullable=True)
+    days: Mapped[int] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
     completed_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
 
@@ -224,6 +257,152 @@ class AppSetting(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, default=datetime.datetime.now, onupdate=datetime.datetime.now
     )
+
+
+# =============================================================================
+# --- Менеджеры (офлайн-продажи) ---
+# =============================================================================
+
+class Manager(Base):
+    """
+    Менеджер — человек, который офлайн продаёт и устанавливает VPN.
+
+    Роль живёт отдельно от User: менеджер входит в бота и на сайт под своим
+    Telegram ID, но видит только свою панель. Удаление мягкое (status='deleted'):
+    журнал и чеки не должны пропадать вместе с человеком.
+    """
+    __tablename__ = 'managers'
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    # NULL, пока приглашение не принято
+    telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=True)
+    display_name: Mapped[str] = mapped_column(String(64))
+    # invited | active | blocked | deleted
+    status: Mapped[str] = mapped_column(String(16), default='invited', server_default='invited', nullable=False)
+
+    can_issue_tariff: Mapped[bool] = mapped_column(Boolean, default=True, server_default='true', nullable=False)
+    can_issue_custom: Mapped[bool] = mapped_column(Boolean, default=True, server_default='true', nullable=False)
+    can_issue_temp: Mapped[bool] = mapped_column(Boolean, default=True, server_default='true', nullable=False)
+    can_accept_cash: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false', nullable=False)
+    can_view_global_stats: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false', nullable=False)
+    temp_keys_per_day: Mapped[int] = mapped_column(Integer, default=5, server_default='5', nullable=False)
+    # Потолок «к сдаче» по наличным, ₽. NULL — без ограничения.
+    cash_limit: Mapped[int] = mapped_column(Integer, default=5000, server_default='5000', nullable=True)
+
+    # Растёт при блокировке/смене прав — веб-сессии с прежним значением становятся недействительными.
+    session_version: Mapped[int] = mapped_column(Integer, default=1, server_default='1', nullable=False)
+    # В БД только sha256 токенов — сами токены существуют лишь в ссылке.
+    invite_token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=True)
+    invite_expires_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+    login_token_hash: Mapped[str] = mapped_column(String(64), nullable=True)
+    login_token_expires_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=True)
+
+
+class ManagerClient(Base):
+    """
+    Рабочий доступ менеджера к клиенту: без записи здесь менеджер клиента не видит.
+
+    Доступ выдаётся при создании клиента, конвертации временного ключа или по
+    одноразовому коду клиента, и ограничен по сроку (access_until).
+    """
+    __tablename__ = 'manager_clients'
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    manager_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('managers.id', ondelete='CASCADE'))
+    client_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('users.user_id', ondelete='CASCADE'))
+    # Заметка менеджера о клиенте — видна ему и админу.
+    label: Mapped[str] = mapped_column(String(64), nullable=True)
+    granted_via: Mapped[str] = mapped_column(String(16))  # created | code | temp_convert
+    granted_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+    access_until: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint('manager_id', 'client_user_id', name='uq_manager_client'),
+    )
+
+
+class ManagerOperation(Base):
+    """
+    Журнал действий менеджера. Только INSERT и смена статуса — записи не удаляются.
+    Номер чека — id (формат M-000123).
+    """
+    __tablename__ = 'manager_operations'
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    manager_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('managers.id'), index=True)
+    # issue_tariff | issue_custom | issue_temp | convert_temp | access_grant | key_view
+    # | autorenew_off | cabinet_link_reset
+    op_type: Mapped[str] = mapped_column(String(24))
+    # processing | pending_payment | completed | failed | cancelled
+    status: Mapped[str] = mapped_column(String(16), default='processing', server_default='processing')
+    client_user_id: Mapped[int] = mapped_column(BigInteger, nullable=True, index=True)
+    client_code: Mapped[str] = mapped_column(String(8), nullable=True)   # снимок на момент операции
+    tariff_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    tariff_name: Mapped[str] = mapped_column(String(128), nullable=True)  # снимок
+    days: Mapped[int] = mapped_column(Integer, nullable=True)
+    traffic_gb: Mapped[int] = mapped_column(Integer, nullable=True)       # лимит трафика на момент выдачи
+    extra_devices: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
+    price: Mapped[float] = mapped_column(Float, default=0, server_default='0')
+    price_details: Mapped[dict] = mapped_column(JSONB, nullable=True)     # из чего сложилась цена
+    payment_method: Mapped[str] = mapped_column(String(8), nullable=True)  # cash | online | free
+    payment_id: Mapped[str] = mapped_column(String, nullable=True)        # yookassa_payment_id
+    key_username: Mapped[str] = mapped_column(String(64), nullable=True)
+    key_fingerprint: Mapped[str] = mapped_column(String(16), nullable=True)
+    key_expires_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+    settled_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+    settlement_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=True)
+    error_code: Mapped[str] = mapped_column(String(32), nullable=True)
+    receipt_chat_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    receipt_message_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now, index=True)
+    completed_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+
+
+class TempKey(Base):
+    """Временный ключ менеджера: живёт ограниченное время, затем удаляется из панели."""
+    __tablename__ = 'temp_keys'
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    manager_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('managers.id'), index=True)
+    operation_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('manager_operations.id'))
+    client_user_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    rw_username: Mapped[str] = mapped_column(String(64), unique=True)
+    rw_uuid: Mapped[str] = mapped_column(String(36), nullable=True)
+    expires_at: Mapped[datetime.datetime] = mapped_column(DateTime, index=True)
+    # active | converting | converted | deleted
+    status: Mapped[str] = mapped_column(String(12), default='active', server_default='active')
+    deleted_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+    delete_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+
+
+class ManagerSettlement(Base):
+    """Инкассация: админ принял у менеджера выручку наличными."""
+    __tablename__ = 'manager_settlements'
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    manager_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('managers.id'), index=True)
+    amount: Mapped[float] = mapped_column(Float)
+    operations_count: Mapped[int] = mapped_column(Integer)
+    admin_id: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+
+
+class ClientAccessCode(Base):
+    """
+    Одноразовый код, которым клиент даёт менеджеру доступ к своей подписке.
+
+    Хранится только sha256 кода; неверные вводы менеджера считаются отдельно
+    (строки с code_hash = NULL и used_by_manager_id — журнал попыток) для лимита перебора.
+    """
+    __tablename__ = 'client_access_codes'
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('users.user_id', ondelete='CASCADE'), nullable=True)
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=True)
+    expires_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+    used_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+    used_by_manager_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 
 
 # --- 4. Функция для создания таблиц ---

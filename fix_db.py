@@ -1,7 +1,7 @@
 # fix_db.py — миграция: приводит БД к текущей версии db.py
 import asyncio
 from sqlalchemy import text
-from db import async_engine
+from db import async_engine, Base
 
 
 async def fix_database():
@@ -337,6 +337,72 @@ async def fix_database():
             "ALTER TABLE user_payment_methods ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMP WITHOUT TIME ZONE;"
         ))
         print("  ✅ user_payment_methods.last_attempt_at")
+
+        # ── 17. Докупка трафика ──────────────────────────────────────────────
+        # users.traffic_quota_gb — квота подписки (0 = безлимит, NULL = неизвестна,
+        # тогда берётся из панели); users.extra_traffic_gb — докупленные ГБ/мес;
+        # payments.extra_traffic_gb — сколько ГБ оплачено платежом.
+        print("\n📋 Докупка трафика...")
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS traffic_quota_gb INTEGER;"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS extra_traffic_gb INTEGER NOT NULL DEFAULT 0;"
+        ))
+        print("  ✅ users.traffic_quota_gb / users.extra_traffic_gb")
+        await conn.execute(text(
+            "ALTER TABLE payments ADD COLUMN IF NOT EXISTS extra_traffic_gb INTEGER NOT NULL DEFAULT 0;"
+        ))
+        print("  ✅ payments.extra_traffic_gb")
+
+        # ── 18. Менеджеры (офлайн-продажи) ───────────────────────────────────
+        # Новые таблицы (managers, manager_clients, manager_operations, temp_keys,
+        # manager_settlements, client_access_codes) создаёт create_all — идемпотентно.
+        # Сначала они, потому что users/payments получают на них внешние ключи.
+        print("\n📋 Менеджеры: новые таблицы...")
+        await conn.run_sync(Base.metadata.create_all)
+        print("  ✅ managers / manager_clients / manager_operations / temp_keys / "
+              "manager_settlements / client_access_codes")
+
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS origin VARCHAR(8) NOT NULL DEFAULT 'bot';"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS client_code VARCHAR(8);"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS cabinet_token_hash VARCHAR(64);"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS acquired_by_manager_id BIGINT "
+            "REFERENCES managers(id) ON DELETE SET NULL;"
+        ))
+        await conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_users_client_code ON users(client_code) "
+            "WHERE client_code IS NOT NULL;"
+        ))
+        await conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_users_cabinet_token_hash ON users(cabinet_token_hash) "
+            "WHERE cabinet_token_hash IS NOT NULL;"
+        ))
+        # Веб-пользователи (отрицательный id) заведены до появления origin.
+        await conn.execute(text(
+            "UPDATE users SET origin = 'web' WHERE user_id < 0 AND origin = 'bot';"
+        ))
+        print("  ✅ users.origin / client_code / cabinet_token_hash / acquired_by_manager_id")
+
+        await conn.execute(text(
+            "ALTER TABLE payments ADD COLUMN IF NOT EXISTS manager_id BIGINT "
+            "REFERENCES managers(id) ON DELETE SET NULL;"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE payments ADD COLUMN IF NOT EXISTS days INTEGER;"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_payments_manager_id ON payments(manager_id) "
+            "WHERE manager_id IS NOT NULL;"
+        ))
+        print("  ✅ payments.manager_id / payments.days")
 
     print("\n🎉 Миграция завершена успешно!")
 

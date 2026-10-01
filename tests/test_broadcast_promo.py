@@ -12,6 +12,7 @@ from aiogram.methods import DeleteMessage
 
 from tgbot.promo import get_promo_reward
 from real_intro_offer import real_intro_offer
+from real_traffic_pricing import real_traffic_pricing
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -163,13 +164,19 @@ def load_payment_handlers_module():
     device_pricing_module = _real_device_pricing()
     device_slot_service.settings.return_value = device_pricing_module.DeviceSettings()
     tgbot_services_module.device_slot_service = device_slot_service
+    # Квоту и пакеты трафика спрашивает тот же чекаут и список тарифов.
+    traffic_pricing_module = real_traffic_pricing()
+    traffic_service = AsyncMock()
+    traffic_service.settings.return_value = traffic_pricing_module.TrafficSettings()
+    traffic_service.base_gb.return_value = 500
+    tgbot_services_module.traffic_service = traffic_service
 
     promo_code_service_module = types.ModuleType("tgbot.services.promo_code_service")
     promo_code_service_module.PromoClaimError = type("PromoClaimError", (Exception,), {})
 
     tgbot_services_pricing_module = types.ModuleType("tgbot.services.pricing")
     tgbot_services_pricing_module.effective_price = lambda tariff, user_has_active_sub=False: 100.0
-    tgbot_services_pricing_module.format_quota = lambda gb: "Безлимит"
+    tgbot_services_pricing_module.format_quota = lambda *a, **kw: "Безлимит"
 
     tgbot_services_payment_module = types.ModuleType("tgbot.services.payment")
     tgbot_services_payment_module.create_payment = Mock()
@@ -191,7 +198,7 @@ def load_payment_handlers_module():
     tgbot_keyboards_inline_module.tariffs_keyboard = Mock(return_value="kb")
     tgbot_keyboards_inline_module.back_to_main_menu_keyboard = Mock(return_value="kb")
     tgbot_keyboards_inline_module.payment_method_choice_keyboard = Mock(return_value="kb")
-    tgbot_keyboards_inline_module.tariff_slots_keyboard = Mock(return_value="kb")
+    tgbot_keyboards_inline_module.tariff_traffic_keyboard = Mock(return_value="kb")
 
     tgbot_states_module = types.ModuleType("tgbot.states")
     tgbot_states_module.__path__ = []
@@ -219,6 +226,7 @@ def load_payment_handlers_module():
         "tgbot.services.promo_code_service": promo_code_service_module,
         "tgbot.services.pricing": tgbot_services_pricing_module,
         "tgbot.services.device_pricing": device_pricing_module,
+        "tgbot.services.traffic_pricing": traffic_pricing_module,
         "tgbot.services.payment": tgbot_services_payment_module,
         "tgbot.handlers": tgbot_handlers_module,
         "tgbot.handlers.user": tgbot_handlers_user_module,

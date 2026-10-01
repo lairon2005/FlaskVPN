@@ -10,6 +10,9 @@ from .user import user_router
 # --- 3. Импортируем роутер поддержки ---
 from .support import support_router
 
+# --- 3b. Панель менеджера офлайн-продаж ---
+from .manager import manager_router, manager_invite_router, manager_denied_router
+
 # --- 4. Собираем список в правильном порядке ---
 routers_list = [
     # Самые специфичные
@@ -17,6 +20,12 @@ routers_list = [
 
     # Админские FSM и команды
     admin_router,
+
+    # Менеджер: приглашение — до всего, панель — раньше общего пользовательского
+    # роутера (фильтр IsManager отсекает остальных, их апдейты идут дальше)
+    manager_invite_router,
+    manager_router,
+    manager_denied_router,
     
     # Общий пользовательский роутер (в котором уже есть свой порядок)
     user_router

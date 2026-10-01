@@ -10,7 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---|---|
 | `tgbot/CLAUDE.md` | Хендлеры, сервисы, клавиатуры, FSM-состояния бота |
 | `webapp/CLAUDE.md` | Web-dashboard: все маршруты, JWT, шаблоны, CSS/JS-паттерны, деплой |
-| `docs/*.md` | Эксплуатация нод Remnawave (setup, cover-сайт, XHTTP/Hysteria2, анти-флуд, proxy-failover), `panel-server.md` — панель + нода fl-1, `node-pl-1.md` — нода pl-1 рядом с чужим marzban-node, `tma-roadmap.md` — план Mini App, `brand.md` — бренд-бук FLASK (палитра, шрифты, где что лежит) |
+| `docs/managers.md` | **Менеджеры офлайн-продаж**: роли и права, приватность клиента, журнал и чеки, наличные/QR, офлайн-клиенты (кабинет `/c/<токен>`), формула «своих дней», временные ключи, докупка трафика, джобы, деплой |
+| `docs/*.md` | Эксплуатация нод Remnawave (setup, cover-сайт, XHTTP/Hysteria2, анти-флуд, proxy-failover), `panel-server.md` — панель + нода fl-1, `node-pl-1.md` — нода pl-1 рядом с чужим marzban-node, `node-de-1.md` — нода de-1 (Германия), `node-nl-1.md` — нода nl-1 (Нидерланды, `shop.flaskvpn.ru`, **self-steal**: REALITY → свой Caddy с сертификатом LE), `anti-vpn-detection.md` — защита от детекта VPN российскими приложениями (правила в шаблоне подписки, `scripts/remnawave_anti_detect.py`), `subscription-hosts.md` — порядок хостов в подписке (три «✴️ Авто» сверху, затем Основные → Запасные → Турбо; авто выбирает по пингу внутри группы) (`scripts/remnawave_host_order.py`; новая нода — хосты с «Основной/Запасной/Турбо» в названии и повторный запуск), `tma-roadmap.md` — план Mini App, `brand.md` — бренд-бук FLASK (палитра, шрифты, где что лежит) |
 
 ## Project Overview
 
@@ -18,6 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Telegram Bot** (aiogram 3.x) — регистрация, подписки, оплата, поддержка
 - **Telegram Mini App** — те же экраны внутри Telegram (`UI_MODE=tma`, роутер `webapp/routers/tma.py`)
 - **Web Dashboard** (FastAPI + Jinja2) — кабинет с email-авторизацией
+- **Менеджеры офлайн-продаж** — отдельная роль с панелью в боте (`/manager`) и на сайте (`/manager`), см. `docs/managers.md`
 - **Remnawave** — внешняя панель VPN (X-Ray), управляется через `remnawave/client.py`
 - **YooKassa** + **Telegram Stars** — приём платежей
 - **PostgreSQL 16** — пользователи, тарифы, промокоды, платежи, настройки
@@ -62,6 +64,10 @@ python3 -m pytest tests/test_device_pricing.py -k prorated -q  # по имени
 python3 -m unittest tests.test_device_pricing -v                # то же через unittest
 ```
 
+Интеграционные тесты менеджеров (`test_manager_service.py`, `test_manager_web.py`,
+`test_manager_repositories.py`) идут на **настоящей БД — SQLite** через `tests/db_harness.py`
+(PG-типы подменены, `.env` не нужен); окружение сервиса — `tests/manager_env.py`.
+
 Конвенции тестов (важно понять до написания нового):
 - Тесты написаны на **stdlib `unittest`** (`pytest` только как раннер), pytest-фикстур и `conftest.py` нет.
 - Тестируемый модуль грузится **через `importlib` по пути файла**, а зависимости подменяются
@@ -91,6 +97,7 @@ python3 -m unittest tests.test_device_pricing -v                # то же че
 | `REMNAWAVE_ACCESS_COOKIE` | опц. | Секретная часть ссылки для eGames reverse proxy (`name=value`) |
 | `REMNAWAVE_PROXY_URL` | опц. | Резервный HTTP/SOCKS5-маршрут: сначала прямой запрос, при таймауте — повтор через прокси |
 | `REMNAWAVE_SUB_HOST` | опц. | Хост страницы подписки (nginx `/sub/` → 302) |
+| `MANAGER_LOG_CHAT_ID` / `MANAGER_LOG_TOPIC_ID` | опц. | Группа (и топик) для чеков менеджеров. Не заданы — чеки идут туда же, куда лог транзакций |
 | `SECRET_KEY` | нужна webapp | Подпись JWT |
 | `TG_PROXY_URL` | опц., нет в `env.dist` | Прокси для самого Bot API |
 | `UI_MODE` | опц., `bot` \| `tma` | Глобальный режим интерфейса; на `DOMAIN=localhost` web_app-кнопки автоматически отключаются |
@@ -178,22 +185,31 @@ Alembic не используется. Таблицы создаются `Base.m
 изменения существующих таблиц — руками в `fix_db.py` (и модель в `db.py`).
 
 Модели: `User`, `Tariff`, `PromoCode`, `UsedPromoCode`, `Payment`, `UserPaymentMethod`,
-`LifecycleMessage`, `Channel`, `AppSetting`.
+`LifecycleMessage`, `Channel`, `AppSetting`, а для менеджеров — `Manager`, `ManagerClient`,
+`ManagerOperation` (журнал), `TempKey`, `ManagerSettlement`, `ClientAccessCode`.
 
 Особенности:
 - `User.user_id` — Telegram ID; пользователи веб-кабинета создаются с **отрицательными** id,
   чтобы не столкнуться с телеграмными.
 - `User.is_active=False` ставится при `TelegramForbiddenError` (человек заблокировал бота) —
   такие пропускаются в рассылках и возвращаются в строй в `get_or_create`.
-- `AppSetting` — правки из админки без релиза (цена слота, базовый лимит, потолок);
-  читается `SettingsRepository` с кэшем 60 с.
+- `AppSetting` — правки из админки без релиза (цена слота, базовый лимит, потолок, трафик,
+  формула «своих дней», временные ключи); читается `SettingsRepository` с кэшем 60 с.
+- `User.origin`: `bot` / `web` / `offline`. Офлайн-клиенты (заведены менеджером) — id в диапазоне
+  −2·10⁹…−10⁹, `is_active=False` (в Telegram писать некуда), `client_code`, кабинет по ссылке `/c/<токен>`.
+- `User.traffic_quota_gb` / `extra_traffic_gb` — квота подписки и докупленный трафик
+  (0 в квоте = безлимит, NULL = ещё не записана — берётся из панели).
 
 ### Платежи
 
-- `Payment.kind`: `subscription` (покупка/продление тарифа, возможно вместе со слотами) либо
-  `devices` (докупка слотов в середине периода — `tariff_id = NULL`, срок подписки не двигается).
-  Вебхук обязан их различать: во втором случае трогать `expireAt` и квоту трафика нельзя.
-- `Payment.source`: `bot` / `web` / `tma` / `auto` (автосписание) / `stars`.
+- `Payment.kind`: `subscription` (покупка/продление тарифа, возможно вместе со слотами и пакетами
+  трафика), `custom` («свои дни» офлайн-продажи: `tariff_id = NULL`, срок в `Payment.days`),
+  `devices` / `traffic` (докупка слотов или ГБ в середине периода — `tariff_id = NULL`, срок
+  подписки не двигается). Вебхук обязан их различать: в последних двух трогать `expireAt` и
+  счётчик трафика нельзя.
+- `Payment.source`: `bot` / `web` / `tma` / `auto` (автосписание) / `stars` / `manager` (QR-оплата
+  офлайн-продажи) / `cash` (наличные у менеджера; `yookassa_payment_id = "cash:<op_id>"`).
+  `Payment.manager_id` — менеджер, проведший платёж.
 - `Payment.status`: `pending` / `succeeded` / `failed` / `refunded` / `cancelled`.
   Пока висит `pending`, новый счёт выставить нельзя — поэтому есть кнопка отмены и джоб автоотмены.
 - Telegram Stars: `telegram_payment_charge_id` хранится verbatim — нужен для `refundStarPayment`.
@@ -211,6 +227,11 @@ Alembic не используется. Таблицы создаются `Base.m
 | `sync_device_limits` | каждый час в :20 | Сверка лимитов устройств (см. ниже) |
 | `cancel_stale_payments` | каждые 15 мин | Гасит `pending` старше 60 мин (`PENDING_PAYMENT_TTL_MINUTES`); автосписания (`source='auto'`) — только старше суток |
 | `convert_intro_subscriptions` | каждый час в :05 | Переход с пробной недели на тариф продления в день окончания (см. «Вводный тариф») |
+| `sync_traffic_limits` | каждый час в :25 | Доводит лимит трафика в панели до БД, гасит докупленное после конца подписки |
+| `traffic_usage_alerts` | 9–21 каждые 3 ч (:40) | Предупреждения на 90% и 100% месячной квоты с кнопкой докупки |
+| `expire_temp_keys` | каждую минуту | Удаляет из панели истёкшие временные ключи менеджеров |
+| `sync_manager_operations` | каждые 2 мин | Сверяет висящие онлайн-операции менеджеров с платежами |
+| `manager_renewal_digest` | 11:00 | Менеджеру — его клиенты без автопродления, подписка кончается ≤ 3 дн. |
 
 ### Режимы бота
 
@@ -266,6 +287,36 @@ subscription-settings; как только записано персональн
    записанные устройства переживают снижение лимита, поэтому без чистки схема
    «купил 5 слотов на месяц, привязал 10 устройств, перестал платить» работала бы
    вечно.
+
+## Трафик: база 500 ГБ и докупка
+
+`Tariff.data_limit_gb`: **NULL → базовая квота (`base_traffic_gb`, 500 ГБ/мес)**, 0 → безлимит, N → N.
+Пакеты докупаются как доп. устройства (`tgbot/services/traffic_pricing.py` — чистые функции,
+`traffic_service.py` — quote/add/sync/expire, джоб `sync_traffic_limits`): +100 ГБ/мес за 49 ₽/мес
+(`traffic_pack_gb`, `traffic_pack_price`, `max_traffic_packs`), `цена × месяцев × пакетов` в чекауте,
+по остатку дней (не дешевле месяца) — в середине срока. Лимит в панели — АБСОЛЮТНЫЙ
+`квота + докупленное`; докупка не сбрасывает счётчик (`reset_user_traffic` — привилегия продления).
+Безлимитным тарифам докупать нечего, Stars при докупленном трафике отклоняются (`pre_checkout`),
+автосписание включает пакеты в сумму и чек отдельной позицией.
+
+## Менеджеры офлайн-продаж
+
+Подробно — `docs/managers.md`. Коротко:
+
+- **Всё в `tgbot/services/manager_service.py`**: права, доступ к клиенту, выдача, временные ключи,
+  чеки, инкассация. Хендлеры бота (`tgbot/handlers/manager/`) и роуты сайта (`webapp/routers/manager.py`)
+  тонкие. Менеджеру отдаются только DTO с белым списком полей (`ClientCard`, `ClientRow`,
+  `OperationBrief`) — ORM `User`/`Payment` наружу не уходят; клиент адресуется кодом, не id.
+- **Деньги — тем же конвейером**: наличные = `Payment(source='cash')` → `process_successful_payment`,
+  QR = платёж ЮKassa с `manager_id`; вебхук для таких платежей зовёт `manager_service.on_payment_succeeded`
+  вместо обычного лога транзакций.
+- **Идемпотентность**: подтверждение несёт nonce → `manager_operations.idempotency_key` (UNIQUE).
+- **Права**: `IsManager` (фильтр с TTL-кэшем 30 с — только роутинг) + `ManagerService.require_active`
+  на каждое действие (БД). Админские права живут под `IsAdmin` и менеджеру недоступны.
+- **Сайт**: вход по одноразовой ссылке из бота (GET только показывает кнопку — превью ссылок не жгут
+  токен; гасит POST), cookie `mgr_session` (JWT с версией сессии, `Path=/manager`, SameSite=Strict),
+  CSRF-токен в заголовке + проверка Origin.
+- **«Свои дни»**: `tgbot/services/custom_pricing.py`, формула и параметры — в `docs/managers.md`.
 
 ## Вводный тариф (пробная неделя за 1 ₽ → автопродление)
 

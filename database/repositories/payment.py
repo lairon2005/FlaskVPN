@@ -42,7 +42,9 @@ class PaymentRepository:
                      original_amount: float, final_amount: float, source: str = 'bot',
                      promo_code: str = None, discount_percent: int = 0,
                      telegram_payment_charge_id: str | None = None,
-                     kind: str = 'subscription', extra_devices: int = 0) -> Payment:
+                     kind: str = 'subscription', extra_devices: int = 0,
+                     extra_traffic_gb: int = 0, manager_id: int | None = None,
+                     days: int | None = None) -> Payment:
         async with self._session_maker() as session:
             payment = Payment(
                 yookassa_payment_id=yookassa_payment_id,
@@ -56,6 +58,9 @@ class PaymentRepository:
                 telegram_payment_charge_id=telegram_payment_charge_id,
                 kind=kind,
                 extra_devices=extra_devices,
+                extra_traffic_gb=extra_traffic_gb,
+                manager_id=manager_id,
+                days=days,
             )
             session.add(payment)
             await session.commit()

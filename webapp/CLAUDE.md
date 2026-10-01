@@ -162,6 +162,36 @@ python3 tools/make_collage.py  # пересобрать коллажную ка�
 | POST | `/payment/validate-promo` | JSON: `{code}` → `{valid, type, discount_percent/bonus_days}` |
 | POST | `/payment/apply-bonus-promo` | JSON: `{code}` → применить бонус-дни сразу |
 
+### `manager.py` (prefix `/manager`) — панель менеджера
+Подробно — `docs/managers.md`. Вход: `GET /login?t=<токен>` показывает кнопку (токен НЕ гасится —
+превью ссылок в мессенджерах открывают GET), `POST /login` гасит одноразовый токен и ставит cookie
+`mgr_session` (JWT `{type:'manager', sub, ver, csrf}`, 12 ч, `Path=/manager`, HttpOnly, SameSite=Strict).
+Каждый запрос сверяет статус и версию сессии с БД: блокировка и смена прав разлогинивают сразу.
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/manager/`, `/issue`, `/temp`, `/clients`, `/clients/{код}`, `/history` | Страницы |
+| POST | `/manager/logout` | Выход (CSRF в форме) |
+| POST | `/manager/api/quote` · `/issue` · `/temp` | Предпросмотр цены · подтверждение выдачи (идемпотентно по nonce) · временный ключ |
+| POST | `/manager/api/client-code` · `/link` · `/noauto` · `/cabinet-reset` · `/qr` | Добавить клиента по коду · ссылка для установки (в журнал) · выкл. автопродление · новая ссылка кабинета · QR (только https) |
+| GET/POST | `/manager/api/op/{id}` · `/op/{id}/cancel` | Статус (опрос) и отмена счёта своей операции |
+
+Все `/api/*` — JSON, требуют `X-CSRF-Token` и совпадающий `Origin`. Шаблоны — `templates/manager/*`
+(своя база `manager/base.html`, без шапки сайта), логика страницы выдачи — `static/js/manager.js`
+(динамический текст только через `textContent`).
+
+### `client_link.py`
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/c/{токен}` | Кабинет офлайн-клиента по ссылке из чека: токен → cookie `access_token` → `/profile/`. В БД только sha256; `Referrer-Policy: no-referrer` |
+
+В `dashboard.py` добавлены `POST /profile/manager-code` (одноразовый код для менеджера, JSON) и
+`POST /profile/manager-access/revoke`. В `payment.py` — `POST /payment/traffic` (докупка трафика) и
+поле `extra_traffic_packs` в `/payment/create`.
+
+> Для новых роутов используйте `webapp.templating.render(request, name, ctx, status_code)` — он работает
+> на любой версии Starlette (старая форма `TemplateResponse(name, ctx)` в новых версиях удалена).
+
 ### `legal.py`
 | Метод | Путь | Описание |
 |-------|------|----------|

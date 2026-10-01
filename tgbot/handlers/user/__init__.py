@@ -7,6 +7,8 @@ from .start import start_router
 from .profile import profile_router
 from .devices import devices_router
 from .device_slots import device_slots_router
+from .traffic import traffic_router
+from .manager_code import manager_code_router
 from .revoke_key import revoke_key_router
 from .payment import payment_router
 from .payment_methods import payment_methods_router
@@ -30,6 +32,8 @@ user_router.include_routers(
     profile_router,
     devices_router,
     device_slots_router,
+    traffic_router,
+    manager_code_router,
     revoke_key_router,
     payment_methods_router,
     payment_router,

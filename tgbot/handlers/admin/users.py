@@ -36,6 +36,16 @@ async def show_user_card(message_or_call, user_id: int):
         reply_markup = back_to_main_menu_keyboard()
     else:
         sub_end_str = user.subscription_end_date.strftime('%d.%m.%Y %H:%M') if user.subscription_end_date else "Отсутствует"
+        origin_line = ""
+        if getattr(user, "origin", "bot") == "offline" or user.acquired_by_manager_id:
+            from tgbot.services import manager_service
+            managers = {m.id: m for m in await manager_service.list_managers()}
+            who = managers.get(user.acquired_by_manager_id)
+            origin_line = (
+                "\n<b>Офлайн-клиент:</b> "
+                + (f"код <code>{user.client_code}</code>, " if user.client_code else "")
+                + (f"привёл менеджер {who.display_name} (#{who.id})" if who else "менеджер не указан")
+            )
         text = (
             f"<b>Пользователь найден:</b>\n\n"
             f"<b>ID:</b> <code>{user.user_id}</code>\n"
@@ -43,6 +53,7 @@ async def show_user_card(message_or_call, user_id: int):
             f"<b>Имя:</b> {user.full_name}\n\n"
             f"<b>Подписка до:</b> {sub_end_str}\n"
             f"<b>VPN аккаунт:</b> <code>{user.vpn_username or 'Не создан'}</code>"
+            f"{origin_line}"
         )
         reply_markup = user_manage_keyboard(user.user_id)
 

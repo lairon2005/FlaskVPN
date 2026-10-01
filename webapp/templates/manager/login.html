@@ -1,0 +1,23 @@
+{% extends "auth_base.html" %}
+{% import "_icons.html" as ic %}
+
+{% block meta_title %}Вход для менеджера | FlaskVPN{% endblock %}
+{% block head %}<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">{% endblock %}
+{% block auth_title %}Вход для менеджера{% endblock %}
+{% block auth_subtitle %}Одноразовая ссылка из бота{% endblock %}
+
+{% block auth_body %}
+{% if token %}
+<form action="/manager/login" method="post" class="space-y-4">
+    <input type="hidden" name="token" value="{{ token }}">
+    <p class="text-sm text-subtle">Подтвердите вход. Ссылка сработает один раз, дальше сессия живёт 12 часов.</p>
+    <button type="submit" class="btn-pop w-full"><span class="btn-text">Войти в панель</span></button>
+</form>
+{% else %}
+<p class="text-sm text-subtle">
+    В боте откройте «Панель менеджера» → «Панель на сайте» — бот пришлёт свежую ссылку для входа.
+</p>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}{% endblock %}

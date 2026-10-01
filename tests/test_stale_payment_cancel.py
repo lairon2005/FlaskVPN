@@ -44,6 +44,7 @@ def _payment(**overrides):
         "status": "pending",
         "kind": "subscription",
         "extra_devices": 0,
+        "extra_traffic_gb": 0,
         "source": "bot",
         "discount_percent": 0,
         "promo_code": None,

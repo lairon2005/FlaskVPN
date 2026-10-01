@@ -21,6 +21,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 from real_intro_offer import real_intro_offer
+from real_traffic_pricing import real_custom_pricing, real_traffic_pricing
 
 
 def _load_module(module_name: str, relative_path: str, stubs: dict):
@@ -82,6 +83,8 @@ def load_stars_payment_module():
             "tgbot": tgbot_module,
             "tgbot.services": tgbot_services_module,
             "tgbot.services.intro_offer": real_intro_offer(),
+            "tgbot.services.traffic_pricing": real_traffic_pricing(),
+            "tgbot.services.custom_pricing": real_custom_pricing(),
         },
     )
     return (module, database_module.tariff_repo, tgbot_services_module.payment_service,
@@ -140,6 +143,8 @@ def load_payment_service_module():
             "tgbot": tgbot_module,
             "tgbot.services": tgbot_services_module,
             "tgbot.services.intro_offer": real_intro_offer(),
+            "tgbot.services.traffic_pricing": real_traffic_pricing(),
+            "tgbot.services.custom_pricing": real_custom_pricing(),
             "tgbot.services.subscription_service": subscription_service_module,
             "tgbot.services.referral_service": referral_service_module,
             "tgbot.services.promo_code_service": promo_code_service_module,
@@ -168,6 +173,7 @@ def load_payment_router_module():
     tgbot_services_module.promo_service = AsyncMock()
     tgbot_services_module.subscription_service = AsyncMock()
     tgbot_services_module.device_slot_service = AsyncMock()
+    tgbot_services_module.traffic_service = AsyncMock()
     tgbot_services_payment_module = types.ModuleType("tgbot.services.payment")
     tgbot_services_payment_module.create_payment = Mock()
     tgbot_services_pricing_module = types.ModuleType("tgbot.services.pricing")
@@ -196,6 +202,8 @@ def load_payment_router_module():
             "tgbot": tgbot_module,
             "tgbot.services": tgbot_services_module,
             "tgbot.services.intro_offer": real_intro_offer(),
+            "tgbot.services.traffic_pricing": real_traffic_pricing(),
+            "tgbot.services.custom_pricing": real_custom_pricing(),
             "tgbot.services.payment": tgbot_services_payment_module,
             "tgbot.services.pricing": tgbot_services_pricing_module,
             "tgbot.services.device_pricing": _real_device_pricing(),
@@ -299,6 +307,18 @@ class PreCheckoutTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(query.answer.await_args.kwargs["ok"])
         self.assertIn("картой", query.answer.await_args.kwargs["error_message"])
+
+    async def test_user_with_extra_traffic_rejected(self):
+        """Докупленный трафик звёздами тоже не оплачивается — иначе продлим его даром."""
+        module, tariff_repo, _, user_repo = load_stars_payment_module()
+        tariff_repo.get_by_id.return_value = SimpleNamespace(price_stars=150, is_active=True, is_intro=False)
+        user_repo.get.return_value = SimpleNamespace(extra_devices=0, extra_traffic_gb=200)
+        query = self._query("stars:5:123", 123, 150)
+
+        await module.stars_pre_checkout(query)
+
+        self.assertFalse(query.answer.await_args.kwargs["ok"])
+        self.assertIn("трафик", query.answer.await_args.kwargs["error_message"])
 
 
 # =============================================================================

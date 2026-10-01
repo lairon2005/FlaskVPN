@@ -31,6 +31,7 @@ def _payment(**overrides):
         "status": "pending",
         "kind": "subscription",
         "extra_devices": 0,
+        "extra_traffic_gb": 0,
         "source": "bot",
         "discount_percent": 0,
         "promo_code": None,
@@ -41,7 +42,7 @@ def _payment(**overrides):
 
 def _user(**overrides):
     defaults = {"user_id": 42, "email": "a@b.c", "is_first_payment_made": True,
-                "extra_devices": 0, "remnawave_uuid": "uuid-1",
+                "extra_devices": 0, "extra_traffic_gb": 0, "remnawave_uuid": "uuid-1",
                 "subscription_end_date": None}
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

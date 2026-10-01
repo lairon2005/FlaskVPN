@@ -333,10 +333,10 @@
                         <ul class="mt-6 space-y-2.5 text-sm">
                             <li class="flex gap-2.5">
                                 <span class="text-success shrink-0 mt-0.5">{{ ic.icon('check', 'w-4 h-4') }}</span>
-                                {% if tariff.data_limit_gb %}
-                                    {{ tariff.data_limit_gb }} ГБ трафика в месяц
-                                {% else %}
+                                {% if tariff.data_limit_gb == 0 %}
                                     Безлимитный трафик
+                                {% else %}
+                                    {{ traffic_settings.base_gb if tariff.data_limit_gb is none else tariff.data_limit_gb }} ГБ трафика в месяц
                                 {% endif %}
                             </li>
                             <li class="flex gap-2.5">

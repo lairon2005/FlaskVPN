@@ -9,10 +9,12 @@ from pydantic import BaseModel
 from tgbot.services.payment import create_payment
 from tgbot.services import (
     payment_service, promo_service, subscription_service, device_slot_service,
+    traffic_service,
 )
 from tgbot.services.pricing import effective_price
 from tgbot.services.device_pricing import build_checkout, receipt_items
 from tgbot.services.intro_offer import intro_block_reason
+from tgbot.services.traffic_pricing import packs_cost_for_tariff, packs_to_gb, tariff_quota_gb
 from tgbot.services.promo_code_service import PromoClaimError
 from db import User, Tariff
 from database import tariff_repo
@@ -41,6 +43,9 @@ class PaymentRequest(BaseModel):
     # Сколько доп. устройств оплачивается вместе с тарифом. Скидка на них не
     # распространяется — см. build_checkout.
     extra_devices: int = 0
+    # Сколько пакетов доп. трафика (+N ГБ/мес каждый) оплачивается вместе с
+    # тарифом. Размер пакета и потолок — из настроек на сервере.
+    extra_traffic_packs: int = 0
 
 
 @router.post("/create")
@@ -86,9 +91,11 @@ async def create_payment_route(
     # payload.discount_percent клиента игнорируется: процент берём только из
     # промокода в БД, иначе подобранный запрос с discount_percent=99 давал 99% скидки.
     discount_percent, promo_code, promo = 0, None, None
+    traffic_settings = await traffic_service.settings()
+    packs = max(0, min(traffic_settings.max_packs, payload.extra_traffic_packs))
     if tariff.is_intro:
-        # Вводный: фиксированная цена, без промокода и доп. устройств.
-        original_price, slots = tariff.price, 0
+        # Вводный: фиксированная цена, без промокода, доп. устройств и трафика.
+        original_price, slots, packs = tariff.price, 0, 0
     elif payload.promo_code:
         promo_code = payload.promo_code.strip().upper()
         result = await promo_service.validate(promo_code, user.user_id, require_discount=True)
@@ -101,6 +108,13 @@ async def create_payment_route(
     checkout = build_checkout(
         device_settings, original_price, tariff.duration_days, slots, discount_percent
     )
+    # Безлимитному тарифу пакеты не нужны — не продаём то, что ничего не даст.
+    if packs and tariff_quota_gb(traffic_settings, tariff.data_limit_gb) > 0:
+        checkout = checkout.with_traffic(
+            packs,
+            packs_cost_for_tariff(traffic_settings, tariff.duration_days, packs),
+            packs_to_gb(traffic_settings, packs),
+        )
     final_price = checkout.total
 
     # return_url: для TMA — обратно в Telegram (юзер не должен "повиснуть" во
@@ -136,6 +150,7 @@ async def create_payment_route(
                 "tariff_id": tariff.id,
                 "source": payload.source,
                 "slots": str(slots),
+                "traffic_gb": str(checkout.traffic_gb),
             },
             items=receipt_items(tariff.name, checkout, tariff.duration_days),
         )
@@ -151,11 +166,12 @@ async def create_payment_route(
             promo_code=promo_code,
             discount_percent=discount_percent,
             extra_devices=slots,
+            extra_traffic_gb=checkout.traffic_gb,
         )
 
         logger.info(
             f"Web payment created: user={user.user_id}, tariff={tariff.name}, "
-            f"amount={final_price}, slots={slots}, discount={discount_percent}%, "
+            f"amount={final_price}, slots={slots}, traffic_gb={checkout.traffic_gb}, discount={discount_percent}%, "
             f"promo={promo_code or 'none'}, source={payload.source}"
         )
 
@@ -315,6 +331,86 @@ async def create_device_slots_payment(
         raise
     except Exception as e:
         logger.error(f"Error creating device slots payment: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Ошибка платежного шлюза")
+
+
+class TrafficRequest(BaseModel):
+    """Докупка трафика в середине оплаченного периода."""
+    packs: int = 1
+    source: Literal["web", "tma"] = "web"
+
+
+@router.post("/traffic")
+async def create_traffic_payment(
+    payload: TrafficRequest,
+    user: User = Depends(get_current_user),
+):
+    """
+    Создаёт счёт на докупку пакетов трафика.
+
+    Цену считает сервер (остаток дней подписки × цена пакета, не меньше месячной) —
+    клиент присылает только количество. Платёж с kind='traffic': вебхук поднимет
+    лимит в панели и НЕ тронет ни срок подписки, ни счётчик использованного.
+    """
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if await payment_service.has_pending_payment(user.user_id):
+        raise HTTPException(
+            status_code=409,
+            detail="У вас уже есть неоплаченный счёт. Завершите или дождитесь его отмены."
+        )
+
+    quote = await traffic_service.quote(user.user_id, payload.packs)
+    if not quote.ok:
+        raise HTTPException(status_code=400, detail=quote.error)
+
+    if payload.source == "tma" and config.tg_bot.tg_bot_username:
+        return_url = f"https://t.me/{config.tg_bot.tg_bot_username}/{config.tg_bot.tma_app_name}?startapp=traffic"
+    else:
+        return_url = f"https://{config.webhook.domain}/profile/"
+
+    description = f"Дополнительный трафик (+{quote.added_gb} ГБ, {quote.remaining_days} дн.)"
+
+    try:
+        payment_url, yookassa_payment_id = create_payment(
+            amount=quote.price,
+            description=description,
+            return_url=return_url,
+            user_id=user.user_id,
+            user_email=user.email,
+            shop_id=config.yookassa.shop_id,
+            secret_key=config.yookassa.secret_key,
+            metadata={"kind": "traffic", "gb": str(quote.added_gb), "source": payload.source},
+            items=[{
+                "description": description,
+                "quantity": quote.packs,
+                "amount": quote.price / quote.packs,
+            }],
+        )
+
+        await payment_service.create_payment_record(
+            yookassa_payment_id=yookassa_payment_id,
+            user_id=user.user_id,
+            tariff_id=None,
+            original_amount=quote.price,
+            final_amount=quote.price,
+            source=payload.source,
+            kind='traffic',
+            extra_traffic_gb=quote.added_gb,
+        )
+
+        logger.info(
+            f"Traffic payment created: user={user.user_id}, gb=+{quote.added_gb}, "
+            f"amount={quote.price}, days_left={quote.remaining_days}, source={payload.source}"
+        )
+
+        return {"payment_url": payment_url}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating traffic payment: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Ошибка платежного шлюза")
 
 

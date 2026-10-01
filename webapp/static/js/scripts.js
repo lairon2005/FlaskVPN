@@ -32,6 +32,8 @@ let activePromo = null;
 // Доп. устройства, выбранные на экране тарифов. Цена слотов не зависит от
 // тарифа — только от его длительности, поэтому одно значение на все карточки.
 let selectedSlots = 0;
+// Пакеты доп. трафика на экране тарифов — по тому же принципу, что и слоты.
+let selectedPacks = 0;
 
 function billingMonths(durationDays) {
     // Тот же расчёт, что на сервере (device_pricing.billing_months):
@@ -46,6 +48,30 @@ function initSlotSelector() {
     if (!box) return;
     selectedSlots = parseInt(box.dataset.currentSlots || '0', 10);
     updateSlotCount(0);
+}
+
+function initTrafficSelector() {
+    // Стартуем с уже оплаченных пакетов: продление без касания счётчика
+    // не должно молча снимать докупленный трафик.
+    const box = document.getElementById('trafficSelector');
+    if (!box) return;
+    selectedPacks = parseInt(box.dataset.currentPacks || '0', 10);
+    updateTrafficPacks(0);
+}
+
+function updateTrafficPacks(delta) {
+    const box = document.getElementById('trafficSelector');
+    if (!box) return;
+
+    const max = parseInt(box.dataset.packMax || '0', 10);
+    const packGb = parseInt(box.dataset.packGb || '0', 10);
+
+    selectedPacks = Math.max(0, Math.min(max, selectedPacks + delta));
+
+    const label = document.getElementById('trafficExtraLabel');
+    if (label) label.textContent = '+' + (selectedPacks * packGb);
+
+    renderTariffPrices(activePromo ? activePromo.discount_percent : 0);
 }
 
 function updateSlotCount(delta) {
@@ -97,7 +123,11 @@ async function initPayment(tariffName, price, btn, allowCancelRetry = true) {
 
     try {
         const isIntro = btn.dataset.intro === '1';
-        const payload = { tariff_name: tariffName, price: price, extra_devices: isIntro ? 0 : selectedSlots };
+        const payload = {
+            tariff_name: tariffName, price: price,
+            extra_devices: isIntro ? 0 : selectedSlots,
+            extra_traffic_packs: isIntro ? 0 : selectedPacks,
+        };
         if (btn.dataset.tariffId) payload.tariff_id = parseInt(btn.dataset.tariffId, 10);
         // Вводный тариф: цена фиксированная, промокод и доп. устройства не применяются.
         if (activePromo && !isIntro) {
@@ -191,6 +221,104 @@ async function buyDeviceSlots(btn, allowCancelRetry = true) {
 }
 
 // ============================================================
+// Traffic (докупка трафика в середине периода)
+// ============================================================
+
+let buyTrafficPacks = 1;
+
+function updateBuyTraffic(delta) {
+    const box = document.getElementById('buyTrafficBox');
+    if (!box) return;
+
+    const available = parseInt(box.dataset.trafficAvailable || '1', 10);
+    const unitPrice = parseInt(box.dataset.trafficUnitPrice || '0', 10);
+    const packGb = parseInt(box.dataset.trafficPackGb || '0', 10);
+
+    buyTrafficPacks = Math.max(1, Math.min(available, buyTrafficPacks + delta));
+
+    const gbEl = document.getElementById('buyTrafficGb');
+    if (gbEl) gbEl.textContent = '+' + (packGb * buyTrafficPacks);
+
+    const priceEl = document.getElementById('buyTrafficPrice');
+    if (priceEl) priceEl.textContent = unitPrice * buyTrafficPacks;
+}
+
+async function buyTraffic(btn, allowCancelRetry = true) {
+    if (!btn) return;
+    btn.classList.add('btn-loading');
+
+    try {
+        const response = await fetch('/payment/traffic', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ packs: buyTrafficPacks })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            window.location.href = data.payment_url;
+        } else if (response.status === 401) {
+            window.location.href = '/login';
+        } else if (response.status === 409 && allowCancelRetry) {
+            await offerCancelPending(() => buyTraffic(btn, false));
+        } else {
+            // Сервер присылает готовый текст (нет подписки, потолок, занятый счёт).
+            const data = await response.json().catch(() => ({}));
+            showToast(data.detail || "Не удалось создать счёт. Попробуйте позже.", "error");
+        }
+    } catch (error) {
+        console.error('Traffic error:', error);
+        showToast("Ошибка соединения с сервером.", "error");
+    } finally {
+        btn.classList.remove('btn-loading');
+    }
+}
+
+// ============================================================
+// Код для менеджера (офлайн-продажи)
+// ============================================================
+
+async function getManagerCode(btn) {
+    if (!btn) return;
+    btn.classList.add('btn-loading');
+    try {
+        const response = await fetch('/profile/manager-code', { method: 'POST' });
+        if (response.ok) {
+            const data = await response.json();
+            const out = document.getElementById('managerCodeValue');
+            out.textContent = data.code;
+            out.classList.remove('hidden');
+            showToast(`Код действует ${data.ttl_minutes} минут и срабатывает один раз`, 'info');
+        } else if (response.status === 401) {
+            window.location.href = '/login';
+        } else {
+            showToast('Не удалось создать код. Попробуйте позже.', 'error');
+        }
+    } catch (error) {
+        console.error('Manager code error:', error);
+        showToast('Ошибка соединения с сервером.', 'error');
+    } finally {
+        btn.classList.remove('btn-loading');
+    }
+}
+
+async function revokeManagerAccess() {
+    if (!confirm('Закрыть доступ всем менеджерам? Им придётся запросить новый код.')) return;
+    try {
+        const response = await fetch('/profile/manager-access/revoke', { method: 'POST' });
+        if (response.ok) {
+            const data = await response.json();
+            showToast(data.revoked ? 'Доступ менеджеров закрыт.' : 'Активного доступа не было.', 'success');
+        } else {
+            showToast('Не удалось закрыть доступ.', 'error');
+        }
+    } catch (error) {
+        console.error('Manager access revoke error:', error);
+        showToast('Ошибка соединения с сервером.', 'error');
+    }
+}
+
+// ============================================================
 // Promo Code
 // ============================================================
 
@@ -269,23 +397,40 @@ function renderTariffPrices(discountPercent) {
     const slotPrice = box ? parseInt(box.dataset.slotPrice || '0', 10) : 0;
     const baseLimit = box ? parseInt(box.dataset.baseLimit || '0', 10) : 0;
 
+    const tbox = document.getElementById('trafficSelector');
+    const packPrice = tbox ? parseInt(tbox.dataset.packPrice || '0', 10) : 0;
+    const packGb = tbox ? parseInt(tbox.dataset.packGb || '0', 10) : 0;
+
     cards.forEach((card) => {
         const basePrice = parseInt(card.dataset.tariffPrice || '0', 10);
         const days = parseInt(card.dataset.tariffDays || '30', 10);
         const slotsCost = slotPrice * billingMonths(days) * selectedSlots;
+        // Безлимитному тарифу (квота 0) пакеты не продаются — как и на сервере.
+        const quota = parseInt(card.dataset.tariffQuota || '0', 10);
+        const packs = quota > 0 ? selectedPacks : 0;
+        const trafficCost = packPrice * billingMonths(days) * packs;
         const tariffPart = discountPercent
             ? Math.round(basePrice * (1 - discountPercent / 100))
             : basePrice;
-        const total = tariffPart + slotsCost;
+        const total = tariffPart + slotsCost + trafficCost;
 
         const priceEl = card.querySelector('.tariff-price');
         if (priceEl) {
             const struck = discountPercent
-                ? `<s class="text-muted text-[0.45em] font-semibold">${basePrice + slotsCost} ₽</s> `
+                ? `<s class="text-muted text-[0.45em] font-semibold">${basePrice + slotsCost + trafficCost} ₽</s> `
                 : '';
             priceEl.innerHTML =
                 `${struck}<span class="tariff-price-value">${total}</span>` +
                 `<span class="text-[0.5em]"> ₽</span>`;
+        }
+
+        const trafficEl = card.querySelector('.tariff-traffic-line');
+        if (trafficEl && quota > 0) {
+            const extraTraffic = packs
+                ? ` <span class="text-muted">(+${trafficCost} ₽)</span>`
+                : '';
+            trafficEl.innerHTML = CHECK_ICON +
+                `<span>${quota + packs * packGb} ГБ трафика в месяц${extraTraffic}</span>`;
         }
 
         const devicesEl = card.querySelector('.tariff-devices-line');
@@ -468,4 +613,5 @@ document.addEventListener("DOMContentLoaded", function() {
     initFormLoading();
     initScrollAnimations();
     initSlotSelector();
+    initTrafficSelector();
 });
