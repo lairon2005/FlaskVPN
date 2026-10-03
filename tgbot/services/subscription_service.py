@@ -23,6 +23,9 @@ def _days_to_expire_at(days: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
+# Пробный период — один для всех входов: бот (за подписку на каналы), веб-кабинет, Mini App.
+TRIAL_DAYS = 3
+
 class SubscriptionService:
     def __init__(self, user_repo: UserRepository, remnawave: RemnawaveClient,
                  base_traffic_gb=None):
@@ -71,7 +74,7 @@ class SubscriptionService:
         logger.info(f"Subscription for user {user_id} extended by {days} days (remnawave: {username}, new={is_new})")
         return ExtensionResult(is_new_user=is_new, username=username)
 
-    async def activate_trial(self, user_id: int, days: int = 7) -> ExtensionResult:
+    async def activate_trial(self, user_id: int, days: int = TRIAL_DAYS) -> ExtensionResult:
         """Активирует пробный период: extend (без квоты — дефолт Remnawave) + пометить trial_received."""
         result = await self.extend(user_id, days)
         await self._user_repo.set_trial_received(user_id)

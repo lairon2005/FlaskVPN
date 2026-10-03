@@ -17,12 +17,13 @@ from tgbot.services.referral_service import (
     REFERRAL_TRIAL_DAYS, REFERRER_LAUNCH_BONUS_DAYS, REFERRER_PAYMENT_BONUS_DAYS,
 )
 from tgbot.services.subscription import check_subscription
+from tgbot.services.subscription_service import TRIAL_DAYS
 from utils.subscription_view import build_db_subscription_view
 from tgbot.services.utils import get_user_attribute, decline_word
 from utils.telegram_ui import replace_message_text
 from tgbot.keyboards.inline import (
     main_menu_keyboard, back_to_main_menu_keyboard,
-    onboarding_subscribe_keyboard, onboarding_download_app_keyboard,
+    onboarding_subscribe_keyboard,
     onboarding_import_keyboard,
 )
 
@@ -31,7 +32,7 @@ start_router = Router()
 
 # Обычный триал для органических пользователей (без реферальной ссылки).
 # Реферальный бонус другу — REFERRAL_TRIAL_DAYS (см. referral_service.py).
-ORGANIC_TRIAL_DAYS = 7
+ORGANIC_TRIAL_DAYS = TRIAL_DAYS   # за подписку на каналы; кнопка в меню — inline.py
 
 
 def _days_word(n: int) -> str:
@@ -129,8 +130,8 @@ async def _start_onboarding(message: Message, bot: Bot, state: FSMContext, refer
     channels = await channel_repo.get_all()
 
     if not channels:
-        # Если каналов нет — сразу выдаём триал и переходим к скачиванию приложения
-        await _activate_and_show_download(message, bot, state, referrer_id)
+        # Если каналов нет — сразу выдаём триал и показываем подключение
+        await _activate_and_show_connect(message, bot, state, referrer_id)
         return
 
     trial_days = REFERRAL_TRIAL_DAYS if referrer_id else ORGANIC_TRIAL_DAYS
@@ -172,12 +173,12 @@ async def onboarding_check_subscription(call: CallbackQuery, bot: Bot, state: FS
     fsm_data = await state.get_data()
     referrer_id = fsm_data.get("referrer_id")
 
-    await _activate_and_show_download(call, bot, state, referrer_id)
+    await _activate_and_show_connect(call, bot, state, referrer_id)
 
 
-async def _activate_and_show_download(event: Message | CallbackQuery, bot: Bot,
-                                       state: FSMContext, referrer_id: int | None = None):
-    """Активирует триал/реферальный бонус и показывает шаг скачивания приложения."""
+async def _activate_and_show_connect(event: Message | CallbackQuery, bot: Bot,
+                                      state: FSMContext, referrer_id: int | None = None):
+    """Активирует триал/реферальный бонус и сразу показывает подключение (страница подписки)."""
     user_id = event.from_user.id
     trial_days = REFERRAL_TRIAL_DAYS if referrer_id else ORGANIC_TRIAL_DAYS
 
@@ -223,66 +224,59 @@ async def _activate_and_show_download(event: Message | CallbackQuery, bot: Bot,
             await event.answer(error_text, reply_markup=retry_kb.as_markup())
         return
 
-    # Показываем шаг 2: скачивание приложения (только при успешной активации)
-    text = (
-        f"🎉 <b>Поздравляем!</b> Вам предоставлен пробный период на <b>{trial_days} {_days_word(trial_days)}</b>.\n\n"
-        "📲 <b>Шаг 1:</b> Скачайте приложение <b>INCY</b> для вашего устройства:"
-    )
-
+    # Сразу подключение (только при успешной активации). Отдельного шага «скачайте INCY»
+    # нет: страница подписки сама объясняет, какое приложение поставить, и импортирует ключ.
+    header = f"🎉 <b>Поздравляем!</b> Вам предоставлен пробный период на <b>{trial_days} {_days_word(trial_days)}</b>."
     if isinstance(event, CallbackQuery):
-        await event.message.edit_text(text, reply_markup=onboarding_download_app_keyboard())
+        await show_connect_step(event.message, user_id, header, edit=True)
     else:
-        await event.answer(text, reply_markup=onboarding_download_app_keyboard())
+        await show_connect_step(event, user_id, header)
 
 
 # =============================================================================
-# --- ОНБОРДИНГ: ШАГ 2 — СКАЧИВАНИЕ ПРИЛОЖЕНИЯ ---
+# --- ОНБОРДИНГ: ПОДКЛЮЧЕНИЕ ---
 # =============================================================================
+
+async def show_connect_step(message: Message, user_id: int, header: str, *, edit: bool = False):
+    """
+    Экран подключения после выдачи триала: кнопка на страницу подписки Remnawave.
+    Там пользователь выбирает приложение (ссылки на установку есть на странице),
+    и подписка импортируется в него сама.
+
+    edit=True — правим сообщение (нажатие кнопки), иначе отправляем новое.
+    """
+    text_loading = f"{header}\n\n⏳ <b>Готовим ссылку подключения…</b>"
+    target = await replace_message_text(message, text_loading) if edit else await message.answer(text_loading)
+
+    profile_data = await profile_service.get_profile(user_id)
+    sub_url = ""
+    if not profile_data.error and profile_data.vpn_user:
+        # subscription_url Remnawave — уже полный URL, используем как есть.
+        sub_url = get_user_attribute(profile_data.vpn_user, 'subscription_url', '')
+
+    if sub_url:
+        await replace_message_text(
+            target,
+            f"{header}\n\n"
+            "📲 <b>Подключите VPN</b>\n\n"
+            "Откройте страницу подписки по кнопке ниже: там написано, какое приложение установить, "
+            "и подписка добавится в него автоматически.",
+            reply_markup=onboarding_import_keyboard(sub_url),
+        )
+    else:
+        await replace_message_text(
+            target,
+            f"{header}\n\n"
+            "Ваш ключ подключения ещё формируется. "
+            "Перейдите в главное меню и нажмите <b>«Подключиться»</b>.",
+            reply_markup=main_menu_keyboard(has_active_sub=False),
+        )
+
 
 @start_router.callback_query(F.data == "onboarding_app_installed")
 async def onboarding_app_installed(call: CallbackQuery, bot: Bot):
-    """Пользователь установил приложение — показываем кнопку импорта."""
-    user_id = call.from_user.id
-    loading_message = await replace_message_text(
-        call.message,
-        "⏳ <b>Загружаем ссылку подключения…</b>\n\n"
-        "Обычно это занимает несколько секунд."
-    )
-
-    # Получаем subscription_url из профиля
-    profile_data = await profile_service.get_profile(user_id)
-    if profile_data.error or not profile_data.vpn_user:
-        await replace_message_text(
-            loading_message,
-            "📲 <b>Шаг 2:</b> Подключите VPN\n\n"
-            "Ваш ключ подключения ещё формируется. "
-            "Перейдите в главное меню и нажмите <b>«Подключиться»</b>.",
-            reply_markup=main_menu_keyboard(has_active_sub=False)
-        )
-        return
-
-    # ВАРИАНТ A: subscription_url уже полный URL Remnawave — используем напрямую.
-    sub_url = get_user_attribute(profile_data.vpn_user, 'subscription_url', '')
-    full_sub_url = sub_url
-
-    if full_sub_url:
-        text = (
-            "📲 <b>Шаг 2:</b> Подключите VPN\n\n"
-            "Откройте страницу подписки по кнопке ниже и выберите своё приложение — "
-            "подписка добавится в <b>INCY</b> автоматически.\n\n"
-            "После подключения вы сможете пользоваться VPN!"
-        )
-        await replace_message_text(
-            loading_message,
-            text,
-            reply_markup=onboarding_import_keyboard(full_sub_url),
-        )
-    else:
-        await replace_message_text(
-            loading_message,
-            "📲 Ваш профиль ещё создаётся. Перейдите в главное меню и нажмите <b>«Подключиться»</b>.",
-            reply_markup=main_menu_keyboard(has_active_sub=False)
-        )
+    """Кнопка «Приложение установлено» из старых сообщений онбординга — ведёт на тот же экран подключения."""
+    await show_connect_step(call.message, call.from_user.id, "📲 <b>Подключение VPN</b>", edit=True)
 
 
 # =============================================================================

@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---|---|
 | `tgbot/CLAUDE.md` | Хендлеры, сервисы, клавиатуры, FSM-состояния бота |
 | `webapp/CLAUDE.md` | Web-dashboard: все маршруты, JWT, шаблоны, CSS/JS-паттерны, деплой |
+| `docs/manager-guide.pdf` | Руководство для менеджеров (PDF со снимками); пересборка — `./tools/manager_guide/build.sh` |
 | `docs/managers.md` | **Менеджеры офлайн-продаж**: роли и права, приватность клиента, журнал и чеки, наличные/QR, офлайн-клиенты (кабинет `/c/<токен>`), формула «своих дней», временные ключи, докупка трафика, джобы, деплой |
 | `docs/*.md` | Эксплуатация нод Remnawave (setup, cover-сайт, XHTTP/Hysteria2, анти-флуд, proxy-failover), `panel-server.md` — панель + нода fl-1, `node-pl-1.md` — нода pl-1 рядом с чужим marzban-node, `node-de-1.md` — нода de-1 (Германия), `node-nl-1.md` — нода nl-1 (Нидерланды, `shop.flaskvpn.ru`, **self-steal**: REALITY → свой Caddy с сертификатом LE), `anti-vpn-detection.md` — защита от детекта VPN российскими приложениями (правила в шаблоне подписки, `scripts/remnawave_anti_detect.py`), `subscription-hosts.md` — порядок хостов в подписке (три «✴️ Авто» сверху, затем Основные → Запасные → Турбо; авто выбирает по пингу внутри группы) (`scripts/remnawave_host_order.py`; новая нода — хосты с «Основной/Запасной/Турбо» в названии и повторный запуск), `tma-roadmap.md` — план Mini App, `brand.md` — бренд-бук FLASK (палитра, шрифты, где что лежит) |
 

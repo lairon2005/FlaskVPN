@@ -2,44 +2,34 @@
 
 from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery
-from aiogram.fsm.context import FSMContext
 
 from loader import logger
 from database import user_repo, channel_repo
 from tgbot.services import subscription_service
-from tgbot.keyboards.inline import (
-    channels_subscribe_keyboard, main_menu_keyboard,
-    onboarding_download_app_keyboard,
-)
+from tgbot.keyboards.inline import channels_subscribe_keyboard, main_menu_keyboard
+from tgbot.handlers.user.start import ORGANIC_TRIAL_DAYS, _days_word, show_connect_step
 from tgbot.services.subscription import check_subscription
 
 trial_sub_router = Router()
 
 
-async def give_trial_subscription(user_id: int, bot: Bot, chat_id: int):
-    """
-    Активирует триал и показывает шаг скачивания приложения.
-    """
-    trial_days = 7
+async def give_trial_subscription(user_id: int, message):
+    """Активирует триал за подписку на каналы и сразу показывает подключение (страница подписки)."""
+    trial_days = ORGANIC_TRIAL_DAYS
 
     try:
         await subscription_service.activate_trial(user_id, trial_days)
         logger.info(f"Successfully activated trial subscription ({trial_days} days) for user {user_id}.")
-
-        # Показываем шаг скачивания приложения
-        await bot.send_message(
-            chat_id=chat_id,
-            text=(
-                f"🎉 <b>Поздравляем!</b>\n\n"
-                f"Вы получили пробную подписку на <b>{trial_days} дней</b>.\n\n"
-                "📲 <b>Скачайте приложение INCY</b> для подключения VPN:"
-            ),
-            reply_markup=onboarding_download_app_keyboard()
-        )
-
     except Exception as e:
         logger.error(f"Failed to give trial subscription to user {user_id}: {e}", exc_info=True)
-        await bot.send_message(chat_id, "❌ Произошла ошибка при активации вашего пробного периода. Пожалуйста, обратитесь в поддержку.")
+        await message.answer("❌ Произошла ошибка при активации вашего пробного периода. Пожалуйста, обратитесь в поддержку.")
+        return
+
+    await show_connect_step(
+        message, user_id,
+        f"🎉 <b>Поздравляем!</b> Вы получили пробную подписку на <b>{trial_days} {_days_word(trial_days)}</b>.",
+        edit=True,
+    )
 
 
 @trial_sub_router.callback_query(F.data == "start_trial_process")
@@ -67,16 +57,14 @@ async def start_trial_process_handler(call: CallbackQuery, bot: Bot):
     if is_subscribed:
         # Если подписан, сразу выдаем триал
         await call.answer("Проверка пройдена! Активируем пробный период...", show_alert=True)
-        await call.message.delete()
-        await give_trial_subscription(user_id, bot, call.message.chat.id)
+        await give_trial_subscription(user_id, call.message)
     else:
         # Если не подписан, показываем каналы
         channels = await channel_repo.get_all()
         if not channels:
             logger.warning(f"User {user_id} is starting trial, but no channels are in DB. Giving trial immediately.")
             await call.answer("Активируем пробный период...", show_alert=True)
-            await call.message.delete()
-            await give_trial_subscription(user_id, bot, call.message.chat.id)
+            await give_trial_subscription(user_id, call.message)
             return
 
         keyboard = channels_subscribe_keyboard(channels)
@@ -103,7 +91,6 @@ async def handle_check_subscription(call: CallbackQuery, bot: Bot):
 
     if is_subscribed:
         await call.answer("✅ Отлично! Спасибо за подписку. Активируем пробный период...", show_alert=True)
-        await call.message.delete()
-        await give_trial_subscription(user_id=user_id, bot=bot, chat_id=call.message.chat.id)
+        await give_trial_subscription(user_id, call.message)
     else:
         await call.answer("Вы еще не подписались на все каналы. Пожалуйста, попробуйте снова.", show_alert=True)

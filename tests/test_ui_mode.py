@@ -138,7 +138,7 @@ class MainMenuModeTests(unittest.TestCase):
         ))
         kinds = {text: kind for text, kind, _ in found}
 
-        self.assertEqual(kinds["🌟 +7 дней за подписку"], "callback")
+        self.assertEqual(kinds["🌟 +3 дня за подписку"], "callback")
         self.assertEqual(kinds["📧 Привязать Email"], "callback")
 
     def test_localhost_tma_mode_renders_bot_menu(self):

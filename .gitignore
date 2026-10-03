@@ -14,3 +14,6 @@ etc/nginx/conf/default.conf
 
 # Tailwind standalone-бинарник (скачивается ./tools/tailwind.sh)
 tools/bin/
+
+# venv с playwright для сборки руководства менеджера (tools/manager_guide/build.sh)
+tools/manager_guide/.venv/

@@ -28,9 +28,10 @@ tgbot/
 | `_show_main_menu(target, user_id, full_name)` | вызывается из других хендлеров | Вызывает `profile_service.get_profile()`, строит текст со статусом подписки + трафиком, показывает `main_menu_keyboard()` |
 | `process_start_command` | `/start` | Регистрирует нового / показывает меню существующему; запускает онбординг для новых |
 | `_start_onboarding` | вызывается из `process_start_command` | Показывает список каналов для подписки (шаг 1 онбординга) |
-| `onboarding_check_subscription` | `onboarding_check_sub` | Проверяет подписку на каналы → активирует триал → шаг 2 |
-| `_activate_and_show_download` | вызывается из онбординга | Активирует триал/реферальный бонус, показывает скачивание INCY |
-| `onboarding_app_installed` | `onboarding_app_installed` | Шаг 3 онбординга: показывает импорт-ссылку в INCY |
+| `onboarding_check_subscription` | `onboarding_check_sub` | Проверяет подписку на каналы → активирует триал (3 дня, `ORGANIC_TRIAL_DAYS`) → подключение |
+| `_activate_and_show_connect` | вызывается из онбординга | Активирует триал/реферальный бонус и сразу показывает подключение |
+| `show_connect_step` | вызывается после выдачи триала (и из `trial_sub.py`) | Кнопка на страницу подписки Remnawave: там выбор и установка приложения + импорт. Отдельного шага «скачайте INCY» нет |
+| `onboarding_app_installed` | `onboarding_app_installed` | Кнопка из старых сообщений онбординга → тот же экран подключения |
 | `show_referral_info` | вызывается из хендлеров | Формирует реферальную ссылку и статистику |
 | `referral_command_handler` | `/referral` | → `show_referral_info` |
 | `referral_program_handler` | `referral_program` | → `show_referral_info` |
@@ -140,7 +141,7 @@ callback_data ограничена 64 байтами, а длина hwid зав�
 |---|---|---|
 | `start_trial_process` | `start_trial_process` | Проверяет, не получал ли уже триал; показывает каналы для подписки |
 | `check_subscription_handler` | `check_subscription` | Проверяет подписку → `give_trial_subscription` |
-| `give_trial_subscription` | вызывается внутри | Активирует триал через `subscription_service.activate_trial()` |
+| `give_trial_subscription` | вызывается внутри | Активирует триал на 3 дня (`ORGANIC_TRIAL_DAYS`) и показывает подключение (`start.show_connect_step`) |
 
 ---
 
@@ -286,8 +287,7 @@ APScheduler задачи:
 | `revoked_key_keyboard(subscription_url)` | `revoke_key.py` — экран с новой ссылкой |
 | `profile_keyboard(subscription_url)` | `profile.py/show_profile_logic` |
 | `onboarding_subscribe_keyboard(channels)` | `start.py/_start_onboarding` |
-| `onboarding_download_app_keyboard()` | `start.py/_activate_and_show_download` |
-| `onboarding_import_keyboard(subscription_url)` | `start.py/onboarding_app_installed` |
+| `onboarding_import_keyboard(subscription_url)` | `start.py/show_connect_step` |
 | `channels_subscribe_keyboard(channels)` | `trial_sub.py` |
 | `back_to_main_menu_keyboard()` | везде как fallback |
 | `cancel_fsm_keyboard(back_callback_data)` | admin FSM |

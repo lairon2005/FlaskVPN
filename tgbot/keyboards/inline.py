@@ -90,7 +90,7 @@ def main_menu_keyboard(
     #     из Mini App её не сделать;
     #   • привязка email — тоже бот-сценарий (FSM).
     if not has_active_sub:
-        builder.button(text="🌟 +7 дней за подписку", callback_data="start_trial_process")
+        builder.button(text="🌟 +3 дня за подписку", callback_data="start_trial_process")  # ORGANIC_TRIAL_DAYS
         rows.append(1)
     if not has_email:
         builder.button(text="📧 Привязать Email", callback_data="link_email")
@@ -113,18 +113,8 @@ def onboarding_subscribe_keyboard(channels: List[Channel]) -> InlineKeyboardMark
     return builder.as_markup()
 
 
-def onboarding_download_app_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура для второго шага — скачать приложение INCY."""
-    builder = InlineKeyboardBuilder()
-    builder.button(text="📱 iOS (App Store)", url="https://apps.apple.com/ru/app/incy/id6756943388")
-    builder.button(text="🤖 Android (Google Play)", url="https://play.google.com/store/apps/details?id=llc.itdev.incy")
-    builder.button(text="➡️ Приложение установлено", callback_data="onboarding_app_installed")
-    builder.adjust(2, 1)
-    return builder.as_markup()
-
-
 def onboarding_import_keyboard(subscription_url: str) -> InlineKeyboardMarkup:
-    """Клавиатура для третьего шага — страница подписки Remnawave с импортом в приложения."""
+    """Подключение после выдачи триала — страница подписки Remnawave (установка приложения и импорт)."""
     builder = InlineKeyboardBuilder()
     builder.button(text="🔗 Открыть страницу подписки", url=subscription_url)
     builder.button(text="➡️ Перейти в главное меню", callback_data="back_to_main_menu")
