@@ -7,6 +7,12 @@
 
     function $(id) { return document.getElementById(id); }
 
+    function readJson(id, fallback) {
+        try { return JSON.parse(($(id) || {}).textContent || 'null') || fallback; } catch (e) { return fallback; }
+    }
+    var INSTALL_STEPS = readJson('installSteps', []);
+    var CABINET_HINT = readJson('cabinetHint', '');
+
     function toast(message, kind) {
         var box = $('toast-container');
         if (!box) return;
@@ -40,11 +46,14 @@
     function money(value) {
         var n = Number(value);
         var text = Number.isInteger(n) ? String(n) : n.toFixed(2).replace('.', ',');
-        return text.replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' ₽';
+        return text.replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' ₽';
     }
+
+    function receipt(id) { return 'M-' + String(id).padStart(6, '0'); }
 
     function loadQr(img, url) {
         if (!img || !url) return;
+        img.removeAttribute('src');
         api('/qr', { text: url }).then(function (r) { if (r.ok) img.src = r.data.data_url; });
     }
 
@@ -62,12 +71,115 @@
         return p;
     }
 
+    function button(parent, text, cls, onClick) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = cls;
+        b.textContent = text;
+        b.addEventListener('click', onClick);
+        parent.appendChild(b);
+        return b;
+    }
+
+    // ------------------------------------------------------------------ «Покажите клиенту»
+    // Экран на весь дисплей: большой QR и шаги. Вкладки — когда показать нужно два QR
+    // (установка и личный кабинет нового клиента).
+    var overlay = $('showClient');
+    var lastFocus = null;
+
+    function installView(url, title) {
+        return { tab: '📲 Установка', title: title || 'Покажите клиенту этот QR', url: url, steps: INSTALL_STEPS, note: '' };
+    }
+
+    function cabinetView(url) {
+        return { tab: '🔗 Личный кабинет', title: 'Личный кабинет клиента', url: url, steps: [], note: CABINET_HINT };
+    }
+
+    function renderView(view) {
+        $('showClientTitle').textContent = view.title;
+        loadQr($('showClientQr'), view.url);
+        var steps = $('showClientSteps');
+        steps.textContent = '';
+        view.steps.forEach(function (step, i) {
+            var li = document.createElement('li');
+            li.className = 'flex gap-3';
+            var num = document.createElement('span');
+            num.className = 'shrink-0 w-7 h-7 rounded-full bg-blue text-paper font-bold flex items-center justify-center';
+            num.textContent = String(i + 1);
+            var text = document.createElement('span');
+            text.textContent = step;
+            li.appendChild(num); li.appendChild(text);
+            steps.appendChild(li);
+        });
+        $('showClientNote').textContent = view.note || '';
+    }
+
+    function openShow(views) {
+        if (!overlay || !views.length) return;
+        var tabs = $('showClientTabs');
+        tabs.textContent = '';
+        tabs.classList.toggle('hidden', views.length < 2);
+        if (views.length > 1) {
+            views.forEach(function (view, i) {
+                var b = button(tabs, view.tab, 'chip', function () {
+                    Array.prototype.forEach.call(tabs.children, function (c) { c.setAttribute('aria-pressed', 'false'); });
+                    b.setAttribute('aria-pressed', 'true');
+                    renderView(view);
+                });
+                b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+            });
+        }
+        renderView(views[0]);
+        lastFocus = document.activeElement;
+        overlay.classList.remove('hidden');
+        document.body.classList.add('overflow-hidden');
+        var close = overlay.querySelector('[data-close-show]');
+        if (close) close.focus();
+    }
+
+    function closeShow() {
+        if (!overlay || overlay.classList.contains('hidden')) return;
+        overlay.classList.add('hidden');
+        document.body.classList.remove('overflow-hidden');
+        if (lastFocus && lastFocus.focus) lastFocus.focus();
+    }
+
+    if (overlay) {
+        overlay.addEventListener('click', function (event) { if (event.target.closest('[data-close-show]')) closeShow(); });
+        document.addEventListener('keydown', function (event) { if (event.key === 'Escape') closeShow(); });
+    }
+
+    // ------------------------------------------------------------------ обратный отсчёт пробных ключей
+    function tickCountdowns() {
+        var now = Date.now() / 1000;
+        Array.prototype.forEach.call(document.querySelectorAll('[data-countdown]'), function (el) {
+            var left = Math.round((parseInt(el.dataset.countdown, 10) - now) / 60);
+            el.textContent = left > 0 ? left + ' мин' : 'меньше минуты';
+        });
+    }
+    if (document.querySelector('[data-countdown]')) { tickCountdowns(); setInterval(tickCountdowns, 30000); }
+
     // ------------------------------------------------------------------ копирование
     document.addEventListener('click', function (event) {
         var btn = event.target.closest('#copyLinkBtn, #copyTempBtn');
         if (!btn) return;
         copy($(btn.id === 'copyLinkBtn' ? 'linkValue' : 'tempLink'));
     });
+
+    // ------------------------------------------------------------------ список клиентов: поиск
+    var search = $('clientSearch');
+    if (search) {
+        search.addEventListener('input', function () {
+            var q = search.value.trim().toLowerCase();
+            var shown = 0;
+            Array.prototype.forEach.call(document.querySelectorAll('#clientList [data-search]'), function (li) {
+                var hit = !q || li.dataset.search.indexOf(q) !== -1;
+                li.classList.toggle('hidden', !hit);
+                if (hit) shown += 1;
+            });
+            $('clientEmpty').classList.toggle('hidden', shown > 0);
+        });
+    }
 
     // ------------------------------------------------------------------ добавить клиента по коду
     var addForm = $('addByCode');
@@ -92,18 +204,30 @@
                     if (!r.ok) { toast(r.data.message || 'Ошибка', 'error'); return; }
                     $('linkBox').classList.remove('hidden');
                     $('linkValue').value = r.data.subscription_url;
-                    loadQr($('linkQr'), r.data.subscription_url);
+                    openShow([installView(r.data.subscription_url)]);
                 });
             });
         }
+        $('labelBtn').addEventListener('click', function () {
+            var value = window.prompt('Пометка о клиенте (например «Анна, кофейня»). Пусто — убрать пометку.', card.dataset.label || '');
+            if (value === null) return;
+            api('/label', { client_code: code, label: value }).then(function (r) {
+                if (!r.ok) { toast(r.data.message || 'Ошибка', 'error'); return; }
+                card.dataset.label = r.data.label || '';
+                $('clientTitle').textContent = r.data.label || 'Без пометки';
+                toast('Пометка сохранена');
+            });
+        });
         $('cabinetResetBtn').addEventListener('click', function () {
-            if (!confirm('Перевыпустить ссылку кабинета? Старая перестанет работать.')) return;
+            if (!confirm('Выдать клиенту новую ссылку на кабинет? Старая перестанет работать.')) return;
             api('/cabinet-reset', { client_code: code }).then(function (r) {
                 if (!r.ok) { toast(r.data.message || 'Ошибка', 'error'); return; }
                 $('cabinetBox').classList.remove('hidden');
                 $('cabinetValue').value = r.data.cabinet_url;
+                openShow([cabinetView(r.data.cabinet_url)]);
             });
         });
+        $('cabinetShowBtn').addEventListener('click', function () { openShow([cabinetView($('cabinetValue').value)]); });
         $('noAutoBtn').addEventListener('click', function () {
             if (!confirm('Выключить автопродление у клиента?')) return;
             api('/noauto', { client_code: code }).then(function (r) {
@@ -113,7 +237,7 @@
         });
     }
 
-    // ------------------------------------------------------------------ временный ключ
+    // ------------------------------------------------------------------ пробный ключ
     var tempBtn = $('issueTempBtn');
     if (tempBtn) {
         var tempNonce = nonce();
@@ -123,18 +247,20 @@
                 tempBtn.classList.remove('btn-loading');
                 if (!r.ok) { toast(r.data.message || 'Не удалось выдать ключ', 'error'); return; }
                 $('tempResult').classList.remove('hidden');
-                $('tempOp').textContent = 'чек № M-' + String(r.data.operation_id).padStart(6, '0');
+                $('tempOp').textContent = 'чек № ' + receipt(r.data.operation_id);
                 $('tempUntil').textContent = r.data.expires_at;
                 $('tempLink').value = r.data.subscription_url;
                 $('tempConvert').href = '/manager/issue?temp=' + encodeURIComponent(r.data.key_id);
-                loadQr($('tempQr'), r.data.subscription_url);
+                var view = installView(r.data.subscription_url, 'Пробный ключ: покажите клиенту QR');
+                $('tempShowBtn').onclick = function () { openShow([view]); };
+                openShow([view]);
                 tempNonce = nonce(); // следующий тап — уже новый ключ
                 tempBtn.disabled = true;
             });
         });
     }
 
-    // ------------------------------------------------------------------ выдача
+    // ------------------------------------------------------------------ продажа
     var app = $('issueApp');
     if (!app) return;
 
@@ -147,26 +273,36 @@
         return el ? el.value : null;
     }
 
+    function plan() {
+        var value = selected('plan');
+        if (!value) return null;
+        if (value === 'custom') return { product: 'custom' };
+        return { product: 'tariff', tariffId: parseInt(value.slice(1), 10) };
+    }
+
+    function who() { return tempKeyId ? 'new' : (selected('who') || 'new'); }
+
     function currentClient() {
         if (tempKeyId) return null;
-        var who = selected('who');
-        if (who === 'mine') { var sel = $('clientSelect'); return sel && sel.value ? sel.value : null; }
-        if (who === 'code') return state.clientCode;
+        if (who() === 'mine') { var sel = $('clientSelect'); return sel && sel.value ? sel.value : null; }
+        if (who() === 'code') return state.clientCode;
         return null;
     }
 
     function clientReady() {
-        if (tempKeyId) return true;
-        var who = selected('who');
-        if (who === 'code') return !!state.clientCode;
-        if (who === 'mine') return !!currentClient();
-        return true;
+        if (tempKeyId || who() === 'new') return true;
+        return !!currentClient();
+    }
+
+    function label() {
+        var input = $('labelInput');
+        return input && who() === 'new' ? input.value.trim() : '';
     }
 
     function request() {
-        var product = selected('product');
-        var body = { product: product, client_code: currentClient() };
-        if (product === 'tariff') { body.tariff_id = parseInt($('tariffSelect').value, 10); }
+        var p = plan();
+        var body = { product: p.product, client_code: currentClient() };
+        if (p.product === 'tariff') { body.tariff_id = p.tariffId; }
         else { body.days = parseInt($('daysInput').value, 10); }
         return body;
     }
@@ -184,7 +320,7 @@
         if (q.breakdown) line(body, q.breakdown, 'text-muted italic');
         if (q.slots) line(body, '+ доп. устройства: ' + q.slots + ' шт. — ' + money(q.slots_cost));
         if (q.packs) line(body, '+ доп. трафик: +' + q.extra_traffic_gb + ' ГБ — ' + money(q.traffic_cost));
-        line(body, 'К оплате: ' + money(q.total), 'font-display font-black text-2xl mt-2');
+        line(body, 'К оплате: ' + money(q.total), 'font-display font-black text-3xl mt-2');
         if (q.hint) {
             line(body, '💡 Выгоднее стандартный тариф «' + q.hint.name + '» — ' + q.hint.days + ' дн. за ' +
                        money(q.hint.price) + ' (на ' + money(q.hint.saving) + ' дешевле) и с автопродлением.',
@@ -197,15 +333,18 @@
     function refresh() {
         state.quote = null;
         $('previewActions').classList.add('hidden');
+        var p = plan();
+        $('productCustom').classList.toggle('hidden', !p || p.product !== 'custom');
         if (!clientReady()) {
-            $('previewBody').textContent = 'Сначала подтвердите код клиента.';
+            $('previewBody').textContent = who() === 'code' ? 'Сначала подтвердите код клиента.' : 'Выберите клиента.';
             return;
         }
-        var product = selected('product');
-        $('productTariff').classList.toggle('hidden', product !== 'tariff');
-        $('productCustom').classList.toggle('hidden', product !== 'custom');
-        if (product === 'custom') {
+        if (!p) { $('previewBody').textContent = 'Выберите тариф — цена появится здесь.'; return; }
+        if (p.product === 'custom') {
             var d = parseInt($('daysInput').value, 10);
+            Array.prototype.forEach.call(document.querySelectorAll('[data-days]'), function (chip) {
+                chip.setAttribute('aria-pressed', String(parseInt(chip.dataset.days, 10) === d));
+            });
             if (!d || d < 1 || d > maxDays) { $('previewBody').textContent = 'Введите число дней от 1 до ' + maxDays + '.'; return; }
         }
         api('/quote', request()).then(function (r) {
@@ -216,89 +355,108 @@
         });
     }
 
+    function lockForm() {
+        Array.prototype.forEach.call(app.querySelectorAll('section:not(#resultBox)'), function (s) { s.classList.add('hidden'); });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function showDone(box, data, installUrl) {
+        var views = [installView(installUrl)];
+        if (data.cabinet_url) views.push(cabinetView(data.cabinet_url));
+        var actions = document.createElement('div');
+        actions.className = 'mt-4 grid gap-2 sm:flex sm:flex-wrap';
+        box.appendChild(actions);
+        button(actions, '📲 Показать клиенту QR', 'btn-pop w-full sm:w-auto', function () { openShow(views); });
+        var cardLink = document.createElement('a');
+        cardLink.className = 'btn-pop btn-pop-outline w-full sm:w-auto';
+        cardLink.href = '/manager/clients/' + encodeURIComponent(data.client_code);
+        cardLink.textContent = '👤 Карточка клиента';
+        actions.appendChild(cardLink);
+        var again = document.createElement('a');
+        again.className = 'btn-pop btn-pop-outline w-full sm:w-auto';
+        again.href = '/manager/'; again.textContent = '⚡ Новая продажа';
+        actions.appendChild(again);
+        if (data.cabinet_url) {
+            line(box, '🔗 У нового клиента есть личный кабинет — в «Показать клиенту» вкладка «Личный кабинет». ' +
+                      'Ссылка показывается один раз.', 'mt-3 text-sm text-subtle');
+        }
+        openShow(views);
+    }
+
     function showResult(data, method) {
         var box = $('resultBox');
         box.classList.remove('hidden');
         box.textContent = '';
-        $('previewBox').classList.add('hidden');
+        lockForm();
 
         if (data.replayed) {
-            line(box, 'ℹ️ Эта операция уже оформлена (чек № M-' + String(data.operation_id).padStart(6, '0') + '). Проверьте историю.');
+            line(box, 'ℹ️ Эта продажа уже оформлена (чек № ' + receipt(data.operation_id) + '). Проверьте историю.');
             return;
-        }
-        var head = data.status === 'completed' ? '✅ Ключ выдан' : '💳 Счёт выставлен';
-        line(box, head + ' · чек № M-' + String(data.operation_id).padStart(6, '0'), 'font-display font-extrabold text-lg');
-        line(box, 'Клиент ' + data.client_code + ' · ' + money(data.price) + (method === 'cash' ? ' · наличные' : ''), 'text-sm text-subtle');
-
-        function linkField(label, url, withQr, qrAlt) {
-            line(box, label, 'mt-3 text-sm font-bold');
-            var wrap = document.createElement('div');
-            wrap.className = 'copy-field mt-1';
-            var input = document.createElement('input');
-            input.type = 'text'; input.readOnly = true; input.value = url;
-            var btn = document.createElement('button');
-            btn.className = 'copy-btn'; btn.type = 'button'; btn.textContent = '⧉'; btn.setAttribute('aria-label', 'Скопировать');
-            btn.addEventListener('click', function () { copy(input); });
-            wrap.appendChild(input); wrap.appendChild(btn);
-            box.appendChild(wrap);
-            if (withQr) {
-                var img = document.createElement('img');
-                img.className = 'mt-3 w-48 h-48 rounded-xl border-2 border-blue/20'; img.alt = qrAlt;
-                box.appendChild(img);
-                loadQr(img, url);
-            }
         }
 
         if (data.status === 'completed') {
-            linkField('Ссылка для установки', data.subscription_url, true, 'QR для установки');
-            if (data.expires_at) line(box, 'Подписка действует до ' + data.expires_at + ' МСК', 'mt-2 text-sm');
-        } else {
-            linkField('Ссылка на оплату — клиент сканирует QR или открывает ссылку', data.payment_url, true, 'QR для оплаты');
-            var status = line(box, '⏳ Ждём оплату…', 'mt-3 font-bold');
-            var cancelBtn = document.createElement('button');
-            cancelBtn.className = 'btn-pop btn-pop-outline !min-h-0 !py-2 mt-2'; cancelBtn.type = 'button';
-            cancelBtn.textContent = 'Отменить счёт';
-            cancelBtn.addEventListener('click', function () {
-                api('/op/' + data.operation_id + '/cancel', {}).then(function (r) {
-                    status.textContent = r.ok && r.data.cancelled ? '🚫 Счёт отменён. Не оплачивайте старую ссылку.' : 'Счёт уже оплачен или отменён.';
-                    clearInterval(poll);
-                });
+            line(box, '✅ Готово · чек № ' + receipt(data.operation_id), 'font-display font-extrabold text-xl');
+            line(box, money(data.price) + (method === 'cash' ? ' наличными' : '') +
+                      (data.expires_at ? ' · подписка до ' + data.expires_at + ' МСК' : ''), 'text-sm text-subtle');
+            showDone(box, data, data.subscription_url);
+            return;
+        }
+
+        line(box, '💳 Счёт на ' + money(data.price) + ' · чек № ' + receipt(data.operation_id), 'font-display font-extrabold text-xl');
+        line(box, 'Разверните телефон к клиенту: он наводит камеру на QR и платит картой или через СБП.', 'mt-1 text-sm');
+        var img = document.createElement('img');
+        img.className = 'mt-3 w-64 h-64 max-w-full rounded-2xl border-2 border-blue/20 bg-white'; img.alt = 'QR для оплаты';
+        box.appendChild(img);
+        loadQr(img, data.payment_url);
+        var link = document.createElement('a');
+        link.href = data.payment_url; link.target = '_blank'; link.rel = 'noopener';
+        link.className = 'block mt-2 text-sm font-bold text-blue break-all'; link.textContent = 'Открыть ссылку на оплату';
+        box.appendChild(link);
+        var status = line(box, '⏳ Ждём оплату… страница обновится сама.', 'mt-4 font-bold');
+        var cancelBtn = button(box, 'Отменить счёт', 'btn-pop btn-pop-outline !min-h-0 !py-2 mt-2', function () {
+            if (!confirm('Отменить счёт? Клиент не сможет по нему заплатить.')) return;
+            api('/op/' + data.operation_id + '/cancel', {}).then(function (r) {
+                status.textContent = r.ok && r.data.cancelled ? '🚫 Счёт отменён. Не оплачивайте старую ссылку.' : 'Счёт уже оплачен или отменён.';
+                clearInterval(poll);
+                cancelBtn.remove();
             });
-            box.appendChild(cancelBtn);
-            var poll = setInterval(function () {
-                api('/op/' + data.operation_id).then(function (r) {
-                    if (!r.ok) return;
-                    if (r.data.status === 'completed') {
-                        clearInterval(poll);
-                        status.textContent = '✅ Оплата получена — ключ выдан. Чек придёт в бота; ссылка — в разделе «Клиенты».';
-                        cancelBtn.remove();
-                    } else if (r.data.status === 'cancelled' || r.data.status === 'failed') {
-                        clearInterval(poll);
-                        status.textContent = '🚫 Счёт отменён или не оплачен.';
-                    }
-                });
-            }, 3000);
-        }
-        if (data.cabinet_url) {
-            linkField('Кабинет клиента — покажите один раз, потом ссылку не восстановить', data.cabinet_url, false);
-        }
-        var again = document.createElement('a');
-        again.className = 'btn-pop btn-pop-outline mt-4'; again.href = '/manager/issue'; again.textContent = 'Выдать ещё';
-        box.appendChild(again);
+        });
+        var poll = setInterval(function () {
+            api('/op/' + data.operation_id).then(function (r) {
+                if (!r.ok) return;
+                if (r.data.status === 'completed') {
+                    clearInterval(poll);
+                    cancelBtn.remove();
+                    img.remove(); link.remove();
+                    status.textContent = '✅ Оплачено! Подписка выдана.';
+                    status.className = 'mt-4 font-display font-extrabold text-xl text-success';
+                    api('/link', { client_code: r.data.client_code || data.client_code }).then(function (l) {
+                        if (l.ok) { showDone(box, data, l.data.subscription_url); }
+                        else { line(box, 'QR для установки — в карточке клиента.', 'mt-2 text-sm'); }
+                    });
+                } else if (r.data.status === 'cancelled' || r.data.status === 'failed') {
+                    clearInterval(poll);
+                    cancelBtn.remove();
+                    status.textContent = '🚫 Счёт отменён или не оплачен. Если клиент всё ещё хочет купить — начните продажу заново.';
+                }
+            });
+        }, 3000);
     }
 
-    function submit(method, button) {
+    function submit(method, btn) {
         if (state.busy || !state.quote) return;
+        if (method === 'cash' && !confirm('Подтвердите: вы получили от клиента ' + money(state.quote.total) + ' наличными?')) return;
         state.busy = true;
-        button.classList.add('btn-loading');
+        btn.classList.add('btn-loading');
         var body = request();
         body.method = method;
         body.nonce = state.nonce;
         body.expected_total = state.quote.total;
+        if (label()) body.label = label();
         if (tempKeyId) { body.temp_key_id = tempKeyId; body.client_code = null; }
         api('/issue', body).then(function (r) {
             state.busy = false;
-            button.classList.remove('btn-loading');
+            btn.classList.remove('btn-loading');
             if (!r.ok) {
                 toast(r.data.message || 'Не удалось оформить', 'error');
                 if (r.data.error === 'price_changed') refresh();
@@ -311,17 +469,19 @@
     // события
     Array.prototype.forEach.call(document.querySelectorAll('input[name="who"]'), function (el) {
         el.addEventListener('change', function () {
-            var who = selected('who');
-            $('whoMine').classList.toggle('hidden', who !== 'mine');
-            $('whoCode').classList.toggle('hidden', who !== 'code');
+            $('whoNew').classList.toggle('hidden', who() !== 'new');
+            $('whoMine').classList.toggle('hidden', who() !== 'mine');
+            $('whoCode').classList.toggle('hidden', who() !== 'code');
             state.clientCode = null;
             refresh();
         });
     });
-    Array.prototype.forEach.call(document.querySelectorAll('input[name="product"]'), function (el) {
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="plan"]'), function (el) {
         el.addEventListener('change', refresh);
     });
-    if ($('tariffSelect')) $('tariffSelect').addEventListener('change', refresh);
+    Array.prototype.forEach.call(document.querySelectorAll('[data-days]'), function (chip) {
+        chip.addEventListener('click', function () { $('daysInput').value = chip.dataset.days; refresh(); });
+    });
     if ($('daysInput')) $('daysInput').addEventListener('input', refreshSoon);
     if ($('clientSelect')) $('clientSelect').addEventListener('change', refresh);
     if ($('useCodeBtn')) {

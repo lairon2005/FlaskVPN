@@ -43,6 +43,7 @@ def _load_web(env):
         "tgbot.services.manager_service": env.module,
         "tgbot.services.manager_receipts": pure("manager_receipts"),
         "tgbot.services.qr_generator": pure("qr_generator"),
+        "tgbot.services.manager_guide": pure("manager_guide"),
     }
     loaded = {}
     with patch.dict(sys.modules, stubs):
@@ -654,3 +655,94 @@ class CabinetLinkTests(WebCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UxPagesTests(WebCase):
+    async def test_dashboard_offers_tariffs_in_one_tap_and_a_guide_for_newcomers(self):
+        manager = await self.env.make_manager(can_accept_cash=True)
+        async with self.client() as client:
+            await self.login(client, manager)
+            first = (await client.get("/manager/")).text
+            await self.svc.issue(manager.id, product="tariff", tariff_id=2, method="cash", idempotency_nonce="n1")
+            later = (await client.get("/manager/")).text
+        self.assertIn('href="/manager/issue?tariff=2"', first)
+        self.assertIn('href="/manager/issue?custom=1"', first)
+        self.assertIn("Впервые здесь", first)
+        self.assertNotIn("Впервые здесь", later)
+
+    async def test_issue_page_preselects_from_the_link(self):
+        manager = await self.env.make_manager()
+        async with self.client() as client:
+            await self.login(client, manager)
+            tariff = (await client.get("/manager/issue?tariff=3")).text
+            custom = (await client.get("/manager/issue?custom=1")).text
+        self.assertRegex(tariff, r'value="t3" checked')
+        self.assertRegex(custom, r'value="custom" checked')
+        self.assertIn('id="labelInput"', tariff)
+
+    async def test_help_page(self):
+        manager = await self.env.make_manager()
+        async with self.client() as client:
+            await self.login(client, manager)
+            page = await client.get("/manager/help")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Продажа за минуту", page.text)
+        self.assertIn("INCY", page.text)
+
+    async def test_every_page_has_the_show_client_screen_and_mobile_tabs(self):
+        manager = await self.env.make_manager()
+        async with self.client() as client:
+            await self.login(client, manager)
+            for path in ("/manager/", "/manager/issue", "/manager/temp", "/manager/clients", "/manager/help"):
+                text = (await client.get(path)).text
+                self.assertIn('id="showClient"', text, path)
+                self.assertIn('class="tabbar', text, path)
+                self.assertIn('id="installSteps"', text, path)
+
+    async def test_issue_with_label_and_label_api(self):
+        manager = await self.env.make_manager(can_accept_cash=True)
+        async with self.client() as client:
+            csrf = await self.login(client, manager)
+            data = (await client.post("/manager/api/issue", headers=self.api(csrf), json={
+                "product": "tariff", "tariff_id": 2, "method": "cash", "nonce": "web-nonce-0101",
+                "label": "Анна, кофейня"})).json()
+            clients = (await client.get("/manager/clients")).text
+            renamed = await client.post("/manager/api/label", headers=self.api(csrf),
+                                        json={"client_code": data["client_code"], "label": "  Пётр  "})
+            card = (await client.get(f"/manager/clients/{data['client_code']}")).text
+            cleared = (await client.post("/manager/api/label", headers=self.api(csrf),
+                                         json={"client_code": data["client_code"], "label": ""})).json()
+        self.assertIn("Анна, кофейня", clients)
+        self.assertEqual(renamed.json(), {"label": "Пётр"})
+        self.assertIn("Пётр", card)
+        self.assertIsNone(cleared["label"])
+
+    async def test_label_api_refuses_foreign_clients(self):
+        a = await self.env.make_manager(can_accept_cash=True, telegram_id=1)
+        b = await self.env.make_manager(telegram_id=2)
+        result = await self.svc.issue(a.id, product="tariff", tariff_id=2, method="cash", idempotency_nonce="n1")
+        async with self.client() as client:
+            csrf = await self.login(client, b)
+            response = await client.post("/manager/api/label", headers=self.api(csrf),
+                                         json={"client_code": result.client_code, "label": "чужой"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone((await self.svc.list_clients(a.id))[0][0].label)
+
+    async def test_operation_status_returns_the_client_for_the_install_qr(self):
+        manager = await self.env.make_manager()
+        async with self.client() as client:
+            csrf = await self.login(client, manager)
+            data = (await client.post("/manager/api/issue", headers=self.api(csrf), json={
+                "product": "tariff", "tariff_id": 2, "method": "online", "nonce": "web-nonce-0102"})).json()
+            status = (await client.get(f"/manager/api/op/{data['operation_id']}", headers=self.api(csrf))).json()
+        self.assertEqual(status["client_code"], data["client_code"])
+
+    async def test_temp_page_shows_time_not_fingerprints(self):
+        manager = await self.env.make_manager()
+        await self.svc.issue_temp(manager.id, "t1")
+        async with self.client() as client:
+            await self.login(client, manager)
+            page = (await client.get("/manager/temp")).text
+        self.assertIn("data-countdown=", page)
+        fingerprint = (await self.svc.list_temp_keys(manager.id))[0]["fingerprint"]
+        self.assertNotIn(fingerprint, page)

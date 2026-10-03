@@ -1,39 +1,38 @@
 {% extends "manager/base.html" %}
 
 {% block content %}
-<h1 class="font-display font-black text-2xl mb-4">Мои клиенты <span class="text-muted text-lg">({{ total }})</span></h1>
-
-<section class="sticker p-4 mb-5">
-    <h2 class="font-display font-extrabold">Добавить клиента по коду</h2>
-    <p class="text-sm text-subtle mt-1">Клиент берёт код в боте (профиль → «👔 Код для менеджера») или в кабинете на сайте. Код одноразовый, живёт 15 минут.</p>
-    <form id="addByCode" class="mt-3 flex flex-wrap gap-2">
-        <input class="input !w-44 font-mono uppercase" id="codeInput" maxlength="12" placeholder="K7F3Q2" autocomplete="off" required>
-        <button class="btn-pop !min-h-0 !py-2.5" type="submit"><span class="btn-text">Добавить</span></button>
-    </form>
-</section>
+<h1 class="font-display font-black text-2xl mb-4">👥 Мои клиенты <span class="text-muted text-lg">({{ total }})</span></h1>
 
 {% if rows %}
-<div class="sticker overflow-x-auto">
-    <table class="data-table w-full text-sm">
-        <thead><tr><th>Код</th><th>Подписка</th><th>До</th><th>Мой доступ до</th><th></th></tr></thead>
-        <tbody>
-        {% for row in rows %}
-            <tr>
-                <td class="font-mono font-bold">{{ row.client_code }}{% if row.label %}<br><span class="font-body font-normal text-muted">{{ row.label }}</span>{% endif %}</td>
-                <td><span class="badge {{ 'badge-active' if row.is_active else 'badge-muted' }}">{{ 'активна' if row.is_active else 'закончилась' }}</span></td>
-                <td class="whitespace-nowrap">{{ fmt_dt(row.subscription_end) if row.subscription_end else '—' }}</td>
-                <td class="whitespace-nowrap">{{ fmt_dt(row.access_until) if row.access_until else '—' }}</td>
-                <td class="text-right"><a class="btn-pop btn-pop-outline !min-h-0 !py-1.5 !px-3 text-sm" href="/manager/clients/{{ row.client_code }}">Открыть</a></td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-</div>
+<input type="search" id="clientSearch" class="input mb-3" placeholder="Поиск по пометке или коду" aria-label="Поиск клиента" autocomplete="off">
+<ul class="sticker divide-y-2 divide-blue/10" id="clientList">
+    {% for row in rows %}
+    <li data-search="{{ (row.client_code ~ ' ' ~ (row.label or '')) | lower }}">
+        <a class="p-3 sm:px-4 flex items-center justify-between gap-3 hover:bg-sky-soft/50" href="/manager/clients/{{ row.client_code }}">
+            <span class="min-w-0">
+                <span class="block font-bold truncate">{{ row.label or 'Без пометки' }}</span>
+                <span class="block text-xs text-muted"><span class="font-mono">{{ row.client_code }}</span> · {% if row.subscription_end %}до {{ fmt_dt(row.subscription_end) }}{% else %}подписки нет{% endif %}</span>
+            </span>
+            <span class="badge {{ 'badge-active' if row.is_active else 'badge-muted' }} shrink-0">{{ 'активна' if row.is_active else 'закончилась' }}</span>
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+<p id="clientEmpty" class="hidden mt-3 text-muted">Никого не нашлось.</p>
 <div class="mt-4 flex gap-2">
     {% if page > 0 %}<a class="btn-pop btn-pop-outline !min-h-0 !py-2" href="/manager/clients?page={{ page - 1 }}">← Назад</a>{% endif %}
     {% if has_next %}<a class="btn-pop btn-pop-outline !min-h-0 !py-2" href="/manager/clients?page={{ page + 1 }}">Дальше →</a>{% endif %}
 </div>
 {% else %}
-<p class="text-muted">Клиентов пока нет. Клиент появится, когда вы выдадите ключ или добавите его по коду.</p>
+<p class="text-muted">Клиентов пока нет. Клиент появится, когда вы продадите подписку или добавите его по коду.</p>
 {% endif %}
+
+<section class="sticker p-4 mt-6" id="code">
+    <h2 class="font-display font-extrabold">🔢 Клиент по коду</h2>
+    <p class="text-sm text-subtle mt-1">Для клиента, который купил сам в боте или у другого менеджера. Он открывает бота → профиль → «👔 Код для менеджера» (или кабинет на сайте) и диктует 6 символов. Код действует 15 минут.</p>
+    <form id="addByCode" class="mt-3 flex flex-wrap gap-2">
+        <input class="input !w-44 font-mono uppercase" id="codeInput" maxlength="12" placeholder="K7F3Q2" autocomplete="off" required aria-label="Код клиента">
+        <button class="btn-pop !min-h-0 !py-2.5" type="submit"><span class="btn-text">Добавить</span></button>
+    </form>
+</section>
 {% endblock %}

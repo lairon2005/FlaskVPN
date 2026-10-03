@@ -1,0 +1,25 @@
+{% extends "manager/base.html" %}
+
+{% block content %}
+<h1 class="font-display font-black text-2xl">❓ Как продавать</h1>
+<p class="text-subtle mt-1">Коротко: как оформить подписку за минуту, что отвечать клиентам и что делать, если что-то не работает.</p>
+
+<div class="mt-4 space-y-3 max-w-3xl">
+    {% for section in guide %}
+    <details class="sticker p-4" {% if loop.first %}open{% endif %}>
+        <summary class="font-display font-extrabold text-lg cursor-pointer">{{ section.title }}</summary>
+        <div class="mt-3 space-y-2">
+            {% for line in section.lines %}<p>{{ line }}</p>{% endfor %}
+        </div>
+    </details>
+    {% endfor %}
+</div>
+
+<div class="mt-6 sticker p-4 max-w-3xl">
+    <h2 class="font-display font-extrabold">📲 Что говорить клиенту при установке</h2>
+    <ol class="mt-2 list-decimal pl-5 space-y-1">
+        {% for step in install_steps %}<li>{{ step }}</li>{% endfor %}
+    </ol>
+    <p class="mt-2 text-sm text-subtle">Эти же шаги появляются на экране «Показать клиенту» рядом с большим QR.</p>
+</div>
+{% endblock %}

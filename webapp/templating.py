@@ -61,6 +61,23 @@ def has_static(rel_path: str) -> bool:
 templates.env.globals['has_static'] = has_static
 
 
+def static_url(rel_path: str) -> str:
+    """
+    /static/<путь>?v=<время изменения>. Статика отдаётся без Cache-Control, и браузер
+    кэширует её эвристически: после релиза менеджер получал новую страницу со старым JS.
+    Версия в адресе меняется вместе с файлом — кэш сбрасывается сам.
+    """
+    rel = rel_path.lstrip("/")
+    try:
+        version = int((_STATIC_ROOT / rel).stat().st_mtime)
+    except OSError:
+        return f"/static/{rel}"
+    return f"/static/{rel}?v={version}"
+
+
+templates.env.globals['static_url'] = static_url
+
+
 # Сигнатура TemplateResponse менялась: раньше (name, context), с Starlette 0.29 —
 # (request, name, context), а в новых версиях старая форма удалена совсем. Старый
 # вызов встречается по всему проекту; новый код зовёт render(), который работает

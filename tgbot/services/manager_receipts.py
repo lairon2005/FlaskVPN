@@ -59,7 +59,8 @@ class ReceiptData:
     status: str                       # completed | pending_payment | failed | cancelled
     client_code: str | None = None
     client_is_new: bool = False
-    product_title: str = ""           # «Месяц» / «Свои дни»
+    client_label: str | None = None   # пометка менеджера — только в его чеке
+    product_title: str = ""           # «Месяц» / «Любой срок»
     days: int | None = None
     custom_note: str | None = None    # разложение цены для «своих дней»
     traffic_gb: int | None = None     # 0 — безлимит
@@ -123,11 +124,13 @@ def _body(data: ReceiptData, *, for_group: bool) -> list[str]:
     lines = [
         f"🧾 <b>Чек № {receipt_number(data.op_id)}</b> · {fmt_dt(data.created_at)} МСК",
         f"👔 Менеджер: {escape(_short_name(data.manager_name))} (#{data.manager_id})",
-        f"👤 Клиент: <code>{client}</code>{new_mark}",
+        f"👤 Клиент: <code>{client}</code>{new_mark}"
+        # Пометка менеджера («Анна, кофейня») — только ему самому, в общий чат не уходит.
+        + (f" · {escape(data.client_label)}" if data.client_label and not for_group else ""),
     ]
 
     if data.kind == KIND_TEMP:
-        lines.append("⏱ <b>Временный ключ</b>")
+        lines.append("⏱ <b>Пробный ключ</b>")
         lines.append(
             f"Действует {fmt_time(data.created_at)} → {fmt_time(data.expires_at)}, "
             "затем удаляется автоматически · бесплатно"
@@ -151,7 +154,8 @@ def _body(data: ReceiptData, *, for_group: bool) -> list[str]:
         if payment:
             lines.append(payment)
 
-    if data.key_username:
+    # Имя ключа и отпечаток — для сверки админом в общем чате; менеджеру это ничего не говорит.
+    if data.key_username and for_group:
         fingerprint = f" · …{escape(data.key_fingerprint)}" if data.key_fingerprint else ""
         lines.append(f"🔑 Ключ: <code>{escape(data.key_username)}</code>{fingerprint}")
     lines.append(_status_line(data))

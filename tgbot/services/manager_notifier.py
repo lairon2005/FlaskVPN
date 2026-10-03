@@ -15,7 +15,10 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import BufferedInputFile
 
 from loader import logger
-from tgbot.keyboards.manager import client_access_notice_keyboard, receipt_keyboard, web_login_notice_keyboard
+from tgbot.keyboards.manager import (
+    client_access_notice_keyboard, receipt_keyboard, temp_expiring_keyboard, web_login_notice_keyboard,
+)
+from tgbot.services.manager_guide import install_caption
 from tgbot.services.qr_generator import create_qr_code
 
 
@@ -55,7 +58,7 @@ class ManagerNotifier:
             qr = create_qr_code(subscription_url)
             await self._bot.send_photo(
                 telegram_id, BufferedInputFile(qr.getvalue(), filename="key.png"),
-                caption="📲 QR для установки — клиент сканирует его в приложении",
+                caption=install_caption(),
             )
 
     async def notify_client(self, user_id: int, text: str) -> None:
@@ -83,3 +86,20 @@ class ManagerNotifier:
             lines.append(f"💻 {escape(device)}")
         lines.append("\nЕсли это были не вы — завершите все входы и смените пароль.")
         await self._bot.send_message(telegram_id, "\n".join(lines), reply_markup=web_login_notice_keyboard())
+
+    async def update_invoice(self, chat_id: int, message_id: int, text: str) -> None:
+        """Живой статус счёта: правим подпись к QR оплаты и убираем кнопки — они больше не нужны."""
+        try:
+            await self._bot.edit_message_caption(chat_id=chat_id, message_id=message_id, caption=text, reply_markup=None)
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e).lower():
+                raise
+
+    async def notify_temp_expiring(self, telegram_id: int, key_id: int, *, minutes_left: int, until: str) -> None:
+        await self._bot.send_message(
+            telegram_id,
+            f"⏱ <b>Пробный ключ закончится через {minutes_left} мин</b> (в {until} МСК)\n\n"
+            "Самое время предложить клиенту подписку. Оформите её на этот же ключ — "
+            "переустанавливать ничего не придётся.",
+            reply_markup=temp_expiring_keyboard(key_id),
+        )

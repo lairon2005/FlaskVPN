@@ -166,8 +166,11 @@ class IssueFlowTests(BotCase):
         done = self.session.texts()[0]
         self.assertIn("Чек № M-000001", done)
         self.assertIn("SECRET", done)                         # ссылка менеджеру
-        self.assertIn("/c/", done)                            # ссылка кабинета клиента
-        self.assertEqual(len(self.session.of("SendPhoto")), 1)  # QR для установки
+        photos = self.session.of("SendPhoto")
+        self.assertEqual(len(photos), 2)                      # QR кабинета клиента + QR установки
+        self.assertIn("/c/", photos[0]["caption"])            # ссылка кабинета клиента
+        self.assertIn("Покажите клиенту", photos[-1]["caption"])
+        self.assertIn("mgr:menu", str(photos[-1]["reply_markup"]))  # «Новая продажа» — под последним сообщением
         self.assertEqual((await self.svc.cash_outstanding(manager.id))[0], 149.0)
 
     async def test_double_tap_on_confirm_issues_one_key(self):
@@ -191,7 +194,7 @@ class IssueFlowTests(BotCase):
         self.assertTrue(any("наличных" in t for t in self.session.texts()))
         self.assertEqual((await self.svc.cash_outstanding(manager.id))[0], 0)
 
-    async def test_online_issue_shows_qr_and_check_buttons(self):
+    async def test_online_issue_shows_qr_and_live_status(self):
         manager = await self.manager()
         await self.bot.press(MANAGER_TG, "mgr:who:new")
         await self.bot.press(MANAGER_TG, "mgr:what:tariff")
@@ -201,19 +204,23 @@ class IssueFlowTests(BotCase):
 
         photo = self.session.of("SendPhoto")[-1]
         self.assertIn("pay.example", photo["caption"])
+        self.assertIn("обновится само", photo["caption"])
         buttons = str(photo["reply_markup"])
-        self.assertIn("mgr:chk:", buttons)
+        self.assertNotIn("mgr:chk:", buttons)                 # статус обновляется сам
         self.assertIn("mgr:cancel:", buttons)
 
         op_id = (await self.svc.history(manager.id))[0].id
+        # старая кнопка «Проверить оплату» из прежних сообщений продолжает работать
         self.session.clear()
         await self.bot.press(MANAGER_TG, f"mgr:chk:{op_id}")
         self.assertTrue(any("ещё не пришла" in a for a in self.session.alerts()))
 
         await self.env.payments.process_successful_payment("yk-1", 149.0)
-        self.session.clear()
-        await self.bot.press(MANAGER_TG, f"mgr:chk:{op_id}")
-        self.assertTrue(any("Оплата получена" in a for a in self.session.alerts()))
+        await self.svc.on_payment_succeeded("yk-1")
+        invoice = self.env.notifier.invoices[-1]
+        self.assertEqual(invoice[0], MANAGER_TG)               # то самое сообщение со счётом у менеджера
+        self.assertTrue(invoice[1])
+        self.assertIn("Оплачено", invoice[2])
 
     async def test_online_invoice_can_be_cancelled(self):
         manager = await self.manager()
@@ -226,12 +233,13 @@ class IssueFlowTests(BotCase):
         await self.bot.press(MANAGER_TG, f"mgr:cancel:{op_id}")
         self.assertTrue(any("отменён" in a for a in self.session.alerts()))
         self.assertEqual((await self.svc.history(manager.id))[0].status, "cancelled")
+        self.assertIn("отменён", self.env.notifier.invoices[-1][2])
 
     async def test_custom_days_flow(self):
         manager = await self.manager(can_accept_cash=True)
         await self.bot.press(MANAGER_TG, "mgr:who:new")
         await self.bot.press(MANAGER_TG, "mgr:what:custom")
-        self.assertIn("Свои дни", self.session.last_text())
+        self.assertIn("любой срок", self.session.last_text())
         await self.bot.send(MANAGER_TG, "45")
         preview = self.session.last_text()
         self.assertIn("279", preview)
@@ -331,7 +339,7 @@ class ClientsAndHistoryTests(BotCase):
         manager = await self.manager(can_accept_cash=True)
         await self.issue_cash_via_buttons()
         await self.bot.press(MANAGER_TG, "mgr:hist:0")
-        self.assertIn("Выдача по тарифу", self.session.last_text())
+        self.assertIn("Подписка по тарифу", self.session.last_text())
         await self.bot.press(MANAGER_TG, "mgr:stats")
         self.assertIn("149", self.session.last_text())
 
@@ -355,8 +363,10 @@ class TempKeyFlowTests(BotCase):
         self.session.clear()
         await self.bot.press(MANAGER_TG, "mgr:temp_go")
 
-        self.assertIn("Временный ключ выдан", self.session.texts()[0])
-        self.assertEqual(len(self.session.of("SendPhoto")), 1)
+        self.assertIn("Пробный ключ выдан", self.session.texts()[0])
+        photos = self.session.of("SendPhoto")
+        self.assertEqual(len(photos), 1)
+        self.assertIn("mgr:conv:", str(photos[0]["reply_markup"]))
         self.assertEqual(len(self.env.panel.users), 1)
         keys = await self.svc.list_temp_keys(manager.id)
         self.assertEqual(len(keys), 1)
@@ -390,7 +400,8 @@ class TempKeyFlowTests(BotCase):
         await self.bot.press(MANAGER_TG, "mgr:temp")
         await self.bot.press(MANAGER_TG, "mgr:temp_go")
         await self.bot.press(MANAGER_TG, "mgr:temps")
-        self.assertIn("Активные временные ключи", self.session.last_text())
+        self.assertIn("Мои пробные ключи", self.session.last_text())
+        self.assertNotIn("…", self.session.last_text())       # без технических отпечатков
 
     async def test_temp_button_refused_without_the_right(self):
         await self.manager(can_issue_temp=False)
@@ -417,6 +428,7 @@ class RealNotifierTests(BotCase):
             "tgbot": _pkg("tgbot"), "tgbot.services": _pkg("tgbot.services"), "tgbot.keyboards": _pkg("tgbot.keyboards"),
             "tgbot.keyboards.manager": _load("tgbot.keyboards.manager", root / "tgbot/keyboards/manager.py"),
             "tgbot.services.qr_generator": _load("tgbot.services.qr_generator", root / "tgbot/services/qr_generator.py"),
+            "tgbot.services.manager_guide": _load("tgbot.services.manager_guide", root / "tgbot/services/manager_guide.py"),
         }
         with patch.dict(sys.modules, stubs):
             module = _load("tgbot.services.manager_notifier", root / "tgbot/services/manager_notifier.py")
@@ -439,7 +451,7 @@ class RealNotifierTests(BotCase):
         await self.bot.press(MANAGER_TG, "mgr:temp_go")
         group_messages = [d for d in self.session.of("SendMessage") if d["chat_id"] == -100500]
         self.assertEqual(len(group_messages), 1)
-        self.assertIn("Временный ключ", group_messages[0]["text"])
+        self.assertIn("Пробный ключ", group_messages[0]["text"])
 
         from sqlalchemy import update
         from db import TempKey
@@ -493,3 +505,107 @@ class RealNotifierTests(BotCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QuickSaleAndGuideTests(BotCase):
+    async def test_menu_offers_tariffs_in_one_tap(self):
+        await self.manager()
+        await self.bot.send(MANAGER_TG, "/manager")
+        markup = str(self.session.of("SendMessage")[-1]["reply_markup"])
+        for data in ("mgr:q:2", "mgr:q:custom", "mgr:temp", "mgr:pickc:0", "mgr:help"):
+            self.assertIn(data, markup)
+        self.assertIn("Новый клиент", self.session.last_text())
+
+    async def test_menu_hides_what_is_not_allowed(self):
+        await self.manager(can_issue_tariff=False, can_issue_custom=False, can_issue_temp=False)
+        await self.bot.send(MANAGER_TG, "/manager")
+        markup = str(self.session.of("SendMessage")[-1]["reply_markup"])
+        for data in ("mgr:q:", "mgr:temp"):
+            self.assertNotIn(data, markup)
+
+    async def test_quick_sale_is_two_taps(self):
+        manager = await self.manager(can_accept_cash=True)
+        await self.bot.press(MANAGER_TG, "mgr:q:2")
+        preview = self.session.of("EditMessageText")[-1]
+        self.assertIn("149", preview["text"])
+        self.assertIn("новый клиент", preview["text"])
+        self.assertIn("'mgr:menu'", str(preview["reply_markup"]))    # «Назад» — на главный экран
+        await self.bot.press(MANAGER_TG, "mgr:go:cash")
+        op = (await self.svc.history(manager.id))[0]
+        self.assertEqual((op.status, op.price), ("completed", 149.0))
+
+    async def test_label_on_the_payment_screen(self):
+        manager = await self.manager(can_accept_cash=True)
+        await self.bot.press(MANAGER_TG, "mgr:q:2")
+        await self.bot.press(MANAGER_TG, "mgr:label")
+        self.assertIn("Пометка о клиенте", self.session.last_text())
+        await self.bot.send(MANAGER_TG, "Анна, кофейня")
+        preview = self.session.of("SendMessage")[-1]
+        self.assertIn("Анна, кофейня", preview["text"])
+        self.assertIn("Пометка: Анна", str(preview["reply_markup"]))
+        await self.bot.press(MANAGER_TG, "mgr:go:cash")
+        rows, _ = await self.svc.list_clients(manager.id)
+        self.assertEqual(rows[0].label, "Анна, кофейня")
+
+    async def test_label_can_be_removed_before_payment(self):
+        manager = await self.manager(can_accept_cash=True)
+        await self.bot.press(MANAGER_TG, "mgr:q:2")
+        await self.bot.press(MANAGER_TG, "mgr:label")
+        await self.bot.send(MANAGER_TG, "Анна")
+        await self.bot.press(MANAGER_TG, "mgr:label")
+        await self.bot.press(MANAGER_TG, "mgr:label:clear")
+        await self.bot.press(MANAGER_TG, "mgr:go:cash")
+        self.assertIsNone((await self.svc.list_clients(manager.id))[0][0].label)
+
+    async def test_no_label_button_for_an_existing_client(self):
+        manager = await self.manager(can_accept_cash=True)
+        result = await self.svc.issue(manager.id, product="tariff", tariff_id=2, method="cash", idempotency_nonce="n0")
+        await self.bot.press(MANAGER_TG, f"mgr:pick:{result.client_code}")
+        await self.bot.press(MANAGER_TG, "mgr:what:tariff")
+        await self.bot.press(MANAGER_TG, "mgr:tariff:2")
+        self.assertNotIn("mgr:label", str(self.session.of("EditMessageText")[-1]["reply_markup"]))
+
+    async def test_custom_days_by_chip(self):
+        manager = await self.manager(can_accept_cash=True)
+        await self.bot.press(MANAGER_TG, "mgr:q:custom")
+        self.assertIn("mgr:days:45", str(self.session.of("EditMessageText")[-1]["reply_markup"]))
+        await self.bot.press(MANAGER_TG, "mgr:days:45")
+        self.assertIn("279", self.session.last_text())
+        await self.bot.press(MANAGER_TG, "mgr:go:cash")
+        op = (await self.svc.history(manager.id))[0]
+        self.assertEqual((op.days, op.tariff_name), (45, "Любой срок"))
+
+    async def test_guide(self):
+        await self.manager()
+        await self.bot.press(MANAGER_TG, "mgr:help")
+        markup = str(self.session.of("EditMessageText")[-1]["reply_markup"])
+        self.assertIn("mgr:help:sale", markup)
+        await self.bot.press(MANAGER_TG, "mgr:help:sale")
+        self.assertIn("Продажа за минуту", self.session.last_text())
+        await self.bot.press(MANAGER_TG, "mgr:help:nope")
+        self.assertIn("не найден", self.session.last_text())
+
+    async def test_label_edit_from_the_card(self):
+        manager = await self.manager(can_accept_cash=True)
+        result = await self.svc.issue(manager.id, product="tariff", tariff_id=2, method="cash", idempotency_nonce="n0")
+        await self.bot.press(MANAGER_TG, f"mgr:lbl:{result.client_code}")
+        await self.bot.send(MANAGER_TG, "Пётр, шиномонтаж")
+        self.assertIn("Пётр, шиномонтаж", self.session.last_text())
+        await self.bot.press(MANAGER_TG, f"mgr:lbl:{result.client_code}")
+        await self.bot.send(MANAGER_TG, "-")
+        self.assertIsNone((await self.svc.list_clients(manager.id))[0][0].label)
+
+    async def test_install_qr_from_the_card_has_steps(self):
+        manager = await self.manager(can_accept_cash=True)
+        result = await self.svc.issue(manager.id, product="tariff", tariff_id=2, method="cash", idempotency_nonce="n0")
+        self.session.clear()
+        await self.bot.press(MANAGER_TG, f"mgr:link:{result.client_code}")
+        photo = self.session.of("SendPhoto")[-1]
+        self.assertIn("Покажите клиенту", photo["caption"])
+        self.assertIn("INCY", photo["caption"])
+
+    async def test_welcome_points_to_the_guide(self):
+        manager, token = await self.svc.invite("Иван", admin_id=1)
+        await self.bot.send(MANAGER_TG, f"/start mgr_{token}")
+        welcome = [m for m in self.session.of("SendMessage") if "Добро пожаловать" in m["text"]][0]
+        self.assertIn("mgr:help", str(welcome["reply_markup"]))

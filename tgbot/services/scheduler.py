@@ -1089,8 +1089,18 @@ async def cancel_stale_payments():
 # =============================================================================
 
 async def expire_temp_keys():
-    """Удаляет из панели истёкшие временные ключи менеджеров (раз в минуту)."""
+    """
+    Раз в минуту: напоминает менеджеру о скором конце пробного ключа (предложить подписку)
+    и удаляет из панели истёкшие.
+    """
     from tgbot.services import manager_service
+
+    try:
+        reminded = await manager_service.remind_expiring_temp_keys()
+        if reminded:
+            logger.info(f"Временные ключи: напоминаний менеджерам — {reminded}")
+    except Exception as e:
+        logger.error(f"Временные ключи: напоминания не отправлены: {e}", exc_info=True)
 
     try:
         deleted, failed = await manager_service.expire_temp_keys()

@@ -804,6 +804,58 @@
     .btn-loading .btn-text::after {
         content: '…';
     }
+
+    /* Панель менеджера: плитка выбора (радио-карточка) — тариф, способ, «кому» */
+    .choice {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        padding: 0.85rem 1rem;
+        border: 2px solid rgb(36 87 197 / 0.22);
+        border-radius: var(--radius-lg);
+        background: var(--color-paper);
+        cursor: pointer;
+        transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .choice:hover { border-color: var(--color-blue); }
+    .choice:has(input:checked) {
+        border-color: var(--color-blue);
+        background: var(--color-sky-soft);
+        box-shadow: var(--shadow-pop);
+    }
+    .choice:has(input:focus-visible) { outline: 3px solid var(--color-orange); outline-offset: 2px; }
+    .choice input { position: absolute; opacity: 0; pointer-events: none; }
+
+    /* Быстрый выбор срока: 7 / 14 / 45 дн. */
+    .chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 40px;
+        padding: 0.4rem 0.9rem;
+        border: 2px solid rgb(36 87 197 / 0.22);
+        border-radius: 999px;
+        background: var(--color-paper);
+        font-weight: 700;
+        font-size: 0.875rem;
+        cursor: pointer;
+    }
+    .chip:hover, .chip[aria-pressed="true"] { border-color: var(--color-blue); background: var(--color-sky-soft); }
+
+    /* Нижняя панель вкладок панели менеджера на телефоне */
+    .tabbar a {
+        display: flex;
+        flex: 1 1 0;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.1rem;
+        padding: 0.45rem 0.25rem 0.55rem;
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: var(--color-muted);
+    }
+    .tabbar a[aria-current="page"] { color: var(--color-blue); }
+    .tabbar a .tab-icon { font-size: 1.25rem; line-height: 1.2; }
 }
 
 /* ============================================================

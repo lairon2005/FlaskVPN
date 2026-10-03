@@ -12,9 +12,9 @@ from tgbot.services.qr_generator import create_qr_code
 from utils.telegram_ui import replace_message_text
 
 OP_TITLES = {
-    "issue_tariff": "Выдача по тарифу", "issue_custom": "Свои дни", "issue_temp": "Временный ключ",
-    "convert_temp": "Подписка на ключ", "access_grant": "Доступ к клиенту", "key_view": "Просмотр ссылки",
-    "autorenew_off": "Автопродление выкл.", "cabinet_link_reset": "Новая ссылка кабинета",
+    "issue_tariff": "Подписка по тарифу", "issue_custom": "Подписка на любой срок", "issue_temp": "Пробный ключ",
+    "convert_temp": "Подписка на пробный ключ", "access_grant": "Доступ к клиенту", "key_view": "Показан QR установки",
+    "autorenew_off": "Автопродление выкл.", "cabinet_link_reset": "Новая ссылка на кабинет",
 }
 STATUS_ICONS = {"completed": "✅", "pending_payment": "⏳", "cancelled": "🚫", "failed": "❌", "processing": "⚙️"}
 
@@ -77,8 +77,6 @@ def format_brief(op) -> str:
     if op.price:
         method = {"cash": "нал.", "online": "онлайн"}.get(op.payment_method or "", "")
         detail.append(f"{fmt_money(op.price)} {method}".strip())
-    if op.key_fingerprint:
-        detail.append(f"ключ …{op.key_fingerprint}")
     if detail:
         parts.append("   " + " · ".join(detail))
     return "\n".join(parts)
@@ -88,7 +86,7 @@ def quote_text(quote, *, client_label: str) -> str:
     """Предпросмотр выдачи: что получит клиент, из чего сложилась цена, подсказка, согласие."""
     quota = "безлимитный трафик" if quote.quota_gb == 0 else f"{quote.quota_gb + quote.extra_traffic_gb} ГБ/мес"
     lines = [
-        "🧾 <b>Предпросмотр выдачи</b>\n",
+        "🧾 <b>Проверьте и выберите оплату</b>\n",
         f"👤 Клиент: {client_label}",
         f"📦 {quote.tariff_name} · <b>{quote.days} дн.</b>",
         f"📊 {quota} · 📱 до {quote.devices_limit} устр.",

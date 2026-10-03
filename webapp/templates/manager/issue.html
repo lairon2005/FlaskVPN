@@ -2,62 +2,90 @@
 {% import "_icons.html" as ic %}
 
 {% block content %}
-<h1 class="font-display font-black text-2xl mb-4">Выдать ключ</h1>
+<h1 class="font-display font-black text-2xl mb-4">{% if temp_key_id %}💳 Подписка на пробный ключ{% else %}⚡ Продажа{% endif %}</h1>
 
 <div id="issueApp" data-temp-key="{{ temp_key_id }}" data-max-days="{{ max_days }}" data-can-cash="{{ 1 if manager.can_accept_cash else 0 }}">
 
     <section class="sticker p-4">
         <h2 class="font-display font-extrabold">1. Кому</h2>
         {% if temp_key_id %}
-            <p class="mt-2 text-sm text-subtle">Подписка оформляется на клиента, у которого временный ключ — переустанавливать ничего не нужно.</p>
+            <p class="mt-2 text-sm text-subtle">Подписка оформляется на клиента с пробным ключом — переустанавливать ничего не нужно.</p>
+            <div class="mt-3">
+                <label class="field-label" for="labelInput">Пометка о клиенте <span class="font-normal text-muted">— необязательно</span></label>
+                <input class="input" id="labelInput" maxlength="64" placeholder="Например: Анна, кофейня на Ленина" autocomplete="off">
+            </div>
         {% else %}
-        <div class="mt-3 flex flex-wrap gap-3 text-sm font-bold" role="radiogroup" aria-label="Клиент">
-            <label class="flex items-center gap-2"><input type="radio" name="who" value="new" {% if not preselect_client %}checked{% endif %}> Новый клиент</label>
-            <label class="flex items-center gap-2"><input type="radio" name="who" value="mine" {% if preselect_client %}checked{% endif %}> Мой клиент</label>
-            <label class="flex items-center gap-2"><input type="radio" name="who" value="code"> Код от клиента</label>
+        <div class="mt-3 grid grid-cols-3 gap-2 text-sm" role="radiogroup" aria-label="Клиент">
+            <label class="choice items-center text-center"><input type="radio" name="who" value="new" {% if not preselect_client %}checked{% endif %}>
+                <span class="text-lg" aria-hidden="true">🆕</span><b>Новый</b></label>
+            <label class="choice items-center text-center"><input type="radio" name="who" value="mine" {% if preselect_client %}checked{% endif %}>
+                <span class="text-lg" aria-hidden="true">🔄</span><b>Мой клиент</b></label>
+            <label class="choice items-center text-center"><input type="radio" name="who" value="code">
+                <span class="text-lg" aria-hidden="true">🔢</span><b>По коду</b></label>
+        </div>
+        <div id="whoNew" class="mt-3 {% if preselect_client %}hidden{% endif %}">
+            <label class="field-label" for="labelInput">Пометка о клиенте <span class="font-normal text-muted">— необязательно</span></label>
+            <input class="input" id="labelInput" maxlength="64" placeholder="Например: Анна, кофейня на Ленина" autocomplete="off">
+            <p class="mt-1 text-xs text-subtle">Чтобы потом узнать клиента в списке. Видите только вы и администратор.</p>
         </div>
         <div id="whoMine" class="mt-3 {% if not preselect_client %}hidden{% endif %}">
-            <select id="clientSelect" class="input">
+            {% if clients or preselect_client %}
+            <select id="clientSelect" class="input" aria-label="Клиент">
                 {% for c in clients %}
-                    <option value="{{ c.client_code }}" {% if c.client_code == preselect_client %}selected{% endif %}>{{ c.client_code }}{% if c.label %} · {{ c.label }}{% endif %}{% if not c.is_active %} (закончилась){% endif %}</option>
+                    <option value="{{ c.client_code }}" {% if c.client_code == preselect_client %}selected{% endif %}>{% if c.label %}{{ c.label }} · {% endif %}{{ c.client_code }}{% if not c.is_active %} (закончилась){% endif %}</option>
                 {% endfor %}
                 {% if preselect_client and not clients | selectattr('client_code', 'equalto', preselect_client) | list %}
                     <option value="{{ preselect_client }}" selected>{{ preselect_client }}</option>
                 {% endif %}
             </select>
+            {% else %}
+            <p class="text-sm text-muted">У вас пока нет клиентов — выберите «Новый» или «По коду».</p>
+            {% endif %}
         </div>
-        <div id="whoCode" class="mt-3 hidden flex flex-wrap gap-2">
-            <input class="input !w-44 font-mono uppercase" id="accessCode" maxlength="12" placeholder="Код клиента" autocomplete="off">
-            <button class="btn-pop btn-pop-outline !min-h-0 !py-2.5" type="button" id="useCodeBtn">Подтвердить код</button>
+        <div id="whoCode" class="mt-3 hidden">
+            <p class="text-sm text-subtle">Клиент открывает бота → профиль → «👔 Код для менеджера» и диктует 6 символов. Код действует 15 минут.</p>
+            <div class="mt-2 flex flex-wrap gap-2">
+                <input class="input !w-44 font-mono uppercase" id="accessCode" maxlength="12" placeholder="K7F3Q2" autocomplete="off" aria-label="Код клиента">
+                <button class="btn-pop btn-pop-outline !min-h-0 !py-2.5" type="button" id="useCodeBtn">Подтвердить код</button>
+            </div>
         </div>
         {% endif %}
     </section>
 
     <section class="sticker p-4 mt-3">
-        <h2 class="font-display font-extrabold">2. Что выдаём</h2>
-        <div class="mt-3 flex flex-wrap gap-3 text-sm font-bold">
-            {% if manager.can_issue_tariff %}<label class="flex items-center gap-2"><input type="radio" name="product" value="tariff" checked> По тарифу</label>{% endif %}
-            {% if manager.can_issue_custom %}<label class="flex items-center gap-2"><input type="radio" name="product" value="custom" {% if not manager.can_issue_tariff %}checked{% endif %}> Свои дни</label>{% endif %}
-        </div>
-        <div id="productTariff" class="mt-3">
-            <select id="tariffSelect" class="input">
+        <h2 class="font-display font-extrabold">2. Что</h2>
+        <div class="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2" role="radiogroup" aria-label="Тариф">
+            {% if manager.can_issue_tariff %}
                 {% for t in tariffs %}
-                    <option value="{{ t.id }}">{{ t.name }} — {{ t.price | int }} ₽ · {{ t.days }} дн. · {{ 'безлимит' if t.quota_gb == 0 else (t.quota_gb ~ ' ГБ') }}</option>
+                <label class="choice"><input type="radio" name="plan" value="t{{ t.id }}" {% if not preselect_custom and t.id == preselect_tariff %}checked{% endif %}>
+                    <b class="font-display">{{ t.name }}</b>
+                    <span class="font-display font-black text-xl tabular-nums">{{ t.price | int }} ₽</span>
+                    <span class="text-xs text-subtle">{{ t.days }} дн. · {{ 'безлимит' if t.quota_gb == 0 else (t.quota_gb ~ ' ГБ/мес') }}</span>
+                </label>
                 {% endfor %}
-            </select>
+            {% endif %}
+            {% if manager.can_issue_custom %}
+            <label class="choice"><input type="radio" name="plan" value="custom" {% if preselect_custom or not (manager.can_issue_tariff and tariffs) %}checked{% endif %}>
+                <b class="font-display">📅 Любой срок</b>
+                <span class="text-xs text-subtle">Цену посчитает система</span>
+            </label>
+            {% endif %}
         </div>
-        <div id="productCustom" class="mt-3 hidden">
-            <label class="field-label" for="daysInput">Количество дней (1–{{ max_days }})</label>
-            <input type="number" id="daysInput" class="input !w-40" min="1" max="{{ max_days }}" value="30" inputmode="numeric">
+        <div id="productCustom" class="mt-4 hidden">
+            <label class="field-label" for="daysInput">Сколько дней (1–{{ max_days }})</label>
+            <div class="flex flex-wrap items-center gap-2">
+                <input type="number" id="daysInput" class="input !w-28" min="1" max="{{ max_days }}" value="30" inputmode="numeric">
+                {% for d in (7, 14, 45, 60, 90, 180) %}{% if d <= max_days %}<button type="button" class="chip" data-days="{{ d }}">{{ d }} дн.</button>{% endif %}{% endfor %}
+            </div>
         </div>
     </section>
 
     <section class="sticker p-4 mt-3" id="previewBox" aria-live="polite">
-        <h2 class="font-display font-extrabold">3. Предпросмотр</h2>
-        <div id="previewBody" class="mt-2 text-sm text-subtle">Выберите продукт — цена появится здесь.</div>
-        <div id="previewActions" class="mt-4 flex flex-wrap gap-2 hidden">
-            <button class="btn-pop" type="button" id="payOnlineBtn"><span class="btn-text">📱 Оплата по QR (онлайн)</span></button>
-            {% if manager.can_accept_cash %}<button class="btn-pop btn-pop-outline" type="button" id="payCashBtn"><span class="btn-text">💵 Принял наличные</span></button>{% endif %}
+        <h2 class="font-display font-extrabold">3. Оплата</h2>
+        <div id="previewBody" class="mt-2 text-sm text-subtle">Выберите тариф — цена появится здесь.</div>
+        <div id="previewActions" class="mt-4 grid gap-2 sm:flex sm:flex-wrap hidden">
+            <button class="btn-pop w-full sm:w-auto" type="button" id="payOnlineBtn"><span class="btn-text">📱 Оплата по QR — клиент платит сам</span></button>
+            {% if manager.can_accept_cash %}<button class="btn-pop btn-pop-outline w-full sm:w-auto" type="button" id="payCashBtn"><span class="btn-text">💵 Принял наличные</span></button>{% endif %}
         </div>
     </section>
 

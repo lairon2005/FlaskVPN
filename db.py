@@ -365,6 +365,9 @@ class ManagerOperation(Base):
     error_code: Mapped[str] = mapped_column(String(32), nullable=True)
     receipt_chat_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     receipt_message_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    # Сообщение со счётом (QR оплаты) в боте у менеджера: после оплаты/отмены правится само.
+    invoice_chat_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    invoice_message_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now, index=True)
     completed_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
 
@@ -383,6 +386,8 @@ class TempKey(Base):
     status: Mapped[str] = mapped_column(String(12), default='active', server_default='active')
     deleted_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
     delete_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
+    # Когда менеджеру напомнили «ключ скоро закончится — предложите подписку» (один раз).
+    reminded_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
 
 

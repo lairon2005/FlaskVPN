@@ -8,7 +8,7 @@ from loader import logger
 from tgbot.commands import apply_commands
 from tgbot.filters.manager import forget
 from tgbot.handlers.manager.common import password_link_text, site_url
-from tgbot.keyboards.manager import manager_menu_keyboard, password_link_keyboard
+from tgbot.keyboards.manager import password_link_keyboard, welcome_keyboard
 from tgbot.services import manager_service
 from tgbot.services.manager_service import ManagerError
 
@@ -29,12 +29,10 @@ async def accept_invite(message: Message, bot: Bot):
     logger.info(f"[manager] #{manager.id} ({manager.display_name}) accepted invite via bot")
     await message.answer(
         f"👔 <b>Добро пожаловать, {manager.display_name}!</b>\n\n"
-        "Вы — менеджер. Здесь вы выдаёте VPN-ключи клиентам: по тарифу, на нужное число дней "
-        "или временный ключ на час. Каждая операция попадает в журнал и в чат чеков.\n\n"
+        "Вы — менеджер: продаёте и подключаете VPN клиентам. Начните с короткой памятки — "
+        "там всё, что нужно для первой продажи.\n\n"
         "Панель всегда доступна по команде /manager.",
-        reply_markup=manager_menu_keyboard(
-            can_global_stats=manager.can_view_global_stats, can_temp=manager.can_issue_temp,
-        ),
+        reply_markup=welcome_keyboard(),
     )
     if not manager.login:
         return

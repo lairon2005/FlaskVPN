@@ -113,6 +113,7 @@ def load_manager_handlers(env, admin: bool = False):
         "tgbot.services.manager_service": env.module,
         "tgbot.services.manager_receipts": real("tgbot.services.manager_receipts", "tgbot/services/manager_receipts.py"),
         "tgbot.services.qr_generator": real("tgbot.services.qr_generator", "tgbot/services/qr_generator.py"),
+        "tgbot.services.manager_guide": real("tgbot.services.manager_guide", "tgbot/services/manager_guide.py"),
         "tgbot.keyboards": _pkg("tgbot.keyboards"),
         "tgbot.keyboards.manager": real("tgbot.keyboards.manager", "tgbot/keyboards/manager.py"),
         "tgbot.states": _pkg("tgbot.states"),

@@ -100,7 +100,7 @@ class TempKeyTests(unittest.TestCase):
 
     def test_shows_lifetime_and_free(self):
         text = mr.format_group_receipt(self._temp())
-        self.assertIn("Временный ключ", text)
+        self.assertIn("Пробный ключ", text)
         self.assertIn("14:35 → 15:35", text)
         self.assertIn("бесплатно", text)
 

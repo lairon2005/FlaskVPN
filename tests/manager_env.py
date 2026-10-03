@@ -23,7 +23,7 @@ from test_stars_payment import load_payment_service_module
 ROOT = Path(__file__).resolve().parents[1]
 GIB = 1024 ** 3
 
-_PURE = ("device_pricing", "pricing", "manager_receipts", "manager_security")
+_PURE = ("device_pricing", "pricing", "manager_receipts", "manager_security", "manager_guide")
 
 
 def _load(name: str, path: Path):
@@ -114,6 +114,8 @@ class RecordingNotifier:
         self.client_access: list[tuple[int, str]] = []
         self.manager_texts: list[tuple[int, str]] = []
         self.web_logins: list[dict] = []
+        self.invoices: list[tuple[int, int, str]] = []
+        self.temp_reminders: list[dict] = []
         self._next_message_id = 1000
 
     async def post_group_receipt(self, op_id, text, existing):
@@ -131,6 +133,12 @@ class RecordingNotifier:
 
     async def notify_client_access(self, user_id, manager_name):
         self.client_access.append((user_id, manager_name))
+
+    async def update_invoice(self, chat_id, message_id, text):
+        self.invoices.append((chat_id, message_id, text))
+
+    async def notify_temp_expiring(self, telegram_id, key_id, *, minutes_left, until):
+        self.temp_reminders.append({"to": telegram_id, "key": key_id, "left": minutes_left, "until": until})
 
     async def notify_manager_text(self, telegram_id, text):
         self.manager_texts.append((telegram_id, text))

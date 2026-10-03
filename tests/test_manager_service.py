@@ -619,7 +619,7 @@ class CashIssueTests(EnvTestCase):
         payment = await self.env.repos.payments.get_by_yookassa_id(op.payment_id)
         self.assertEqual((payment.kind, payment.days, payment.tariff_id), ("custom", 45, None))
         self.assertEqual(op.op_type, "issue_custom")
-        self.assertEqual(op.tariff_name, "Свои дни")
+        self.assertEqual(op.tariff_name, "Любой срок")
 
     async def test_custom_days_bounds(self):
         manager = await self.manager(can_accept_cash=True)
@@ -901,7 +901,7 @@ class TempKeyTests(EnvTestCase):
         self.assertEqual((op.op_type, op.price, op.payment_method), ("issue_temp", 0, "free"))
         self.assertIsNotNone(op.key_expires_at)
         _, group_text = self.env.notifier.group[-1]
-        self.assertIn("Временный ключ", group_text)
+        self.assertIn("Пробный ключ", group_text)
         self.assertNotIn("SECRET", group_text)
 
     async def test_lifetime_follows_settings(self):
@@ -1331,3 +1331,105 @@ class TariffListTests(EnvTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# =============================================================================
+# Удобство менеджера: пометка клиента, живой статус счёта, напоминание о пробном ключе
+# =============================================================================
+
+class UxTests(EnvTestCase):
+    async def test_label_is_saved_for_a_new_client_and_cleaned(self):
+        manager = await self.manager(can_accept_cash=True)
+        result = await self.cash_issue(manager, label="  Анна,\n  кофейня   на Ленина ")
+        rows, _ = await self.svc.list_clients(manager.id)
+        self.assertEqual((rows[0].client_code, rows[0].label), (result.client_code, "Анна, кофейня на Ленина"))
+
+    async def test_label_is_cut_to_the_limit_and_empty_means_none(self):
+        manager = await self.manager(can_accept_cash=True)
+        await self.cash_issue(manager, nonce="a", label="x" * 300)
+        await self.cash_issue(manager, nonce="b", label="   ")
+        labels = sorted((r.label or "") for r in (await self.svc.list_clients(manager.id))[0])
+        self.assertEqual(labels, ["", "x" * self.env.module.LABEL_MAX])
+
+    async def test_label_does_not_overwrite_an_existing_client(self):
+        manager = await self.manager(can_accept_cash=True)
+        first = await self.cash_issue(manager, nonce="a", label="Анна")
+        await self.cash_issue(manager, nonce="b", client_code=first.client_code, label="Чужая пометка")
+        rows, _ = await self.svc.list_clients(manager.id)
+        self.assertEqual(rows[0].label, "Анна")
+
+    async def test_label_goes_to_the_manager_receipt_but_not_to_the_group(self):
+        manager = await self.manager(can_accept_cash=True)
+        result = await self.cash_issue(manager, label="Анна, кофейня")
+        self.assertIn("Анна, кофейня", result.receipt_text)
+        group_text = self.env.notifier.group[-1][1]
+        self.assertNotIn("Анна", group_text)
+        self.assertIn(result.client_code, group_text)
+
+    async def test_manager_receipt_has_no_technical_key_name(self):
+        manager = await self.manager(can_accept_cash=True)
+        result = await self.cash_issue(manager)
+        self.assertNotIn("🔑 Ключ", result.receipt_text)
+        self.assertIn("🔑 Ключ", self.env.notifier.group[-1][1])   # в общем чате — для сверки админом
+
+    async def test_custom_product_name(self):
+        manager = await self.manager(can_accept_cash=True)
+        await self.cash_issue(manager, product="custom", tariff_id=None, days=10)
+        self.assertEqual((await self.svc.history(manager.id))[0].tariff_name, "Любой срок")
+
+    async def test_invoice_message_is_updated_when_paid(self):
+        manager = await self.manager()
+        result = await self.svc.issue(manager.id, product="tariff", tariff_id=2, method="online", idempotency_nonce="n1")
+        await self.svc.remember_invoice_message(manager.id, result.operation_id, 1001, 55)
+        await self.env.payments.process_successful_payment("yk-1", 149.0)
+        await self.svc.on_payment_succeeded("yk-1")
+        chat, message, text = self.env.notifier.invoices[-1]
+        self.assertEqual((chat, message), (1001, 55))
+        self.assertIn("Оплачено", text)
+        self.assertIn("149", text)
+
+    async def test_invoice_message_is_updated_when_cancelled(self):
+        manager = await self.manager()
+        result = await self.svc.issue(manager.id, product="tariff", tariff_id=2, method="online", idempotency_nonce="n1")
+        await self.svc.remember_invoice_message(manager.id, result.operation_id, 1001, 55)
+        await self.svc.cancel_pending(manager.id, result.operation_id)
+        self.assertIn("отменён", self.env.notifier.invoices[-1][2])
+
+    async def test_foreign_manager_cannot_attach_an_invoice_message(self):
+        a = await self.manager(telegram_id=1)
+        b = await self.manager(telegram_id=2)
+        result = await self.svc.issue(a.id, product="tariff", tariff_id=2, method="online", idempotency_nonce="n1")
+        await self.svc.remember_invoice_message(b.id, result.operation_id, 2, 99)
+        await self.svc.cancel_pending(a.id, result.operation_id)
+        self.assertEqual(self.env.notifier.invoices, [])
+
+    async def _set_expiry(self, key_id, minutes):
+        from sqlalchemy import update
+        from db import TempKey
+        async with self.env.session_maker() as session:
+            await session.execute(update(TempKey).where(TempKey.id == key_id).values(
+                expires_at=datetime.datetime.now() + datetime.timedelta(minutes=minutes)))
+            await session.commit()
+
+    async def test_temp_key_reminder_is_sent_once_near_the_end(self):
+        manager = await self.manager()
+        far = await self.svc.issue_temp(manager.id, "t1")
+        near = await self.svc.issue_temp(manager.id, "t2")
+        await self._set_expiry(near.key_id, 7)
+        self.assertEqual(await self.svc.remind_expiring_temp_keys(), 1)
+        self.assertEqual(await self.svc.remind_expiring_temp_keys(), 0)       # второй раз — тишина
+        reminder = self.env.notifier.temp_reminders[-1]
+        self.assertEqual((reminder["to"], reminder["key"], reminder["left"]), (1001, near.key_id, 7))
+        self.assertNotIn(far.key_id, [r["key"] for r in self.env.notifier.temp_reminders])
+
+    async def test_no_reminder_for_converted_or_blocked(self):
+        manager = await self.manager(can_accept_cash=True)
+        key = await self.svc.issue_temp(manager.id, "t1")
+        await self.svc.issue(manager.id, product="tariff", tariff_id=2, method="cash",
+                             idempotency_nonce="c1", temp_key_id=key.key_id)
+        await self._set_expiry(key.key_id, 5)
+        other = await self.manager(telegram_id=2)
+        key2 = await self.svc.issue_temp(other.id, "t2")
+        await self._set_expiry(key2.key_id, 5)
+        await self.svc.set_status(other.id, "blocked", admin_id=1)
+        self.assertEqual(await self.svc.remind_expiring_temp_keys(), 0)

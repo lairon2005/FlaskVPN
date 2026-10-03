@@ -29,7 +29,7 @@ from tgbot.services.custom_pricing import (
 )
 from tgbot.services.device_pricing import build_checkout, days_left, receipt_items
 from tgbot.services.manager_receipts import (
-    KIND_CUSTOM, KIND_TARIFF, KIND_TEMP, ReceiptData, fmt_dt,
+    KIND_CUSTOM, KIND_TARIFF, KIND_TEMP, ReceiptData, fmt_dt, fmt_money, fmt_time,
     format_client_receipt, format_group_receipt, format_manager_receipt,
 )
 from tgbot.services.manager_security import (
@@ -51,6 +51,11 @@ DEFAULT_TEMP_MINUTES = 60
 DEFAULT_TEMP_TRAFFIC_GB = 5
 DEFAULT_TEMP_DEVICES = 1
 DEFAULT_ACCESS_GRACE_DAYS = 14
+
+# Как называется выдача на произвольный срок в чеках, журнале и на экранах.
+CUSTOM_PRODUCT_NAME = "Любой срок"
+# За сколько минут до конца пробного ключа напомнить менеджеру предложить подписку.
+TEMP_REMIND_MINUTES = 10
 
 # --- ограничения -----------------------------------------------------------
 INVITE_TTL_HOURS = 24
@@ -275,6 +280,15 @@ def _brief(op) -> OperationBrief:
 
 def _now() -> datetime.datetime:
     return datetime.datetime.now()
+
+
+LABEL_MAX = 64
+
+
+def _clean_label(raw: str | None) -> str | None:
+    """Пометка менеджера: одна строка, без лишних пробелов, не длиннее LABEL_MAX."""
+    label = " ".join((raw or "").split())[:LABEL_MAX]
+    return label or None
 
 
 class ManagerService:
@@ -827,7 +841,7 @@ class ManagerService:
             duration = result.days
             base_price = float(result.price)
             quota = tariff_quota_gb(traffic_settings, None)
-            name = "Свои дни"
+            name = CUSTOM_PRODUCT_NAME
             breakdown = result.breakdown(settings.day_price)
             hint = result.hint
             details = {"product": "custom", "formula_price": result.price, "reason": result.floor_reason}
@@ -869,13 +883,15 @@ class ManagerService:
 
     async def issue(self, manager_id: int, *, product: str, method: str, idempotency_nonce: str,
                     client_code: str | None = None, tariff_id: int | None = None, days: int | None = None,
-                    expected_total: float | None = None, temp_key_id: int | None = None) -> IssueResult:
+                    expected_total: float | None = None, temp_key_id: int | None = None,
+                    label: str | None = None) -> IssueResult:
         """
         Подтверждение выдачи. Идемпотентно: повтор с тем же nonce вернёт прежний
         результат, а не выдаст второй ключ.
 
         temp_key_id — конвертация временного ключа: клиентом становится тот, кому
         он выдан, а панельный пользователь остаётся прежним (без переустановки).
+        label — пометка менеджера для НОВОГО клиента («Анна, кофейня»); существующему не меняется.
         """
         manager = await self.require_active(manager_id)
         if method not in ("cash", "online"):
@@ -904,7 +920,7 @@ class ManagerService:
                 self._check_expected(expected_total, quote)
                 if method == "cash":
                     await self._check_cash_limit(manager, quote.total)
-            client, is_new, cabinet_token = await self._resolve_client(manager, client_code, temp_key_id)
+            client, is_new, cabinet_token = await self._resolve_client(manager, client_code, temp_key_id, _clean_label(label))
             # Клиент создан — фиксируем в журнале сразу: если дальше что-то сорвётся, _fail
             # знает, кого отвязать от временного ключа.
             await self._ops.update(op.id, client_user_id=client.user_id, client_code=client.client_code)
@@ -964,7 +980,7 @@ class ManagerService:
             # иначе повторная конвертация упёрлась бы в UNIQUE.
             await self._users.bind_panel_user(fresh.client_user_id, None, None)
 
-    async def _resolve_client(self, manager, client_code, temp_key_id):
+    async def _resolve_client(self, manager, client_code, temp_key_id, label: str | None = None):
         """Клиент выдачи: из временного ключа, по коду или новый. Возвращает (user, is_new, cabinet_token|None)."""
         if temp_key_id is not None:
             self._require_right(manager, "can_issue_temp")
@@ -973,15 +989,15 @@ class ManagerService:
                 raise ManagerError("temp_not_found")
             if not await self._temps.transition(key.id, "active", "converting"):
                 raise ManagerError("temp_not_found")
-            code, token = await self.create_client(manager.id)
+            code, token = await self.create_client(manager.id, label)
             user = await self._users.get_by_client_code(code)
             await self._users.bind_panel_user(user.user_id, key.rw_username, key.rw_uuid)
             await self._temps.transition(key.id, "converting", "converting", client_user_id=user.user_id)
-            await self._clients.grant(manager.id, user.user_id, "temp_convert", await self._access_until(user))
+            await self._clients.grant(manager.id, user.user_id, "temp_convert", await self._access_until(user), label)
             return await self._users.get(user.user_id), True, token
         if client_code:
             return await self._client_by_code(manager, client_code), False, None
-        code, token = await self.create_client(manager.id)
+        code, token = await self.create_client(manager.id, label)
         return await self._users.get_by_client_code(code), True, token
 
     async def _replay(self, op) -> IssueResult:
@@ -1115,7 +1131,26 @@ class ManagerService:
             key_fingerprint=key_fingerprint(url or client.vpn_username or ""),
             key_expires_at=client.subscription_end_date,
         )
+        await self._mark_invoice(op, "✅ <b>Оплачено</b> · {price}\n\nКлюч выдан — QR для установки пришёл следующим сообщением.")
         await self._publish(op.id, subscription_url=url, notify_manager=True, notify_client=True)
+
+    async def remember_invoice_message(self, manager_id: int, operation_id: int, chat_id: int, message_id: int) -> None:
+        """Бот показал счёт — запоминаем сообщение, чтобы обновить его, когда придёт оплата или счёт отменится."""
+        op = await self._ops.get(operation_id)
+        if op is None or op.manager_id != manager_id:
+            return
+        await self._ops.update(operation_id, invoice_chat_id=chat_id, invoice_message_id=message_id)
+
+    async def _mark_invoice(self, op, template: str) -> None:
+        """Живой статус счёта в боте: правим сообщение с QR оплаты. Сбой — не повод ронять оплату."""
+        fresh = await self._ops.get(op.id)
+        if self.notifier is None or not fresh or not fresh.invoice_message_id:
+            return
+        text = template.format(price=fmt_money(fresh.price or 0))
+        try:
+            await self.notifier.update_invoice(fresh.invoice_chat_id, fresh.invoice_message_id, text)
+        except Exception as e:
+            logger.warning(f"[manager] cannot update invoice message of op {op.id}: {e}")
 
     async def sync_pending_operations(self) -> int:
         """
@@ -1128,6 +1163,7 @@ class ManagerService:
             if payment is None or payment.status in ("cancelled", "failed"):
                 if await self._ops.transition(op.id, "pending_payment", "cancelled", completed_at=_now()):
                     await self._release_converting(op)
+                    await self._mark_invoice(op, "🚫 <b>Счёт не оплачен и закрыт</b>\n\nЕсли клиент всё ещё хочет купить — выставьте новый.")
                     await self._publish(op.id)
                     changed += 1
             elif payment.status == "succeeded":
@@ -1187,6 +1223,7 @@ class ManagerService:
         await self._payments.cancel_pending_payment(op.client_user_id)
         if await self._ops.transition(op.id, "pending_payment", "cancelled", completed_at=_now()):
             await self._release_converting(op)
+            await self._mark_invoice(op, "🚫 <b>Счёт отменён</b>\n\nНе оплачивайте старую ссылку.")
             await self._publish(op.id)
         return True
 
@@ -1261,6 +1298,31 @@ class ManagerService:
             rows.append({"id": key.id, "expires_at": key.expires_at, "status": key.status,
                          "fingerprint": key_fingerprint(key.rw_username)})
         return rows
+
+    async def remind_expiring_temp_keys(self, minutes: int = TEMP_REMIND_MINUTES) -> int:
+        """
+        За `minutes` до конца пробного ключа — напоминание менеджеру с кнопкой «оформить подписку
+        на этот ключ». По каждому ключу один раз. Возвращает число отправленных напоминаний.
+        """
+        if self.notifier is None:
+            return 0
+        now = _now()
+        sent = 0
+        for key in await self._temps.list_expiring(now, now + datetime.timedelta(minutes=minutes)):
+            manager = await self._managers.get(key.manager_id)
+            if manager is None or manager.status != "active" or not manager.telegram_id:
+                continue
+            if not await self._temps.mark_reminded(key.id):
+                continue
+            left = max(1, round((key.expires_at - now).total_seconds() / 60))
+            try:
+                await self.notifier.notify_temp_expiring(
+                    manager.telegram_id, key.id, minutes_left=left, until=fmt_time(key.expires_at),
+                )
+                sent += 1
+            except Exception as e:
+                logger.warning(f"[manager] cannot remind about temp key #{key.id}: {e}")
+        return sent
 
     async def expire_temp_keys(self) -> tuple[int, int]:
         """
@@ -1369,8 +1431,12 @@ class ManagerService:
             devices_limit = devices
         else:
             devices_limit = dev.base_limit + (op.extra_devices or 0)
+        label = None
+        if op.client_user_id:
+            link = await self._clients.get_active(op.manager_id, op.client_user_id)
+            label = link.label if link else None
         return ReceiptData(
-            op_id=op.id, created_at=op.created_at, manager_id=op.manager_id,
+            op_id=op.id, created_at=op.created_at, manager_id=op.manager_id, client_label=label,
             manager_name=manager.display_name if manager else "—", kind=kind, status=op.status,
             client_code=op.client_code, client_is_new=bool(details.get("new_client")),
             product_title=op.tariff_name or "", days=op.days, custom_note=custom_note,

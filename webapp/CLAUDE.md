@@ -176,16 +176,18 @@ python3 tools/make_collage.py  # пересобрать коллажную ка�
 |-------|------|----------|
 | GET/POST | `/manager/login` | Форма входа / вход по логину и паролю |
 | GET/POST | `/manager/password?t=…` | Задать пароль по ссылке из бота |
-| GET | `/manager/`, `/issue`, `/temp`, `/clients`, `/clients/{код}`, `/history`, `/account` | Страницы |
+| GET | `/manager/`, `/issue` (`?tariff=<id>`, `?custom=1`, `?client=`, `?temp=`), `/temp`, `/clients`, `/clients/{код}`, `/history`, `/help`, `/account` | Страницы (мобильная нижняя панель вкладок, экран «Покажите клиенту» в `manager/base.html`) |
 | POST | `/manager/account/password` | Смена пароля (текущий + новый, CSRF в форме); остальные сессии сбрасываются |
 | POST | `/manager/logout` | Выход (CSRF в форме) |
 | POST | `/manager/api/quote` · `/issue` · `/temp` | Предпросмотр цены · подтверждение выдачи (идемпотентно по nonce) · временный ключ |
+| POST | `/manager/api/label` | Пометка о клиенте `{client_code, label}` |
 | POST | `/manager/api/client-code` · `/link` · `/noauto` · `/cabinet-reset` · `/qr` | Добавить клиента по коду · ссылка для установки (в журнал) · выкл. автопродление · новая ссылка кабинета · QR (только https) |
 | GET/POST | `/manager/api/op/{id}` · `/op/{id}/cancel` | Статус (опрос) и отмена счёта своей операции |
 
 Все `/api/*` — JSON, требуют `X-CSRF-Token` и совпадающий `Origin`. Шаблоны — `templates/manager/*`
 (своя база `manager/base.html`, без шапки сайта), логика страницы выдачи — `static/js/manager.js`
-(динамический текст только через `textContent`).
+(динамический текст только через `textContent`). CSS и JS панели подключаются через `static_url()`
+(`webapp/templating.py`: `?v=<mtime>`) — иначе после релиза браузер берёт из кэша старый `manager.js`.
 
 ### `client_link.py`
 | Метод | Путь | Описание |

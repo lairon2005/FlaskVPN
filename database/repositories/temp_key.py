@@ -41,6 +41,27 @@ class TempKeyRepository:
             )
             return (await session.execute(stmt)).scalars().all()
 
+    async def list_expiring(self, now: datetime.datetime, until: datetime.datetime) -> list[TempKey]:
+        """Активные ключи, которые закончатся до `until`, а напоминания по ним ещё не было."""
+        async with self._session_maker() as session:
+            stmt = (
+                select(TempKey)
+                .where(TempKey.status == 'active', TempKey.reminded_at.is_(None),
+                       TempKey.expires_at > now, TempKey.expires_at <= until)
+                .order_by(TempKey.expires_at)
+            )
+            return (await session.execute(stmt)).scalars().all()
+
+    async def mark_reminded(self, key_id: int) -> bool:
+        """Атомарно: напоминание уходит один раз, даже если джобы пересеклись."""
+        async with self._session_maker() as session:
+            result = await session.execute(
+                update(TempKey).where(TempKey.id == key_id, TempKey.reminded_at.is_(None))
+                .values(reminded_at=datetime.datetime.now())
+            )
+            await session.commit()
+            return result.rowcount > 0
+
     async def list_stuck_converting(self, older_than: datetime.datetime) -> list[TempKey]:
         """Ключи, зависшие в 'converting' (оплата не дошла) после истечения срока."""
         async with self._session_maker() as session:

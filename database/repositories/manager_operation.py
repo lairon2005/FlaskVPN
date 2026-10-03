@@ -13,6 +13,7 @@ MUTABLE_FIELDS = {
     "key_fingerprint", "key_expires_at", "completed_at", "receipt_chat_id",
     "receipt_message_id", "client_user_id", "client_code", "price", "price_details",
     "traffic_gb", "days", "tariff_name", "tariff_id", "extra_devices",
+    "invoice_chat_id", "invoice_message_id",
 }
 
 

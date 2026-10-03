@@ -18,7 +18,8 @@ from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from tgbot.services import manager_service
-from tgbot.services.manager_receipts import fmt_dt, fmt_money
+from tgbot.services.manager_guide import CABINET_HINT, GUIDE, INSTALL_STEPS
+from tgbot.services.manager_receipts import fmt_dt, fmt_money, fmt_time
 from tgbot.services.manager_service import ManagerError
 from tgbot.services.qr_generator import create_qr_code
 from webapp.core.manager_auth import (
@@ -47,7 +48,8 @@ def _error(e: ManagerError) -> JSONResponse:
 def _page(request: Request, name: str, session: ManagerSession, title: str, **ctx) -> HTMLResponse:
     response = render(request, name, {
         "manager": session.manager, "csrf": session.csrf, "title": title,
-        "fmt_dt": fmt_dt, "fmt_money": fmt_money, **ctx,
+        "fmt_dt": fmt_dt, "fmt_money": fmt_money, "fmt_time": fmt_time,
+        "install_steps": INSTALL_STEPS, "cabinet_hint": CABINET_HINT, **ctx,
     })
     response.headers.update(_NO_STORE)
     return response
@@ -202,11 +204,14 @@ async def dashboard(request: Request):
     manager = session.manager
     stats = await manager_service.stats(manager.id)
     recent = await manager_service.history(manager.id, 0, 6)
-    return _page(request, "manager/dashboard.html", session, "Панель менеджера", stats=stats, recent=recent)
+    tariffs = await manager_service.list_tariffs() if manager.can_issue_tariff else []
+    return _page(request, "manager/dashboard.html", session, "Панель менеджера", stats=stats, recent=recent,
+                 tariffs=tariffs)
 
 
 @router.get("/issue", response_class=HTMLResponse)
-async def issue_page(request: Request, client: str | None = None, temp: int | None = None):
+async def issue_page(request: Request, client: str | None = None, temp: int | None = None,
+                     tariff: int | None = None, custom: int = 0):
     session = await _page_session(request)
     if isinstance(session, RedirectResponse):
         return session
@@ -215,8 +220,9 @@ async def issue_page(request: Request, client: str | None = None, temp: int | No
     settings = await manager_service.custom_settings()
     clients, _total = await manager_service.list_clients(manager.id, 0, 200)
     return _page(
-        request, "manager/issue.html", session, "Выдать ключ", tariffs=tariffs, max_days=settings.max_days,
+        request, "manager/issue.html", session, "Продажа", tariffs=tariffs, max_days=settings.max_days,
         clients=clients, preselect_client=client or "", temp_key_id=temp or 0,
+        preselect_tariff=tariff or (tariffs[0].id if tariffs else 0), preselect_custom=bool(custom),
     )
 
 
@@ -227,7 +233,7 @@ async def temp_page(request: Request):
         return session
     minutes, gb, devices = await manager_service.temp_settings()
     keys = await manager_service.list_temp_keys(session.manager.id)
-    return _page(request, "manager/temp.html", session, "Временный ключ",
+    return _page(request, "manager/temp.html", session, "Пробный ключ",
                  minutes=minutes, gb=gb, devices=devices, keys=keys)
 
 
@@ -254,6 +260,14 @@ async def client_page(request: Request, code: str):
     return _page(request, "manager/client.html", session, f"Клиент {card.client_code}", card=card)
 
 
+@router.get("/help", response_class=HTMLResponse)
+async def help_page(request: Request):
+    session = await _page_session(request)
+    if isinstance(session, RedirectResponse):
+        return session
+    return _page(request, "manager/help.html", session, "Как продавать", guide=GUIDE)
+
+
 @router.get("/history", response_class=HTMLResponse)
 async def history_page(request: Request, page: int = 0):
     session = await _page_session(request)
@@ -276,6 +290,7 @@ class QuoteRequest(BaseModel):
 
 class IssueRequest(QuoteRequest):
     method: Literal["cash", "online"]
+    label: str | None = Field(default=None, max_length=200)
     nonce: str = Field(min_length=8, max_length=40)
     expected_total: float | None = None
     temp_key_id: int | None = None
@@ -291,6 +306,10 @@ class CodeRequest(BaseModel):
 
 class ClientRequest(BaseModel):
     client_code: str = Field(max_length=16)
+
+
+class LabelRequest(ClientRequest):
+    label: str | None = Field(default=None, max_length=200)
 
 
 class QrRequest(BaseModel):
@@ -321,7 +340,7 @@ async def api_issue(body: IssueRequest, session: ManagerSession = Depends(requir
         result = await manager_service.issue(
             session.manager.id, product=body.product, method=body.method, idempotency_nonce=body.nonce,
             client_code=body.client_code or None, tariff_id=body.tariff_id, days=body.days,
-            expected_total=body.expected_total, temp_key_id=body.temp_key_id or None,
+            expected_total=body.expected_total, temp_key_id=body.temp_key_id or None, label=body.label,
         )
     except ManagerError as e:
         return _error(e)
@@ -343,6 +362,7 @@ async def api_temp(body: TempRequest, session: ManagerSession = Depends(require_
     return JSONResponse({
         "operation_id": result.operation_id, "key_id": result.key_id,
         "subscription_url": result.subscription_url, "expires_at": fmt_dt(result.expires_at),
+        "expires_ts": int(result.expires_at.timestamp()) if result.expires_at else None,
     }, headers=_NO_STORE)
 
 
@@ -360,7 +380,7 @@ async def api_operation(operation_id: int, session: ManagerSession = Depends(req
     brief = await manager_service.check_operation(session.manager.id, operation_id)
     if brief is None:
         raise HTTPException(status_code=404, detail="Not found")
-    return JSONResponse({"status": brief.status}, headers=_NO_STORE)
+    return JSONResponse({"status": brief.status, "client_code": brief.client_code}, headers=_NO_STORE)
 
 
 @router.post("/api/op/{operation_id}/cancel")
@@ -394,6 +414,16 @@ async def api_cabinet_reset(body: ClientRequest, session: ManagerSession = Depen
     except ManagerError as e:
         return _error(e)
     return JSONResponse({"cabinet_url": url}, headers=_NO_STORE)
+
+
+@router.post("/api/label")
+async def api_label(body: LabelRequest, session: ManagerSession = Depends(require_api_session)):
+    label = " ".join((body.label or "").split())[:64] or None
+    try:
+        await manager_service.set_client_label(session.manager.id, body.client_code, label)
+    except ManagerError as e:
+        return _error(e)
+    return JSONResponse({"label": label}, headers=_NO_STORE)
 
 
 @router.post("/api/qr")

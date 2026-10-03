@@ -1,4 +1,6 @@
 """Главное меню панели менеджера, история, статистика, вход на сайт (логин, пароль, сеансы)."""
+from html import escape
+
 from aiogram import F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command, ExceptionTypeFilter
@@ -10,9 +12,11 @@ from tgbot.handlers.manager.common import (
     current_manager, format_brief, password_link_text, show, show_error, site_url,
 )
 from tgbot.keyboards.manager import (
-    back_to_manager_menu, history_keyboard, manager_menu_keyboard, password_link_keyboard, web_access_keyboard,
+    back_to_manager_menu, guide_keyboard, history_keyboard, manager_menu_keyboard, password_link_keyboard,
+    web_access_keyboard,
 )
 from tgbot.services import manager_service
+from tgbot.services.manager_guide import GUIDE, section as guide_section
 from tgbot.services.manager_receipts import fmt_money
 from tgbot.services.manager_service import ManagerError
 
@@ -41,12 +45,21 @@ async def manager_error_handler(event: ErrorEvent):
 
 HISTORY_PAGE = 8
 
-_TYPE_NAMES = {"issue_tariff": "по тарифу", "issue_custom": "свои дни",
-               "issue_temp": "временные", "convert_temp": "из временных"}
+_TYPE_NAMES = {"issue_tariff": "по тарифу", "issue_custom": "любой срок",
+               "issue_temp": "пробные", "convert_temp": "из пробных"}
 _METHOD_NAMES = {"cash": "наличные", "online": "онлайн", "free": "бесплатно"}
 
 
+def _sales_word(n: int) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        return "продажа"
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return "продажи"
+    return "продаж"
+
+
 async def show_menu(event: Message | CallbackQuery, state: FSMContext):
+    """Главный экран: итоги дня и быстрая продажа — тариф одной кнопкой."""
     await state.clear()
     manager = await current_manager(event)
     try:
@@ -54,15 +67,21 @@ async def show_menu(event: Message | CallbackQuery, state: FSMContext):
     except ManagerError as e:
         await show_error(event, e)
         return
+    tariffs = await manager_service.list_tariffs() if manager.can_issue_tariff else []
 
-    text = (
-        f"👔 <b>Панель менеджера</b> — {manager.display_name}\n\n"
-        f"📅 Сегодня: <b>{stats.today.count}</b> операц. · {fmt_money(stats.today.revenue)}\n"
-    )
+    today = stats.today
+    lines = [
+        f"👔 <b>Панель менеджера</b> · {manager.display_name}",
+        f"📅 Сегодня: <b>{today.count}</b> {_sales_word(today.count)} на {fmt_money(today.revenue)}",
+    ]
     if manager.can_accept_cash:
-        text += f"💵 К сдаче: <b>{fmt_money(stats.cash_outstanding)}</b> ({stats.cash_operations} оп.)\n"
-    await show(event, text, manager_menu_keyboard(
-        can_global_stats=manager.can_view_global_stats, can_temp=manager.can_issue_temp,
+        lines.append(f"💵 К сдаче: <b>{fmt_money(stats.cash_outstanding)}</b>")
+    if tariffs or manager.can_issue_custom:
+        lines.append("\n⚡ <b>Новый клиент</b> — нажмите тариф, дальше выберете оплату.")
+    lines.append("🔄 <b>Постоянный клиент</b> — «Продлить моему клиенту».")
+    await show(event, "\n".join(lines), manager_menu_keyboard(
+        tariffs=tariffs, can_custom=manager.can_issue_custom, can_temp=manager.can_issue_temp,
+        can_global_stats=manager.can_view_global_stats,
     ))
 
 
@@ -108,7 +127,7 @@ def _stats_text(title: str, stats, *, with_clients: bool = True) -> str:
         lines.append(f"👥 Клиентов: {stats.clients}")
         lines.append(f"💵 К сдаче: {fmt_money(stats.cash_outstanding)} ({stats.cash_operations} оп.)")
     if stats.temp_total:
-        lines.append(f"⏱ Временных ключей за месяц: {stats.temp_total}, стали подпиской: {stats.temp_converted}")
+        lines.append(f"⏱ Пробных ключей за месяц: {stats.temp_total}, стали подпиской: {stats.temp_converted}")
     return "\n".join(lines)
 
 
@@ -177,3 +196,27 @@ async def end_sessions_handler(call: CallbackQuery):
     await manager_service.end_web_sessions(manager.id)
     await call.answer("Все входы на сайте завершены. Если пароль мог узнать кто-то ещё — смените его.",
                       show_alert=True)
+
+
+# --- Памятка «Как продавать» ---------------------------------------------------------
+
+@manager_router.callback_query(F.data == "mgr:help")
+async def guide_handler(call: CallbackQuery):
+    await call.answer()
+    await show(
+        call,
+        "❓ <b>Как продавать</b>\n\nКороткая памятка: как оформить подписку за минуту, что отвечать клиентам "
+        "и что делать, если что-то не работает. Выберите раздел:",
+        guide_keyboard(GUIDE),
+    )
+
+
+@manager_router.callback_query(F.data.startswith("mgr:help:"))
+async def guide_section_handler(call: CallbackQuery):
+    await call.answer()
+    section = guide_section(call.data.split(":", 2)[2])
+    if section is None:
+        await show(call, "Раздел не найден.", guide_keyboard(GUIDE))
+        return
+    body = "\n\n".join(escape(line) for line in section.lines)
+    await show(call, f"<b>{escape(section.title)}</b>\n\n{body}", guide_keyboard(GUIDE, current=section.key))

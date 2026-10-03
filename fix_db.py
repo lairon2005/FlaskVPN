@@ -418,6 +418,13 @@ async def fix_database():
         ))
         print("  ✅ managers.login / password_hash / password_changed_at / failed_logins / locked_until")
 
+        # ── 20. Менеджеры: живой статус счёта в боте, напоминание о пробном ключе ──
+        print("\n📋 Менеджеры: статус счёта и напоминания...")
+        await conn.execute(text("ALTER TABLE manager_operations ADD COLUMN IF NOT EXISTS invoice_chat_id BIGINT;"))
+        await conn.execute(text("ALTER TABLE manager_operations ADD COLUMN IF NOT EXISTS invoice_message_id BIGINT;"))
+        await conn.execute(text("ALTER TABLE temp_keys ADD COLUMN IF NOT EXISTS reminded_at TIMESTAMP;"))
+        print("  ✅ manager_operations.invoice_chat_id / invoice_message_id, temp_keys.reminded_at")
+
     print("\n🎉 Миграция завершена успешно!")
 
 
