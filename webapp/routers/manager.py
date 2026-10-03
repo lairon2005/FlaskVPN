@@ -286,6 +286,9 @@ class QuoteRequest(BaseModel):
     client_code: str | None = None
     tariff_id: int | None = None
     days: int | None = None
+    # Доп. устройства и пакеты трафика на новый срок. None — как у клиента сейчас; потолки проверяет сервис.
+    slots: int | None = Field(default=None, ge=0, le=1000)
+    packs: int | None = Field(default=None, ge=0, le=1000)
 
 
 class IssueRequest(QuoteRequest):
@@ -327,7 +330,7 @@ async def api_quote(body: QuoteRequest, session: ManagerSession = Depends(requir
     try:
         quote = await manager_service.quote(
             session.manager.id, product=body.product, client_code=body.client_code or None,
-            tariff_id=body.tariff_id, days=body.days,
+            tariff_id=body.tariff_id, days=body.days, slots=body.slots, packs=body.packs,
         )
     except ManagerError as e:
         return _error(e)
@@ -341,6 +344,7 @@ async def api_issue(body: IssueRequest, session: ManagerSession = Depends(requir
             session.manager.id, product=body.product, method=body.method, idempotency_nonce=body.nonce,
             client_code=body.client_code or None, tariff_id=body.tariff_id, days=body.days,
             expected_total=body.expected_total, temp_key_id=body.temp_key_id or None, label=body.label,
+            slots=body.slots, packs=body.packs,
         )
     except ManagerError as e:
         return _error(e)

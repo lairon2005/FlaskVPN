@@ -30,11 +30,11 @@
         <a href="/manager/" class="wordmark text-xl shrink-0">Flask<span class="vpn">VPN</span>
             <span class="text-xs font-body font-bold text-muted align-middle ml-1">менеджер</span></a>
         <nav class="hidden md:flex flex-wrap items-center gap-1 text-sm font-bold" aria-label="Разделы">
-            <a class="px-3 py-1.5 rounded-lg hover:bg-blue/10 aria-[current=page]:bg-blue/10" href="/manager/issue"{{ nav_current('/manager/issue') }}>⚡ Продажа</a>
-            {% if manager.can_issue_temp %}<a class="px-3 py-1.5 rounded-lg hover:bg-blue/10 aria-[current=page]:bg-blue/10" href="/manager/temp"{{ nav_current('/manager/temp') }}>⏱ Пробный ключ</a>{% endif %}
-            <a class="px-3 py-1.5 rounded-lg hover:bg-blue/10 aria-[current=page]:bg-blue/10" href="/manager/clients"{{ nav_current('/manager/clients') }}>👥 Клиенты</a>
-            <a class="px-3 py-1.5 rounded-lg hover:bg-blue/10 aria-[current=page]:bg-blue/10" href="/manager/history"{{ nav_current('/manager/history') }}>📜 История</a>
-            <a class="px-3 py-1.5 rounded-lg hover:bg-blue/10 aria-[current=page]:bg-blue/10" href="/manager/help"{{ nav_current('/manager/help') }}>❓ Памятка</a>
+            <a class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-blue/10 aria-[current=page]:bg-blue/10" href="/manager/issue"{{ nav_current('/manager/issue') }}>{{ ic.icon('zap', 'w-4 h-4') }}Продажа</a>
+            {% if manager.can_issue_temp %}<a class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-blue/10 aria-[current=page]:bg-blue/10" href="/manager/temp"{{ nav_current('/manager/temp') }}>{{ ic.icon('timer', 'w-4 h-4') }}Пробный ключ</a>{% endif %}
+            <a class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-blue/10 aria-[current=page]:bg-blue/10" href="/manager/clients"{{ nav_current('/manager/clients') }}>{{ ic.icon('users', 'w-4 h-4') }}Клиенты</a>
+            <a class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-blue/10 aria-[current=page]:bg-blue/10" href="/manager/history"{{ nav_current('/manager/history') }}>{{ ic.icon('history', 'w-4 h-4') }}История</a>
+            <a class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-blue/10 aria-[current=page]:bg-blue/10" href="/manager/help"{{ nav_current('/manager/help') }}>{{ ic.icon('help', 'w-4 h-4') }}Памятка</a>
         </nav>
         <div class="ml-auto flex items-center gap-3 text-sm min-w-0">
             <a href="/manager/account" class="text-muted truncate max-w-[9rem] hover:text-orange transition" title="Аккаунт и пароль">{{ manager.display_name }}</a>
@@ -52,11 +52,11 @@
 
 {# Телефон: разделы — снизу, под большим пальцем #}
 <nav class="tabbar md:hidden fixed bottom-0 inset-x-0 z-40 flex bg-paper/95 backdrop-blur border-t-2 border-blue/10 pb-[env(safe-area-inset-bottom)]" aria-label="Разделы">
-    <a href="/manager/"{{ nav_current('/manager/', exact=True) }}><span class="tab-icon" aria-hidden="true">🏠</span>Главная</a>
-    <a href="/manager/issue"{{ nav_current('/manager/issue') }}><span class="tab-icon" aria-hidden="true">⚡</span>Продажа</a>
-    {% if manager.can_issue_temp %}<a href="/manager/temp"{{ nav_current('/manager/temp') }}><span class="tab-icon" aria-hidden="true">⏱</span>Пробный</a>{% endif %}
-    <a href="/manager/clients"{{ nav_current('/manager/clients') }}><span class="tab-icon" aria-hidden="true">👥</span>Клиенты</a>
-    <a href="/manager/help"{{ nav_current('/manager/help') }}><span class="tab-icon" aria-hidden="true">❓</span>Памятка</a>
+    <a href="/manager/"{{ nav_current('/manager/', exact=True) }}>{{ ic.icon('home', 'tab-icon w-6 h-6') }}Главная</a>
+    <a href="/manager/issue"{{ nav_current('/manager/issue') }}>{{ ic.icon('zap', 'tab-icon w-6 h-6') }}Продажа</a>
+    {% if manager.can_issue_temp %}<a href="/manager/temp"{{ nav_current('/manager/temp') }}>{{ ic.icon('timer', 'tab-icon w-6 h-6') }}Пробный</a>{% endif %}
+    <a href="/manager/clients"{{ nav_current('/manager/clients') }}>{{ ic.icon('users', 'tab-icon w-6 h-6') }}Клиенты</a>
+    <a href="/manager/help"{{ nav_current('/manager/help') }}>{{ ic.icon('help', 'tab-icon w-6 h-6') }}Памятка</a>
 </nav>
 
 {# «Покажите клиенту»: на весь экран — большой QR и шаги установки. Заполняет manager.js. #}

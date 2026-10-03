@@ -7,6 +7,7 @@
 местах, а забытая регистрация падала бы только на конкретной странице.
 """
 import inspect
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -76,6 +77,19 @@ def static_url(rel_path: str) -> str:
 
 
 templates.env.globals['static_url'] = static_url
+
+# Эмодзи в общих с ботом текстах (памятка менеджера, названия разделов): на сайте вместо
+# них — SVG-иконки, сами символы убираем. Диапазоны: пиктограммы, символы, стрелки-часы, VS16, ZWJ.
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\u2300-\u23FF\uFE0F\u200D]")
+
+
+def no_emoji(value) -> str:
+    text = _EMOJI.sub("", str(value or ""))
+    text = re.sub(r"«\s+", "«", text)
+    return re.sub(r"\s{2,}", " ", text).strip()
+
+
+templates.env.filters['no_emoji'] = no_emoji
 
 
 # Сигнатура TemplateResponse менялась: раньше (name, context), с Starlette 0.29 —

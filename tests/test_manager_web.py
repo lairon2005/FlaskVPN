@@ -746,3 +746,32 @@ class UxPagesTests(WebCase):
         self.assertIn("data-countdown=", page)
         fingerprint = (await self.svc.list_temp_keys(manager.id))[0]["fingerprint"]
         self.assertNotIn(fingerprint, page)
+
+
+class ExtrasWebTests(WebCase):
+    async def test_quote_and_issue_with_chosen_extras(self):
+        manager = await self.env.make_manager(can_accept_cash=True)
+        async with self.client() as client:
+            csrf = await self.login(client, manager)
+            page = (await client.get("/manager/issue")).text
+            q = (await client.post("/manager/api/quote", headers=self.api(csrf), json={
+                "product": "tariff", "tariff_id": 2, "slots": 2, "packs": 1})).json()
+            data = (await client.post("/manager/api/issue", headers=self.api(csrf), json={
+                "product": "tariff", "tariff_id": 2, "slots": 2, "packs": 1, "method": "cash",
+                "nonce": "web-nonce-0201", "expected_total": q["total"]})).json()
+        self.assertIn('id="extrasBox"', page)
+        self.assertEqual((q["slots"], q["packs"], q["devices_limit"], q["total"]), (2, 1, 7, 149 + 3 * 49))
+        self.assertEqual((q["max_slots"], q["max_packs"]), (5, 10))
+        self.assertEqual((data["status"], data["price"]), ("completed", 149 + 3 * 49))
+
+    async def test_out_of_range_extras(self):
+        manager = await self.env.make_manager()
+        async with self.client() as client:
+            csrf = await self.login(client, manager)
+            too_many = await client.post("/manager/api/quote", headers=self.api(csrf),
+                                         json={"product": "tariff", "tariff_id": 2, "slots": 50})
+            negative = await client.post("/manager/api/quote", headers=self.api(csrf),
+                                         json={"product": "tariff", "tariff_id": 2, "packs": -1})
+        self.assertEqual(too_many.status_code, 400)
+        self.assertEqual(too_many.json()["error"], "bad_extras")
+        self.assertEqual(negative.status_code, 422)

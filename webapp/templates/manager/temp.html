@@ -1,7 +1,8 @@
 {% extends "manager/base.html" %}
+{% import "_icons.html" as ic %}
 
 {% block content %}
-<h1 class="font-display font-black text-2xl mb-2">⏱ Пробный ключ</h1>
+<h1 class="font-display font-black text-2xl mb-2 flex items-center gap-2">{{ ic.icon('timer', 'w-6 h-6 text-blue') }}Пробный ключ</h1>
 <div class="sticker p-4 max-w-2xl">
     <p>Дайте клиенту попробовать VPN прямо сейчас — бесплатно.</p>
     <ul class="mt-2 text-sm text-subtle list-disc pl-5 space-y-0.5">
@@ -14,11 +15,11 @@
 </div>
 
 <div id="tempResult" class="sticker p-4 mt-4 hidden max-w-2xl">
-    <p class="font-display font-extrabold text-lg">✅ Пробный ключ выдан · <span id="tempOp"></span></p>
+    <p class="font-display font-extrabold text-lg flex items-center gap-2">{{ ic.icon('check-circle', 'w-6 h-6 text-success') }}<span>Пробный ключ выдан · <span id="tempOp"></span></span></p>
     <p class="text-sm text-subtle">Работает до <b id="tempUntil"></b> МСК, затем удаляется сам.</p>
     <div class="mt-3 grid gap-2 sm:flex sm:flex-wrap">
-        <button class="btn-pop w-full sm:w-auto" type="button" id="tempShowBtn">📲 Показать клиенту QR</button>
-        <a id="tempConvert" class="btn-pop btn-pop-outline w-full sm:w-auto" href="#">💳 Оформить подписку на этот ключ</a>
+        <button class="btn-pop w-full sm:w-auto" type="button" id="tempShowBtn">{{ ic.icon('qr', 'w-5 h-5') }}Показать клиенту QR</button>
+        <a id="tempConvert" class="btn-pop btn-pop-outline w-full sm:w-auto" href="#">{{ ic.icon('card', 'w-5 h-5') }}Оформить подписку на этот ключ</a>
     </div>
     <div class="copy-field mt-3"><input type="text" id="tempLink" readonly aria-label="Ссылка для установки"><button class="copy-btn" type="button" id="copyTempBtn" aria-label="Скопировать">⧉</button></div>
 </div>
@@ -32,7 +33,7 @@
             <p class="font-bold">Работает до {{ fmt_time(key.expires_at) }}</p>
             <p class="text-xs text-muted">{% if key.status == 'converting' %}оформляется подписка{% else %}осталось <span data-countdown="{{ key.expires_at.timestamp() | int }}">…</span>{% endif %}</p>
         </div>
-        {% if key.status == 'active' %}<a class="btn-pop btn-pop-outline !min-h-0 !py-2 !px-3 text-sm" href="/manager/issue?temp={{ key.id }}">💳 Оформить подписку</a>{% endif %}
+        {% if key.status == 'active' %}<a class="btn-pop btn-pop-outline !min-h-0 !py-2 !px-3 text-sm" href="/manager/issue?temp={{ key.id }}">{{ ic.icon('card', 'w-4 h-4') }}Оформить подписку</a>{% endif %}
     </li>
     {% endfor %}
 </ul>

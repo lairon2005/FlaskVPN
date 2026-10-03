@@ -181,6 +181,7 @@ python3 tools/make_collage.py  # пересобрать коллажную ка�
 | POST | `/manager/logout` | Выход (CSRF в форме) |
 | POST | `/manager/api/quote` · `/issue` · `/temp` | Предпросмотр цены · подтверждение выдачи (идемпотентно по nonce) · временный ключ |
 | POST | `/manager/api/label` | Пометка о клиенте `{client_code, label}` |
+| — | `/manager/api/quote` · `/issue` | Необязательные `slots` / `packs` — доп. устройства и пакеты трафика на новый срок (None — как у клиента) |
 | POST | `/manager/api/client-code` · `/link` · `/noauto` · `/cabinet-reset` · `/qr` | Добавить клиента по коду · ссылка для установки (в журнал) · выкл. автопродление · новая ссылка кабинета · QR (только https) |
 | GET/POST | `/manager/api/op/{id}` · `/op/{id}/cancel` | Статус (опрос) и отмена счёта своей операции |
 

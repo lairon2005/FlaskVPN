@@ -2,7 +2,7 @@
 {% import "_icons.html" as ic %}
 
 {% block content %}
-<h1 class="font-display font-black text-2xl mb-4">{% if temp_key_id %}💳 Подписка на пробный ключ{% else %}⚡ Продажа{% endif %}</h1>
+<h1 class="font-display font-black text-2xl mb-4 flex items-center gap-2">{% if temp_key_id %}{{ ic.icon('card', 'w-6 h-6 text-blue') }}Подписка на пробный ключ{% else %}{{ ic.icon('zap', 'w-6 h-6 text-orange') }}Продажа{% endif %}</h1>
 
 <div id="issueApp" data-temp-key="{{ temp_key_id }}" data-max-days="{{ max_days }}" data-can-cash="{{ 1 if manager.can_accept_cash else 0 }}">
 
@@ -17,11 +17,11 @@
         {% else %}
         <div class="mt-3 grid grid-cols-3 gap-2 text-sm" role="radiogroup" aria-label="Клиент">
             <label class="choice items-center text-center"><input type="radio" name="who" value="new" {% if not preselect_client %}checked{% endif %}>
-                <span class="text-lg" aria-hidden="true">🆕</span><b>Новый</b></label>
+                {{ ic.icon('user-plus', 'w-6 h-6 text-blue') }}<b>Новый</b></label>
             <label class="choice items-center text-center"><input type="radio" name="who" value="mine" {% if preselect_client %}checked{% endif %}>
-                <span class="text-lg" aria-hidden="true">🔄</span><b>Мой клиент</b></label>
+                {{ ic.icon('rotate', 'w-6 h-6 text-blue') }}<b>Мой клиент</b></label>
             <label class="choice items-center text-center"><input type="radio" name="who" value="code">
-                <span class="text-lg" aria-hidden="true">🔢</span><b>По коду</b></label>
+                {{ ic.icon('hash', 'w-6 h-6 text-blue') }}<b>По коду</b></label>
         </div>
         <div id="whoNew" class="mt-3 {% if preselect_client %}hidden{% endif %}">
             <label class="field-label" for="labelInput">Пометка о клиенте <span class="font-normal text-muted">— необязательно</span></label>
@@ -43,7 +43,7 @@
             {% endif %}
         </div>
         <div id="whoCode" class="mt-3 hidden">
-            <p class="text-sm text-subtle">Клиент открывает бота → профиль → «👔 Код для менеджера» и диктует 6 символов. Код действует 15 минут.</p>
+            <p class="text-sm text-subtle">Клиент открывает бота → профиль → «Код для менеджера» и диктует 6 символов. Код действует 15 минут.</p>
             <div class="mt-2 flex flex-wrap gap-2">
                 <input class="input !w-44 font-mono uppercase" id="accessCode" maxlength="12" placeholder="K7F3Q2" autocomplete="off" aria-label="Код клиента">
                 <button class="btn-pop btn-pop-outline !min-h-0 !py-2.5" type="button" id="useCodeBtn">Подтвердить код</button>
@@ -66,7 +66,7 @@
             {% endif %}
             {% if manager.can_issue_custom %}
             <label class="choice"><input type="radio" name="plan" value="custom" {% if preselect_custom or not (manager.can_issue_tariff and tariffs) %}checked{% endif %}>
-                <b class="font-display">📅 Любой срок</b>
+                <b class="font-display flex items-center gap-1.5">{{ ic.icon('calendar', 'w-5 h-5 text-blue') }}Любой срок</b>
                 <span class="text-xs text-subtle">Цену посчитает система</span>
             </label>
             {% endif %}
@@ -78,14 +78,34 @@
                 {% for d in (7, 14, 45, 60, 90, 180) %}{% if d <= max_days %}<button type="button" class="chip" data-days="{{ d }}">{{ d }} дн.</button>{% endif %}{% endfor %}
             </div>
         </div>
+        <div id="extrasBox" class="mt-4 grid gap-3 sm:grid-cols-2 hidden">
+            <div class="rounded-2xl border-2 border-blue/15 p-3">
+                <p class="text-sm font-bold flex items-center gap-1.5">{{ ic.icon('devices', 'w-4 h-4 text-blue') }}Устройства</p>
+                <div class="mt-2 flex items-center gap-3">
+                    <button type="button" class="chip !px-2.5" data-step="slots" data-delta="-1" aria-label="Меньше устройств">{{ ic.icon('minus', 'w-5 h-5') }}</button>
+                    <span id="slotsValue" class="font-display font-black text-2xl tabular-nums min-w-[3ch] text-center" aria-live="polite"></span>
+                    <button type="button" class="chip !px-2.5" data-step="slots" data-delta="1" aria-label="Больше устройств">{{ ic.icon('plus', 'w-5 h-5') }}</button>
+                </div>
+                <p id="slotsHint" class="mt-1 text-xs text-subtle"></p>
+            </div>
+            <div class="rounded-2xl border-2 border-blue/15 p-3" id="trafficStepper">
+                <p class="text-sm font-bold flex items-center gap-1.5">{{ ic.icon('chart', 'w-4 h-4 text-blue') }}Трафик в месяц</p>
+                <div class="mt-2 flex items-center gap-3">
+                    <button type="button" class="chip !px-2.5" data-step="packs" data-delta="-1" aria-label="Меньше трафика">{{ ic.icon('minus', 'w-5 h-5') }}</button>
+                    <span id="packsValue" class="font-display font-black text-2xl tabular-nums min-w-[5ch] text-center" aria-live="polite"></span>
+                    <button type="button" class="chip !px-2.5" data-step="packs" data-delta="1" aria-label="Больше трафика">{{ ic.icon('plus', 'w-5 h-5') }}</button>
+                </div>
+                <p id="packsHint" class="mt-1 text-xs text-subtle"></p>
+            </div>
+        </div>
     </section>
 
     <section class="sticker p-4 mt-3" id="previewBox" aria-live="polite">
         <h2 class="font-display font-extrabold">3. Оплата</h2>
         <div id="previewBody" class="mt-2 text-sm text-subtle">Выберите тариф — цена появится здесь.</div>
         <div id="previewActions" class="mt-4 grid gap-2 sm:flex sm:flex-wrap hidden">
-            <button class="btn-pop w-full sm:w-auto" type="button" id="payOnlineBtn"><span class="btn-text">📱 Оплата по QR — клиент платит сам</span></button>
-            {% if manager.can_accept_cash %}<button class="btn-pop btn-pop-outline w-full sm:w-auto" type="button" id="payCashBtn"><span class="btn-text">💵 Принял наличные</span></button>{% endif %}
+            <button class="btn-pop w-full sm:w-auto" type="button" id="payOnlineBtn">{{ ic.icon('qr', 'w-5 h-5') }}<span class="btn-text">Оплата по QR — клиент платит сам</span></button>
+            {% if manager.can_accept_cash %}<button class="btn-pop btn-pop-outline w-full sm:w-auto" type="button" id="payCashBtn">{{ ic.icon('banknote', 'w-5 h-5') }}<span class="btn-text">Принял наличные</span></button>{% endif %}
         </div>
     </section>
 

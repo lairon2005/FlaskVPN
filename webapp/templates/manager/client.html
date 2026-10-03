@@ -6,7 +6,7 @@
 <div class="mt-2 flex flex-wrap items-baseline gap-x-3">
     <h1 class="font-display font-black text-2xl" id="clientTitle">{{ card.label or 'Без пометки' }}</h1>
     <span class="font-mono text-muted">{{ card.client_code }}</span>
-    <button type="button" class="text-sm font-bold text-blue hover:text-orange" id="labelBtn">📝 Изменить пометку</button>
+    <button type="button" class="inline-flex items-center gap-1 text-sm font-bold text-blue hover:text-orange" id="labelBtn">{{ ic.icon('pencil', 'w-4 h-4') }}Изменить пометку</button>
 </div>
 
 <div class="grid gap-3 sm:grid-cols-2 mt-4" id="clientCard" data-code="{{ card.client_code }}" data-label="{{ card.label or '' }}">
@@ -19,9 +19,9 @@
     </section>
     <section class="sticker p-4">
         <h2 class="font-display font-extrabold">Устройства и трафик</h2>
-        <p class="mt-2 text-sm">📱 {{ card.devices_used if card.devices_used is not none else '—' }} из {{ card.devices_limit }}
+        <p class="mt-2 text-sm flex items-center gap-1.5 flex-wrap">{{ ic.icon('smartphone', 'w-4 h-4 text-muted') }}{{ card.devices_used if card.devices_used is not none else '—' }} из {{ card.devices_limit }}
             {% if card.device_platforms %}<span class="text-muted">({{ card.device_platforms | join(', ') }})</span>{% endif %}</p>
-        <p class="text-sm">📊 {% if card.traffic_limit_gb is none %}нет данных
+        <p class="text-sm flex items-center gap-1.5">{{ ic.icon('chart', 'w-4 h-4 text-muted') }}{% if card.traffic_limit_gb is none %}нет данных
             {% elif card.traffic_limit_gb == 0 %}{{ card.traffic_used_gb or 0 }} ГБ (безлимит)
             {% else %}{{ card.traffic_used_gb or 0 }} из {{ card.traffic_limit_gb }} ГБ{% endif %}</p>
         {% if card.extra_devices or card.extra_traffic_gb %}
@@ -32,17 +32,17 @@
 
 <div class="mt-4 grid gap-2 sm:flex sm:flex-wrap">
     {% if manager.can_issue_tariff or manager.can_issue_custom %}
-        <a class="btn-pop w-full sm:w-auto" href="/manager/issue?client={{ card.client_code }}">💳 Продлить</a>
+        <a class="btn-pop w-full sm:w-auto" href="/manager/issue?client={{ card.client_code }}">{{ ic.icon('card', 'w-5 h-5') }}Продлить</a>
     {% endif %}
     {% if card.has_key %}
-        <button class="btn-pop btn-pop-outline w-full sm:w-auto" type="button" id="showLinkBtn">📲 Показать QR для установки</button>
+        <button class="btn-pop btn-pop-outline w-full sm:w-auto" type="button" id="showLinkBtn">{{ ic.icon('qr', 'w-5 h-5') }}Показать QR для установки</button>
     {% endif %}
 </div>
 <details class="mt-4 sticker p-4">
     <summary class="font-bold cursor-pointer">Ещё действия</summary>
     <div class="mt-3 grid gap-2 sm:flex sm:flex-wrap">
-        <button class="btn-pop btn-pop-outline w-full sm:w-auto" type="button" id="noAutoBtn">🔕 Выключить автопродление</button>
-        <button class="btn-pop btn-pop-outline w-full sm:w-auto" type="button" id="cabinetResetBtn">🔗 Новая ссылка на кабинет</button>
+        <button class="btn-pop btn-pop-outline w-full sm:w-auto" type="button" id="noAutoBtn">{{ ic.icon('bell-off', 'w-5 h-5') }}Выключить автопродление</button>
+        <button class="btn-pop btn-pop-outline w-full sm:w-auto" type="button" id="cabinetResetBtn">{{ ic.icon('link', 'w-5 h-5') }}Новая ссылка на кабинет</button>
     </div>
     <p class="mt-2 text-xs text-subtle">Новая ссылка на кабинет — если клиент потерял старую: старая перестанет работать.</p>
 </details>
@@ -50,7 +50,7 @@
 <div id="cabinetBox" class="sticker p-4 mt-4 hidden">
     <p class="text-sm text-subtle">Новая ссылка на личный кабинет — покажите клиенту сейчас, потом её не восстановить. Старая уже не работает.</p>
     <div class="copy-field mt-2"><input type="text" id="cabinetValue" readonly aria-label="Ссылка на кабинет"></div>
-    <button class="btn-pop btn-pop-outline mt-3" type="button" id="cabinetShowBtn">📲 Показать клиенту QR</button>
+    <button class="btn-pop btn-pop-outline mt-3" type="button" id="cabinetShowBtn">{{ ic.icon('qr', 'w-5 h-5') }}Показать клиенту QR</button>
 </div>
 
 <div id="linkBox" class="sticker p-4 mt-4 hidden">

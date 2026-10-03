@@ -1,24 +1,32 @@
 {% extends "manager/base.html" %}
+{% import "_icons.html" as ic %}
+
+{# Тексты памятки — общие с ботом (tgbot/services/manager_guide.py), эмодзи в них для Telegram:
+   здесь они убираются фильтром no_emoji, а у разделов — SVG-иконки. #}
+{% set section_icons = {'sale': 'zap', 'custom': 'calendar', 'trial': 'timer', 'renew': 'rotate',
+                        'faq': 'help', 'trouble': 'wrench', 'money': 'banknote'} %}
 
 {% block content %}
-<h1 class="font-display font-black text-2xl">❓ Как продавать</h1>
+<h1 class="font-display font-black text-2xl flex items-center gap-2">{{ ic.icon('help', 'w-6 h-6 text-blue') }}Как продавать</h1>
 <p class="text-subtle mt-1">Коротко: как оформить подписку за минуту, что отвечать клиентам и что делать, если что-то не работает.</p>
 
 <div class="mt-4 space-y-3 max-w-3xl">
     {% for section in guide %}
     <details class="sticker p-4" {% if loop.first %}open{% endif %}>
-        <summary class="font-display font-extrabold text-lg cursor-pointer">{{ section.title }}</summary>
+        <summary class="font-display font-extrabold text-lg cursor-pointer">
+            <span class="inline-flex items-center gap-2 align-middle">{{ ic.icon(section_icons.get(section.key, 'info'), 'w-5 h-5 text-blue') }}{{ section.title | no_emoji }}</span>
+        </summary>
         <div class="mt-3 space-y-2">
-            {% for line in section.lines %}<p>{{ line }}</p>{% endfor %}
+            {% for line in section.lines %}<p>{{ line | no_emoji }}</p>{% endfor %}
         </div>
     </details>
     {% endfor %}
 </div>
 
 <div class="mt-6 sticker p-4 max-w-3xl">
-    <h2 class="font-display font-extrabold">📲 Что говорить клиенту при установке</h2>
+    <h2 class="font-display font-extrabold flex items-center gap-2">{{ ic.icon('qr', 'w-5 h-5 text-blue') }}Что говорить клиенту при установке</h2>
     <ol class="mt-2 list-decimal pl-5 space-y-1">
-        {% for step in install_steps %}<li>{{ step }}</li>{% endfor %}
+        {% for step in install_steps %}<li>{{ step | no_emoji }}</li>{% endfor %}
     </ol>
     <p class="mt-2 text-sm text-subtle">Эти же шаги появляются на экране «Показать клиенту» рядом с большим QR.</p>
 </div>

@@ -841,6 +841,7 @@
         cursor: pointer;
     }
     .chip:hover, .chip[aria-pressed="true"] { border-color: var(--color-blue); background: var(--color-sky-soft); }
+    .chip:disabled { opacity: 0.35; cursor: not-allowed; border-color: rgb(36 87 197 / 0.22); background: var(--color-paper); }
 
     /* Нижняя панель вкладок панели менеджера на телефоне */
     .tabbar a {
@@ -855,7 +856,6 @@
         color: var(--color-muted);
     }
     .tabbar a[aria-current="page"] { color: var(--color-blue); }
-    .tabbar a .tab-icon { font-size: 1.25rem; line-height: 1.2; }
 }
 
 /* ============================================================

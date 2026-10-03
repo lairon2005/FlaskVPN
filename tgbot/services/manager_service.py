@@ -80,6 +80,7 @@ MESSAGES = {
     "code_rate_limited": "Слишком много неверных кодов. Подождите час или обратитесь к администратору.",
     "bad_tariff": "Этот тариф недоступен для продажи.",
     "bad_days": "Некорректное количество дней.",
+    "bad_extras": "Столько доп. устройств или трафика добавить нельзя.",
     "bad_method": "Этот способ оплаты недоступен.",
     "cash_not_allowed": "Приём наличных вам не разрешён. Используйте оплату по QR.",
     "cash_limit": "Превышен лимит наличных «к сдаче». Сдайте выручку администратору.",
@@ -233,6 +234,13 @@ class IssueQuote:
     client_code: str | None = None
     client_is_new: bool = True
     price_details: dict = field(default_factory=dict)
+    # Для степперов «устройства» и «трафик» на экране продажи.
+    base_devices: int = 0
+    max_slots: int = 0
+    slot_price: int = 0             # ₽ за устройство в месяц
+    max_packs: int = 0              # 0 — докупать нечего (безлимит)
+    pack_gb: int = 0
+    pack_price: int = 0             # ₽ за пакет в месяц
 
 
 @dataclass
@@ -799,13 +807,18 @@ class ManagerService:
         return (rw_user or {}).get("subscriptionUrl") or None
 
     async def quote(self, manager_id: int, *, product: str, client_code: str | None = None,
-                    tariff_id: int | None = None, days: int | None = None) -> IssueQuote:
-        """Предпросмотр: цена со всеми надстройками клиента. Менеджер видит её до подтверждения."""
+                    tariff_id: int | None = None, days: int | None = None,
+                    slots: int | None = None, packs: int | None = None) -> IssueQuote:
+        """
+        Предпросмотр: цена со всеми надстройками. Менеджер видит её до подтверждения.
+        slots / packs — доп. устройства и пакеты трафика на новый срок; None — оставить как у клиента.
+        """
         manager = await self.require_active(manager_id)
         client = await self._client_by_code(manager, client_code) if client_code else None
-        return await self._build_quote(manager, client, product, tariff_id, days)
+        return await self._build_quote(manager, client, product, tariff_id, days, slots, packs)
 
-    async def _build_quote(self, manager, client, product: str, tariff_id, days) -> IssueQuote:
+    async def _build_quote(self, manager, client, product: str, tariff_id, days,
+                           slots: int | None = None, packs: int | None = None) -> IssueQuote:
         if product == "tariff":
             self._require_right(manager, "can_issue_tariff")
         elif product == "custom":
@@ -815,8 +828,14 @@ class ManagerService:
 
         dev_settings = await self._devices.settings()
         traffic_settings = await self._traffic.settings()
-        slots = (client.extra_devices or 0) if client else 0
+        # Не выбрано — продлеваем то, что у клиента уже есть (у нового — ничего).
+        if slots is None:
+            slots = min((client.extra_devices or 0) if client else 0, dev_settings.max_extra)
+        elif not 0 <= slots <= dev_settings.max_extra:
+            raise ManagerError("bad_extras")
         extra_gb = (client.extra_traffic_gb or 0) if client else 0
+        if packs is not None and not 0 <= packs <= traffic_settings.max_packs:
+            raise ManagerError("bad_extras")
         has_active = bool(client and days_left(client.subscription_end_date) > 0)
 
         hint = None
@@ -849,7 +868,10 @@ class ManagerService:
             renew_tariff = await self._payments.custom_renew_tariff()
 
         checkout = build_checkout(dev_settings, base_price, duration, slots)
-        packs = gb_to_packs(traffic_settings, extra_gb) if quota > 0 else 0
+        if quota == 0:
+            packs = 0  # безлимит: докупать нечего
+        elif packs is None:
+            packs = min(gb_to_packs(traffic_settings, extra_gb), traffic_settings.max_packs)
         if packs:
             checkout = checkout.with_traffic(
                 packs, packs_cost_for_tariff(traffic_settings, duration, packs),
@@ -861,9 +883,10 @@ class ManagerService:
         autorenew = bool(self._config.yookassa.save_payment_method and renew_tariff)
         renew_text = None
         if autorenew:
+            extras = " плюс выбранные доп. устройства и трафик" if (slots or packs) else ""
             renew_text = (
                 f"После оплаты способ оплаты сохранится, и подписка будет продлеваться автоматически: "
-                f"{renew_tariff.price:.0f} ₽ каждые {renew_tariff.duration_days} дн. "
+                f"{renew_tariff.price:.0f} ₽{extras} каждые {renew_tariff.duration_days} дн. "
                 "Отключить можно в личном кабинете или у менеджера."
             )
 
@@ -875,6 +898,9 @@ class ManagerService:
             renew_text=renew_text, autorenew_available=autorenew,
             client_code=client.client_code if client else None, client_is_new=client is None,
             price_details=details,
+            base_devices=dev_settings.base_limit, max_slots=dev_settings.max_extra, slot_price=dev_settings.price,
+            max_packs=traffic_settings.max_packs if quota > 0 else 0, pack_gb=traffic_settings.pack_gb,
+            pack_price=traffic_settings.pack_price,
         )
 
     # ==========================================================================
@@ -884,7 +910,7 @@ class ManagerService:
     async def issue(self, manager_id: int, *, product: str, method: str, idempotency_nonce: str,
                     client_code: str | None = None, tariff_id: int | None = None, days: int | None = None,
                     expected_total: float | None = None, temp_key_id: int | None = None,
-                    label: str | None = None) -> IssueResult:
+                    label: str | None = None, slots: int | None = None, packs: int | None = None) -> IssueResult:
         """
         Подтверждение выдачи. Идемпотентно: повтор с тем же nonce вернёт прежний
         результат, а не выдаст второй ключ.
@@ -892,6 +918,7 @@ class ManagerService:
         temp_key_id — конвертация временного ключа: клиентом становится тот, кому
         он выдан, а панельный пользователь остаётся прежним (без переустановки).
         label — пометка менеджера для НОВОГО клиента («Анна, кофейня»); существующему не меняется.
+        slots / packs — доп. устройства и пакеты трафика на новый срок (None — как у клиента сейчас).
         """
         manager = await self.require_active(manager_id)
         if method not in ("cash", "online"):
@@ -916,7 +943,7 @@ class ManagerService:
                 # Новый клиент (в том числе с временного ключа): сначала проверяем вход
                 # (тариф, дни, цена, лимит), и только потом заводим клиента — иначе ошибка
                 # валидации оставляла бы «сирот» (а у конвертации — ещё и занятое имя ключа).
-                quote = await self._build_quote(manager, None, product, tariff_id, days)
+                quote = await self._build_quote(manager, None, product, tariff_id, days, slots, packs)
                 self._check_expected(expected_total, quote)
                 if method == "cash":
                     await self._check_cash_limit(manager, quote.total)
@@ -924,7 +951,7 @@ class ManagerService:
             # Клиент создан — фиксируем в журнале сразу: если дальше что-то сорвётся, _fail
             # знает, кого отвязать от временного ключа.
             await self._ops.update(op.id, client_user_id=client.user_id, client_code=client.client_code)
-            quote = await self._build_quote(manager, client, product, tariff_id, days)
+            quote = await self._build_quote(manager, client, product, tariff_id, days, slots, packs)
             self._check_expected(expected_total, quote)
             if method == "cash":
                 await self._check_cash_limit(manager, quote.total)

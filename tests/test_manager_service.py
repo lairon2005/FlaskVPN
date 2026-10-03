@@ -1433,3 +1433,77 @@ class UxTests(EnvTestCase):
         await self._set_expiry(key2.key_id, 5)
         await self.svc.set_status(other.id, "blocked", admin_id=1)
         self.assertEqual(await self.svc.remind_expiring_temp_keys(), 0)
+
+
+# =============================================================================
+# Доп. устройства и трафик, выбранные менеджером при продаже
+# =============================================================================
+
+class ExtrasTests(EnvTestCase):
+    async def test_quote_exposes_limits_for_the_steppers(self):
+        manager = await self.manager()
+        q = await self.svc.quote(manager.id, product="tariff", tariff_id=2)
+        self.assertEqual((q.slots, q.packs), (0, 0))
+        self.assertEqual((q.base_devices, q.max_slots, q.slot_price), (5, 5, 49))
+        self.assertEqual((q.max_packs, q.pack_gb, q.pack_price), (10, 100, 49))
+
+    async def test_chosen_extras_are_priced(self):
+        manager = await self.manager()
+        q = await self.svc.quote(manager.id, product="tariff", tariff_id=2, slots=2, packs=3)
+        self.assertEqual((q.slots, q.packs, q.extra_traffic_gb, q.devices_limit), (2, 3, 300, 7))
+        self.assertEqual(q.total, 149 + 2 * 49 + 3 * 49)          # месяц: по 49 ₽ за устройство и за пакет
+        three = await self.svc.quote(manager.id, product="tariff", tariff_id=3, slots=1, packs=1)
+        self.assertEqual(three.total, 399 + 49 * 3 + 49 * 3)      # 3 месяца — помесячно
+
+    async def test_out_of_range_is_refused(self):
+        manager = await self.manager()
+        for kwargs in ({"slots": 6}, {"slots": -1}, {"packs": 11}, {"packs": -1}):
+            with self.assertRaises(self.E) as ctx:
+                await self.svc.quote(manager.id, product="tariff", tariff_id=2, **kwargs)
+            self.assertEqual(ctx.exception.code, "bad_extras", kwargs)
+
+    async def test_unlimited_tariff_has_no_traffic_packs(self):
+        await self.env.repos.tariffs.add(name="Безлимит", price=299, duration_days=30, data_limit_gb=0)
+        manager = await self.manager()
+        tariff_id = max(t.id for t in await self.svc.list_tariffs())
+        q = await self.svc.quote(manager.id, product="tariff", tariff_id=tariff_id, packs=5)
+        self.assertEqual((q.packs, q.max_packs, q.traffic_cost, q.total), (0, 0, 0, 299))
+
+    async def test_custom_days_with_extras(self):
+        manager = await self.manager()
+        base = await self.svc.quote(manager.id, product="custom", days=45)
+        q = await self.svc.quote(manager.id, product="custom", days=45, slots=1, packs=1)
+        self.assertGreater(q.total, base.total)
+        self.assertEqual((q.slots, q.packs), (1, 1))
+
+    async def test_cash_sale_applies_the_choice_to_the_client(self):
+        manager = await self.manager(can_accept_cash=True)
+        result = await self.cash_issue(manager, slots=2, packs=3)
+        self.assertEqual(result.price, 149 + 5 * 49)
+        user = await self.env.repos.users.get_by_client_code(result.client_code)
+        self.env.devices.set_slots.assert_any_await(user.user_id, 2)
+        self.env.traffic.record_purchase.assert_any_await(user.user_id, 500, 300)
+        payment = await self.env.payments.get_payment(f"cash:{result.operation_id}")
+        self.assertEqual((payment.extra_devices, payment.extra_traffic_gb), (2, 300))
+
+    async def test_renewal_keeps_the_client_extras_by_default_and_can_reduce_them(self):
+        manager = await self.manager(can_accept_cash=True)
+        first = await self.cash_issue(manager, nonce="a", slots=2, packs=3)
+        from sqlalchemy import update
+        from db import User
+        async with self.env.session_maker() as session:   # как после реальной оплаты: у клиента 2 слота и 300 ГБ
+            await session.execute(update(User).where(User.client_code == first.client_code)
+                                  .values(extra_devices=2, extra_traffic_gb=300))
+            await session.commit()
+        keep = await self.svc.quote(manager.id, product="tariff", tariff_id=2, client_code=first.client_code)
+        self.assertEqual((keep.slots, keep.packs), (2, 3))
+        less = await self.svc.quote(manager.id, product="tariff", tariff_id=2, client_code=first.client_code,
+                                    slots=0, packs=0)
+        self.assertEqual((less.slots, less.packs, less.total), (0, 0, 149))
+
+    async def test_price_check_covers_extras(self):
+        manager = await self.manager(can_accept_cash=True)
+        q = await self.svc.quote(manager.id, product="tariff", tariff_id=2)
+        with self.assertRaises(self.E) as ctx:   # менеджер видел цену без допов, а подтверждает с допами
+            await self.cash_issue(manager, slots=1, expected_total=q.total)
+        self.assertEqual(ctx.exception.code, "price_changed")

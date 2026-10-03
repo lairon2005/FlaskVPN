@@ -63,22 +63,62 @@
         toast('Скопировано');
     }
 
-    function line(parent, text, cls) {
+    // SVG-иконка из спрайта _icons.html (<symbol id="i-…">) — тот же вид, что в шаблонах.
+    var SVG_NS = 'http://www.w3.org/2000/svg';
+    function svgIcon(name, cls) {
+        var svg = document.createElementNS(SVG_NS, 'svg');
+        svg.setAttribute('class', cls || 'w-5 h-5 shrink-0');
+        svg.setAttribute('aria-hidden', 'true');
+        svg.setAttribute('focusable', 'false');
+        var use = document.createElementNS(SVG_NS, 'use');
+        use.setAttribute('href', '#i-' + name);
+        svg.appendChild(use);
+        return svg;
+    }
+
+    // Содержимое элемента: [иконка] текст. Текст — только через textContent.
+    function fill(el, text, icon, iconCls) {
+        el.textContent = '';
+        if (icon) {
+            el.classList.add('flex', 'items-center', 'gap-2');
+            el.appendChild(svgIcon(icon, iconCls));
+            var span = document.createElement('span');
+            span.textContent = text;
+            el.appendChild(span);
+        } else {
+            el.classList.remove('flex', 'items-center', 'gap-2');
+            el.textContent = text;
+        }
+        return el;
+    }
+
+    function line(parent, text, cls, icon, iconCls) {
         var p = document.createElement('p');
         if (cls) p.className = cls;
-        p.textContent = text;
+        fill(p, text, icon, iconCls);
         parent.appendChild(p);
         return p;
     }
 
-    function button(parent, text, cls, onClick) {
+    function button(parent, text, cls, onClick, icon) {
         var b = document.createElement('button');
         b.type = 'button';
         b.className = cls;
-        b.textContent = text;
+        if (icon) b.appendChild(svgIcon(icon));
+        b.appendChild(document.createTextNode(text));
         b.addEventListener('click', onClick);
         parent.appendChild(b);
         return b;
+    }
+
+    function linkButton(parent, text, cls, href, icon) {
+        var a = document.createElement('a');
+        a.className = cls;
+        a.href = href;
+        if (icon) a.appendChild(svgIcon(icon));
+        a.appendChild(document.createTextNode(text));
+        parent.appendChild(a);
+        return a;
     }
 
     // ------------------------------------------------------------------ «Покажите клиенту»
@@ -88,11 +128,11 @@
     var lastFocus = null;
 
     function installView(url, title) {
-        return { tab: '📲 Установка', title: title || 'Покажите клиенту этот QR', url: url, steps: INSTALL_STEPS, note: '' };
+        return { tab: 'Установка', icon: 'smartphone', title: title || 'Покажите клиенту этот QR', url: url, steps: INSTALL_STEPS, note: '' };
     }
 
     function cabinetView(url) {
-        return { tab: '🔗 Личный кабинет', title: 'Личный кабинет клиента', url: url, steps: [], note: CABINET_HINT };
+        return { tab: 'Личный кабинет', icon: 'link', title: 'Личный кабинет клиента', url: url, steps: [], note: CABINET_HINT };
     }
 
     function renderView(view) {
@@ -121,11 +161,11 @@
         tabs.classList.toggle('hidden', views.length < 2);
         if (views.length > 1) {
             views.forEach(function (view, i) {
-                var b = button(tabs, view.tab, 'chip', function () {
+                var b = button(tabs, view.tab, 'chip gap-1.5', function () {
                     Array.prototype.forEach.call(tabs.children, function (c) { c.setAttribute('aria-pressed', 'false'); });
                     b.setAttribute('aria-pressed', 'true');
                     renderView(view);
-                });
+                }, view.icon);
                 b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
             });
         }
@@ -266,7 +306,8 @@
 
     var tempKeyId = parseInt(app.dataset.tempKey || '0', 10);
     var maxDays = parseInt(app.dataset.maxDays || '365', 10);
-    var state = { clientCode: null, quote: null, nonce: nonce(), busy: false };
+    // slots / packs: null — «как у клиента сейчас» (новому — ничего); число — выбрал менеджер.
+    var state = { clientCode: null, quote: null, nonce: nonce(), busy: false, slots: null, packs: null };
 
     function selected(name) {
         var el = document.querySelector('input[name="' + name + '"]:checked');
@@ -304,11 +345,47 @@
         var body = { product: p.product, client_code: currentClient() };
         if (p.product === 'tariff') { body.tariff_id = p.tariffId; }
         else { body.days = parseInt($('daysInput').value, 10); }
+        if (state.slots !== null) body.slots = state.slots;
+        if (state.packs !== null) body.packs = state.packs;
         return body;
     }
 
     var timer = null;
     function refreshSoon() { clearTimeout(timer); timer = setTimeout(refresh, 250); }
+
+    function plural(n, one, few, many) {
+        var m10 = n % 10, m100 = n % 100;
+        if (m10 === 1 && m100 !== 11) return one;
+        if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+        return many;
+    }
+
+    // Счётчики «Устройства» и «Трафик»: значения и границы — из ответа сервера.
+    function renderExtras(q) {
+        $('extrasBox').classList.remove('hidden');
+        var devices = q.base_devices + q.slots;
+        $('slotsValue').textContent = String(devices);
+        $('slotsHint').textContent = q.max_slots
+            ? q.base_devices + ' ' + plural(q.base_devices, 'входит', 'входят', 'входят') + ' в тариф · каждое следующее +' +
+              money(q.slot_price) + '/мес · до ' + (q.base_devices + q.max_slots)
+            : q.base_devices + ' ' + plural(q.base_devices, 'устройство', 'устройства', 'устройств') + ' по тарифу';
+        setStep('slots', -1, q.slots > 0);
+        setStep('slots', 1, q.slots < q.max_slots);
+
+        var traffic = $('trafficStepper');
+        traffic.classList.toggle('hidden', !q.max_packs);
+        if (q.max_packs) {
+            $('packsValue').textContent = (q.quota_gb + q.extra_traffic_gb) + ' ГБ';
+            $('packsHint').textContent = q.quota_gb + ' ГБ в тарифе · +' + q.pack_gb + ' ГБ за ' + money(q.pack_price) + '/мес';
+            setStep('packs', -1, q.packs > 0);
+            setStep('packs', 1, q.packs < q.max_packs);
+        }
+    }
+
+    function setStep(kind, delta, enabled) {
+        var btn = document.querySelector('[data-step="' + kind + '"][data-delta="' + delta + '"]');
+        if (btn) btn.disabled = !enabled;
+    }
 
     function renderPreview(q) {
         var body = $('previewBody');
@@ -322,12 +399,13 @@
         if (q.packs) line(body, '+ доп. трафик: +' + q.extra_traffic_gb + ' ГБ — ' + money(q.traffic_cost));
         line(body, 'К оплате: ' + money(q.total), 'font-display font-black text-3xl mt-2');
         if (q.hint) {
-            line(body, '💡 Выгоднее стандартный тариф «' + q.hint.name + '» — ' + q.hint.days + ' дн. за ' +
+            line(body, 'Выгоднее стандартный тариф «' + q.hint.name + '» — ' + q.hint.days + ' дн. за ' +
                        money(q.hint.price) + ' (на ' + money(q.hint.saving) + ' дешевле) и с автопродлением.',
-                 'mt-2 text-orange font-semibold');
+                 'mt-2 text-orange font-semibold', 'lightbulb', 'w-5 h-5 shrink-0 self-start');
         }
-        if (q.renew_text) line(body, '♻️ ' + q.renew_text, 'mt-2 text-muted');
+        if (q.renew_text) line(body, q.renew_text, 'mt-2 text-muted', 'rotate', 'w-4 h-4 shrink-0 self-start mt-0.5');
         $('previewActions').classList.remove('hidden');
+        renderExtras(q);
     }
 
     function refresh() {
@@ -348,7 +426,7 @@
             if (!d || d < 1 || d > maxDays) { $('previewBody').textContent = 'Введите число дней от 1 до ' + maxDays + '.'; return; }
         }
         api('/quote', request()).then(function (r) {
-            if (!r.ok) { $('previewBody').textContent = '❌ ' + (r.data.message || 'Не удалось посчитать'); return; }
+            if (!r.ok) { fill($('previewBody'), r.data.message || 'Не удалось посчитать', 'alert', 'w-5 h-5 shrink-0 text-danger'); return; }
             state.quote = r.data;
             state.nonce = nonce(); // новая цена — новое подтверждение
             renderPreview(r.data);
@@ -366,19 +444,13 @@
         var actions = document.createElement('div');
         actions.className = 'mt-4 grid gap-2 sm:flex sm:flex-wrap';
         box.appendChild(actions);
-        button(actions, '📲 Показать клиенту QR', 'btn-pop w-full sm:w-auto', function () { openShow(views); });
-        var cardLink = document.createElement('a');
-        cardLink.className = 'btn-pop btn-pop-outline w-full sm:w-auto';
-        cardLink.href = '/manager/clients/' + encodeURIComponent(data.client_code);
-        cardLink.textContent = '👤 Карточка клиента';
-        actions.appendChild(cardLink);
-        var again = document.createElement('a');
-        again.className = 'btn-pop btn-pop-outline w-full sm:w-auto';
-        again.href = '/manager/'; again.textContent = '⚡ Новая продажа';
-        actions.appendChild(again);
+        button(actions, 'Показать клиенту QR', 'btn-pop w-full sm:w-auto', function () { openShow(views); }, 'qr');
+        linkButton(actions, 'Карточка клиента', 'btn-pop btn-pop-outline w-full sm:w-auto',
+                   '/manager/clients/' + encodeURIComponent(data.client_code), 'user');
+        linkButton(actions, 'Новая продажа', 'btn-pop btn-pop-outline w-full sm:w-auto', '/manager/', 'zap');
         if (data.cabinet_url) {
-            line(box, '🔗 У нового клиента есть личный кабинет — в «Показать клиенту» вкладка «Личный кабинет». ' +
-                      'Ссылка показывается один раз.', 'mt-3 text-sm text-subtle');
+            line(box, 'У нового клиента есть личный кабинет — в «Показать клиенту» вкладка «Личный кабинет». ' +
+                      'Ссылка показывается один раз.', 'mt-3 text-sm text-subtle', 'link', 'w-4 h-4 shrink-0 self-start mt-0.5');
         }
         openShow(views);
     }
@@ -390,19 +462,19 @@
         lockForm();
 
         if (data.replayed) {
-            line(box, 'ℹ️ Эта продажа уже оформлена (чек № ' + receipt(data.operation_id) + '). Проверьте историю.');
+            line(box, 'Эта продажа уже оформлена (чек № ' + receipt(data.operation_id) + '). Проверьте историю.', '', 'info');
             return;
         }
 
         if (data.status === 'completed') {
-            line(box, '✅ Готово · чек № ' + receipt(data.operation_id), 'font-display font-extrabold text-xl');
+            line(box, 'Готово · чек № ' + receipt(data.operation_id), 'font-display font-extrabold text-xl', 'check-circle', 'w-6 h-6 shrink-0 text-success');
             line(box, money(data.price) + (method === 'cash' ? ' наличными' : '') +
                       (data.expires_at ? ' · подписка до ' + data.expires_at + ' МСК' : ''), 'text-sm text-subtle');
             showDone(box, data, data.subscription_url);
             return;
         }
 
-        line(box, '💳 Счёт на ' + money(data.price) + ' · чек № ' + receipt(data.operation_id), 'font-display font-extrabold text-xl');
+        line(box, 'Счёт на ' + money(data.price) + ' · чек № ' + receipt(data.operation_id), 'font-display font-extrabold text-xl', 'card', 'w-6 h-6 shrink-0 text-blue');
         line(box, 'Разверните телефон к клиенту: он наводит камеру на QR и платит картой или через СБП.', 'mt-1 text-sm');
         var img = document.createElement('img');
         img.className = 'mt-3 w-64 h-64 max-w-full rounded-2xl border-2 border-blue/20 bg-white'; img.alt = 'QR для оплаты';
@@ -412,11 +484,11 @@
         link.href = data.payment_url; link.target = '_blank'; link.rel = 'noopener';
         link.className = 'block mt-2 text-sm font-bold text-blue break-all'; link.textContent = 'Открыть ссылку на оплату';
         box.appendChild(link);
-        var status = line(box, '⏳ Ждём оплату… страница обновится сама.', 'mt-4 font-bold');
+        var status = line(box, 'Ждём оплату… страница обновится сама.', 'mt-4 font-bold', 'hourglass');
         var cancelBtn = button(box, 'Отменить счёт', 'btn-pop btn-pop-outline !min-h-0 !py-2 mt-2', function () {
             if (!confirm('Отменить счёт? Клиент не сможет по нему заплатить.')) return;
             api('/op/' + data.operation_id + '/cancel', {}).then(function (r) {
-                status.textContent = r.ok && r.data.cancelled ? '🚫 Счёт отменён. Не оплачивайте старую ссылку.' : 'Счёт уже оплачен или отменён.';
+                fill(status, r.ok && r.data.cancelled ? 'Счёт отменён. Не оплачивайте старую ссылку.' : 'Счёт уже оплачен или отменён.', 'ban');
                 clearInterval(poll);
                 cancelBtn.remove();
             });
@@ -428,8 +500,8 @@
                     clearInterval(poll);
                     cancelBtn.remove();
                     img.remove(); link.remove();
-                    status.textContent = '✅ Оплачено! Подписка выдана.';
                     status.className = 'mt-4 font-display font-extrabold text-xl text-success';
+                    fill(status, 'Оплачено! Подписка выдана.', 'check-circle', 'w-6 h-6 shrink-0');
                     api('/link', { client_code: r.data.client_code || data.client_code }).then(function (l) {
                         if (l.ok) { showDone(box, data, l.data.subscription_url); }
                         else { line(box, 'QR для установки — в карточке клиента.', 'mt-2 text-sm'); }
@@ -437,7 +509,7 @@
                 } else if (r.data.status === 'cancelled' || r.data.status === 'failed') {
                     clearInterval(poll);
                     cancelBtn.remove();
-                    status.textContent = '🚫 Счёт отменён или не оплачен. Если клиент всё ещё хочет купить — начните продажу заново.';
+                    fill(status, 'Счёт отменён или не оплачен. Если клиент всё ещё хочет купить — начните продажу заново.', 'ban');
                 }
             });
         }, 3000);
@@ -473,6 +545,7 @@
             $('whoMine').classList.toggle('hidden', who() !== 'mine');
             $('whoCode').classList.toggle('hidden', who() !== 'code');
             state.clientCode = null;
+            state.slots = state.packs = null; // у другого клиента — свои устройства и трафик
             refresh();
         });
     });
@@ -483,12 +556,25 @@
         chip.addEventListener('click', function () { $('daysInput').value = chip.dataset.days; refresh(); });
     });
     if ($('daysInput')) $('daysInput').addEventListener('input', refreshSoon);
-    if ($('clientSelect')) $('clientSelect').addEventListener('change', refresh);
+    if ($('clientSelect')) $('clientSelect').addEventListener('change', function () {
+        state.slots = state.packs = null;
+        refresh();
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-step]'), function (btn) {
+        btn.addEventListener('click', function () {
+            if (!state.quote) return;
+            var kind = btn.dataset.step;
+            var current = state[kind] !== null ? state[kind] : state.quote[kind];
+            state[kind] = Math.max(0, current + parseInt(btn.dataset.delta, 10));
+            refresh();
+        });
+    });
     if ($('useCodeBtn')) {
         $('useCodeBtn').addEventListener('click', function () {
             api('/client-code', { code: $('accessCode').value }).then(function (r) {
                 if (!r.ok) { toast(r.data.message || 'Неверный код', 'error'); return; }
                 state.clientCode = r.data.client_code;
+                state.slots = state.packs = null;
                 $('accessCode').value = '';
                 toast('Клиент ' + r.data.client_code + ' добавлен');
                 refresh();

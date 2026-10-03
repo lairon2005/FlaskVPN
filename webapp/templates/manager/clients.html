@@ -1,7 +1,8 @@
 {% extends "manager/base.html" %}
+{% import "_icons.html" as ic %}
 
 {% block content %}
-<h1 class="font-display font-black text-2xl mb-4">👥 Мои клиенты <span class="text-muted text-lg">({{ total }})</span></h1>
+<h1 class="font-display font-black text-2xl mb-4 flex items-center gap-2">{{ ic.icon('users', 'w-6 h-6 text-blue') }}Мои клиенты <span class="text-muted text-lg">({{ total }})</span></h1>
 
 {% if rows %}
 <input type="search" id="clientSearch" class="input mb-3" placeholder="Поиск по пометке или коду" aria-label="Поиск клиента" autocomplete="off">
@@ -28,8 +29,8 @@
 {% endif %}
 
 <section class="sticker p-4 mt-6" id="code">
-    <h2 class="font-display font-extrabold">🔢 Клиент по коду</h2>
-    <p class="text-sm text-subtle mt-1">Для клиента, который купил сам в боте или у другого менеджера. Он открывает бота → профиль → «👔 Код для менеджера» (или кабинет на сайте) и диктует 6 символов. Код действует 15 минут.</p>
+    <h2 class="font-display font-extrabold flex items-center gap-2">{{ ic.icon('hash', 'w-5 h-5 text-blue') }}Клиент по коду</h2>
+    <p class="text-sm text-subtle mt-1">Для клиента, который купил сам в боте или у другого менеджера. Он открывает бота → профиль → «Код для менеджера» (или кабинет на сайте) и диктует 6 символов. Код действует 15 минут.</p>
     <form id="addByCode" class="mt-3 flex flex-wrap gap-2">
         <input class="input !w-44 font-mono uppercase" id="codeInput" maxlength="12" placeholder="K7F3Q2" autocomplete="off" required aria-label="Код клиента">
         <button class="btn-pop !min-h-0 !py-2.5" type="submit"><span class="btn-text">Добавить</span></button>
