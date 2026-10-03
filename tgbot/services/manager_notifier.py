@@ -8,12 +8,14 @@
 Все методы бросают исключения Telegram наружу — вызывающий (ManagerService._publish)
 сам решает, что чек — отчётность и его сбой не должен отменять выдачу.
 """
+from html import escape
+
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import BufferedInputFile
 
 from loader import logger
-from tgbot.keyboards.manager import client_access_notice_keyboard, receipt_keyboard
+from tgbot.keyboards.manager import client_access_notice_keyboard, receipt_keyboard, web_login_notice_keyboard
 from tgbot.services.qr_generator import create_qr_code
 
 
@@ -68,3 +70,16 @@ class ManagerNotifier:
             "и не переписку. Доступ закроется сам; закрыть сейчас можно кнопкой ниже.",
             reply_markup=client_access_notice_keyboard(),
         )
+
+    async def notify_manager_text(self, telegram_id: int, text: str) -> None:
+        await self._bot.send_message(telegram_id, text)
+
+    async def notify_web_login(self, telegram_id: int, *, ip: str | None, device: str | None, when: str) -> None:
+        """О каждом входе в панель на сайте: если входил не он — одной кнопкой закрывает все сеансы."""
+        lines = ["🔐 <b>Вход в панель менеджера на сайте</b>", f"🕒 {when} МСК"]
+        if ip:
+            lines.append(f"🌐 IP: <code>{escape(ip)}</code>")
+        if device:
+            lines.append(f"💻 {escape(device)}")
+        lines.append("\nЕсли это были не вы — завершите все входы и смените пароль.")
+        await self._bot.send_message(telegram_id, "\n".join(lines), reply_markup=web_login_notice_keyboard())

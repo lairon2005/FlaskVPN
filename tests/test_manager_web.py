@@ -1,9 +1,9 @@
 """
 Веб-панель менеджера целиком: HTTP → роутер → сессия/CSRF → ManagerService → SQLite.
 
-Проверяем то, что важно именно на веб-границе: одноразовая ссылка входа, атрибуты cookie,
-сброс сессий при блокировке, CSRF, изоляция менеджеров и то, что пользовательский токен
-кабинета не открывает панель.
+Проверяем то, что важно именно на веб-границе: вход по логину и паролю, ссылка «задать пароль»,
+атрибуты cookie, сброс сессий при блокировке и смене пароля, CSRF, изоляция менеджеров
+и то, что пользовательский токен кабинета не открывает панель.
 """
 import importlib.util
 import sys
@@ -76,9 +76,18 @@ class WebCase(unittest.IsolatedAsyncioTestCase):
     def client(self):
         return httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url=BASE, follow_redirects=False)
 
-    async def login(self, client, manager):
-        token = await self.svc.create_login_token(manager.id)
-        response = await client.post("/manager/login", data={"token": token}, headers=HEADERS)
+    PASSWORD = "Секрет-2026"
+
+    async def login(self, client, manager, remember=False):
+        """Вход как в браузере: логин и пароль задаются менеджеру, если ещё не заданы."""
+        view = await self.svc.view(manager.id)
+        login = view.login or await self.svc.set_login(manager.id, f"mgr{manager.id}", admin_id=1)
+        if not view.has_password:
+            await self.svc.set_password_by_link(await self.svc.create_password_link(manager.id), self.PASSWORD)
+        form = {"login": login, "password": self.PASSWORD}
+        if remember:
+            form["remember"] = "1"
+        response = await client.post("/manager/login", data=form, headers=HEADERS)
         self.assertEqual(response.status_code, 303, response.text)
         page = await client.get("/manager/")
         self.assertEqual(page.status_code, 200)
@@ -91,52 +100,121 @@ class WebCase(unittest.IsolatedAsyncioTestCase):
 
 
 class LoginTests(WebCase):
-    async def test_login_page_get_does_not_burn_the_link(self):
-        manager = await self.env.make_manager()
-        token = await self.svc.create_login_token(manager.id)
-        async with self.client() as client:
-            for _ in range(3):  # превью ссылок в мессенджерах открывают её GET-ом
-                page = await client.get(f"/manager/login?t={token}")
-                self.assertEqual(page.status_code, 200)
-            response = await client.post("/manager/login", data={"token": token}, headers=HEADERS)
-        self.assertEqual(response.status_code, 303)
+    async def manager_with_password(self, **kw):
+        return await self.env.make_manager(login="ivan", password=self.PASSWORD, **kw)
 
-    async def test_link_is_one_time(self):
-        manager = await self.env.make_manager()
-        token = await self.svc.create_login_token(manager.id)
-        async with self.client() as client:
-            ok = await client.post("/manager/login", data={"token": token}, headers=HEADERS)
-            again = await client.post("/manager/login", data={"token": token}, headers=HEADERS)
-        self.assertEqual(ok.status_code, 303)
-        self.assertEqual(again.status_code, 400)
+    async def post_login(self, client, login="ivan", password=None, headers=None, **extra):
+        return await client.post("/manager/login", data={"login": login, "password": password or self.PASSWORD, **extra},
+                                 headers=headers or HEADERS)
 
-    async def test_cookie_attributes(self):
-        manager = await self.env.make_manager()
-        token = await self.svc.create_login_token(manager.id)
+    async def test_login_page_renders_a_form(self):
         async with self.client() as client:
-            response = await client.post("/manager/login", data={"token": token}, headers=HEADERS)
+            page = await client.get("/manager/login")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('name="login"', page.text)
+        self.assertIn('name="password"', page.text)
+        self.assertIn('name="remember"', page.text)
+
+    async def test_referrer_policy_keeps_origin_on_posts(self):
+        """Регрессия: при no-referrer браузер шлёт `Origin: null`, и каждый POST панели получал 403."""
+        manager = await self.manager_with_password()
+        async with self.client() as client:
+            login_page = await client.get("/manager/login")
+            await self.login(client, manager)
+            panel = await client.get("/manager/")
+        for response in (login_page, panel):
+            self.assertEqual(response.headers["referrer-policy"], "same-origin")
+            self.assertNotIn('content="no-referrer"', response.text)
+
+    async def test_successful_login(self):
+        await self.manager_with_password()
+        async with self.client() as client:
+            response = await self.post_login(client, login="IVAN", headers={**HEADERS, "x-real-ip": "5.6.7.8",
+                                                                            "user-agent": "Mozilla/5.0 (Windows NT 10.0) Chrome/120"})
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(response.headers["location"], "/manager/")
+            self.assertEqual((await client.get("/manager/")).status_code, 200)
+            # уже вошедшего страница входа отправляет в панель
+            self.assertEqual((await client.get("/manager/login")).status_code, 303)
+        notice = self.env.notifier.web_logins[-1]
+        self.assertEqual((notice["ip"], notice["device"]), ("5.6.7.8", "Chrome · Windows"))
+
+    async def test_cookie_attributes_without_remember(self):
+        await self.manager_with_password()
+        async with self.client() as client:
+            response = await self.post_login(client)
         cookie = response.headers["set-cookie"].lower()
-        self.assertIn("mgr_session=", cookie)
-        self.assertIn("httponly", cookie)
-        self.assertIn("samesite=strict", cookie)
-        self.assertIn("path=/manager", cookie)
-        self.assertIn("secure", cookie)
+        for part in ("mgr_session=", "httponly", "samesite=strict", "path=/manager", "secure"):
+            self.assertIn(part, cookie)
+        self.assertNotIn("max-age", cookie)  # сессионная cookie — уходит с закрытием браузера
+        payload = jwt.decode(response.cookies["mgr_session"], self.auth.SECRET_KEY, algorithms=[self.auth.ALGORITHM])
+        self.assertFalse(payload["rem"])
 
-    async def test_login_from_foreign_origin_is_refused(self):
-        manager = await self.env.make_manager()
-        token = await self.svc.create_login_token(manager.id)
+    async def test_remember_me_keeps_the_session_for_30_days(self):
+        await self.manager_with_password()
         async with self.client() as client:
-            response = await client.post("/manager/login", data={"token": token}, headers={"origin": "https://evil.example"})
+            response = await self.post_login(client, remember="1")
+        cookie = response.headers["set-cookie"].lower()
+        self.assertIn(f"max-age={30 * 24 * 3600}", cookie)
+        payload = jwt.decode(response.cookies["mgr_session"], self.auth.SECRET_KEY, algorithms=[self.auth.ALGORITHM])
+        self.assertTrue(payload["rem"])
+
+    async def test_wrong_password_and_unknown_login_look_the_same(self):
+        await self.manager_with_password()
+        async with self.client() as client:
+            wrong = await self.post_login(client, password="wrong-pass")
+            unknown = await self.post_login(client, login="nobody")
+        self.assertEqual((wrong.status_code, unknown.status_code), (400, 400))
+        self.assertIn("Неверный логин или пароль", wrong.text)
+        self.assertIn("Неверный логин или пароль", unknown.text)
+        self.assertNotIn("set-cookie", wrong.headers)
+
+    async def test_lockout_is_shown(self):
+        await self.manager_with_password()
+        async with self.client() as client:
+            for _ in range(4):
+                await self.post_login(client, password="wrong-pass")
+            locked = await self.post_login(client, password="wrong-pass")
+            still = await self.post_login(client)
+        self.assertEqual((locked.status_code, still.status_code), (429, 429))
+
+    async def test_ip_limit_across_logins(self):
+        await self.manager_with_password()
+        self.auth._ip_failures.clear()
+        headers = {**HEADERS, "x-real-ip": "9.9.9.9"}
+        async with self.client() as client:
+            for i in range(self.auth.IP_MAX_FAILURES):
+                await self.post_login(client, login=f"user{i}", headers=headers)
+            blocked = await self.post_login(client, headers=headers)
+            other_ip = await self.post_login(client, headers={**HEADERS, "x-real-ip": "8.8.8.8"})
+        self.auth._ip_failures.clear()
+        self.assertEqual(blocked.status_code, 429)
+        self.assertEqual(other_ip.status_code, 303)
+
+    async def test_blocked_manager_with_the_right_password(self):
+        manager = await self.manager_with_password()
+        await self.svc.set_status(manager.id, "blocked", admin_id=1)
+        async with self.client() as client:
+            response = await self.post_login(client)
         self.assertEqual(response.status_code, 403)
 
-    async def test_wrong_token(self):
+    async def test_login_from_foreign_origin_is_refused(self):
+        await self.manager_with_password()
+        async with self.client() as client:
+            response = await self.post_login(client, headers={"origin": "https://evil.example"})
+            null_origin = await self.post_login(client, headers={"origin": "null"})
+        self.assertEqual((response.status_code, null_origin.status_code), (403, 403))
+
+    async def test_old_link_login_no_longer_works(self):
         async with self.client() as client:
             response = await client.post("/manager/login", data={"token": "x" * 40}, headers=HEADERS)
         self.assertEqual(response.status_code, 400)
+        self.assertNotIn("set-cookie", response.headers)
 
     async def test_pages_require_a_session(self):
         async with self.client() as client:
-            for path in ("/manager/", "/manager/issue", "/manager/temp", "/manager/clients", "/manager/history"):
+            for path in ("/manager/", "/manager/issue", "/manager/temp", "/manager/clients", "/manager/history",
+                         "/manager/account"):
                 response = await client.get(path)
                 self.assertEqual(response.status_code, 303, path)
                 self.assertEqual(response.headers["location"], "/manager/login")
@@ -147,6 +225,88 @@ class LoginTests(WebCase):
             await self.login(client, manager)
             response = await client.get("/manager/")
         self.assertEqual(response.headers["cache-control"], "no-store")
+
+
+class PasswordLinkTests(WebCase):
+    async def test_get_shows_the_form_and_does_not_burn_the_link(self):
+        manager = await self.env.make_manager(login="ivan")
+        token = await self.svc.create_password_link(manager.id)
+        async with self.client() as client:
+            for _ in range(3):  # превью ссылок в мессенджерах открывают её GET-ом
+                page = await client.get(f"/manager/password?t={token}")
+                self.assertEqual(page.status_code, 200)
+        self.assertIn('value="ivan"', page.text)
+        self.assertIn('name="password2"', page.text)
+
+    async def test_set_password_then_log_in(self):
+        manager = await self.env.make_manager(login="ivan")
+        token = await self.svc.create_password_link(manager.id)
+        async with self.client() as client:
+            mismatch = await client.post("/manager/password", headers=HEADERS,
+                                         data={"token": token, "password": "Пароль-123", "password2": "Пароль-124"})
+            weak = await client.post("/manager/password", headers=HEADERS,
+                                     data={"token": token, "password": "short", "password2": "short"})
+            ok = await client.post("/manager/password", headers=HEADERS,
+                                   data={"token": token, "password": "Пароль-123", "password2": "Пароль-123"})
+            again = await client.post("/manager/password", headers=HEADERS,
+                                      data={"token": token, "password": "Пароль-123", "password2": "Пароль-123"})
+            done = await client.get(ok.headers["location"])
+            login = await client.post("/manager/login", data={"login": "ivan", "password": "Пароль-123"}, headers=HEADERS)
+        self.assertEqual((mismatch.status_code, weak.status_code), (400, 400))
+        self.assertIn("не совпадают", mismatch.text)
+        self.assertEqual((ok.status_code, ok.headers["location"]), (303, "/manager/login?done=1"))
+        self.assertEqual(again.status_code, 400)
+        self.assertIn("Пароль сохранён", done.text)
+        self.assertEqual(login.status_code, 303)
+
+    async def test_bad_link(self):
+        async with self.client() as client:
+            page = await client.get("/manager/password?t=garbage")
+            post = await client.post("/manager/password", headers=HEADERS,
+                                     data={"token": "garbage", "password": "Пароль-123", "password2": "Пароль-123"})
+        self.assertEqual((page.status_code, post.status_code), (400, 400))
+        self.assertNotIn('name="password"', page.text)
+
+    async def test_foreign_origin_is_refused(self):
+        manager = await self.env.make_manager(login="ivan")
+        token = await self.svc.create_password_link(manager.id)
+        async with self.client() as client:
+            response = await client.post("/manager/password", headers={"origin": "https://evil.example"},
+                                         data={"token": token, "password": "Пароль-123", "password2": "Пароль-123"})
+        self.assertEqual(response.status_code, 403)
+        self.assertIsNotNone(await self.svc.password_link_owner(token))
+
+    async def test_setting_password_kills_existing_sessions(self):
+        manager = await self.env.make_manager()
+        async with self.client() as client:
+            await self.login(client, manager)
+            await self.svc.reset_password(manager.id, admin_id=1)
+            self.assertEqual((await client.get("/manager/")).status_code, 303)
+
+
+class AccountTests(WebCase):
+    async def test_change_password_keeps_this_session_and_ends_others(self):
+        manager = await self.env.make_manager()
+        async with self.client() as here, self.client() as there:
+            csrf = await self.login(here, manager, remember=True)
+            await self.login(there, manager)
+            self.assertEqual((await here.get("/manager/account")).status_code, 200)
+            bad = await here.post("/manager/account/password", headers=HEADERS, data={
+                "csrf": csrf, "old_password": "wrong-pass", "password": "Новый-пароль-1", "password2": "Новый-пароль-1"})
+            no_csrf = await here.post("/manager/account/password", headers=HEADERS, data={
+                "csrf": "nope", "old_password": self.PASSWORD, "password": "Новый-пароль-1", "password2": "Новый-пароль-1"})
+            ok = await here.post("/manager/account/password", headers=HEADERS, data={
+                "csrf": csrf, "old_password": self.PASSWORD, "password": "Новый-пароль-1", "password2": "Новый-пароль-1"})
+            self.assertIn(f"max-age={30 * 24 * 3600}", ok.headers["set-cookie"].lower())  # «запомнить» сохранилось
+            here_after = await here.get("/manager/account?ok=1")
+            there_after = await there.get("/manager/")
+        self.assertEqual(bad.status_code, 400)
+        self.assertIn("Текущий пароль указан неверно", bad.text)
+        self.assertEqual(no_csrf.status_code, 403)
+        self.assertEqual(ok.status_code, 303)
+        self.assertEqual(here_after.status_code, 200)
+        self.assertIn("Пароль изменён", here_after.text)
+        self.assertEqual(there_after.status_code, 303)
 
 
 class SessionTests(WebCase):

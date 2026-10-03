@@ -29,12 +29,12 @@ from tgbot.services.custom_pricing import (
 )
 from tgbot.services.device_pricing import build_checkout, days_left, receipt_items
 from tgbot.services.manager_receipts import (
-    KIND_CUSTOM, KIND_TARIFF, KIND_TEMP, ReceiptData,
+    KIND_CUSTOM, KIND_TARIFF, KIND_TEMP, ReceiptData, fmt_dt,
     format_client_receipt, format_group_receipt, format_manager_receipt,
 )
 from tgbot.services.manager_security import (
-    generate_client_code, hash_token, key_fingerprint, new_token,
-    normalize_client_code, temp_username,
+    generate_client_code, hash_password, hash_token, key_fingerprint, new_token,
+    normalize_client_code, normalize_login, password_problem, temp_username, verify_password,
 )
 from tgbot.services.pricing import effective_price
 from tgbot.services.traffic_pricing import (
@@ -54,7 +54,11 @@ DEFAULT_ACCESS_GRACE_DAYS = 14
 
 # --- ограничения -----------------------------------------------------------
 INVITE_TTL_HOURS = 24
-LOGIN_LINK_TTL_MINUTES = 5
+# Ссылка «задать пароль» из бота.
+PASSWORD_LINK_TTL_MINUTES = 30
+# Подбор пароля: столько неверных попыток подряд — и вход по логину закрыт на LOGIN_LOCK_MINUTES.
+MAX_FAILED_LOGINS = 5
+LOGIN_LOCK_MINUTES = 15
 ACCESS_CODE_TTL_MINUTES = 15
 CODE_ATTEMPTS_PER_HOUR = 5
 TEMP_DELETE_MAX_ATTEMPTS = 5
@@ -79,6 +83,12 @@ MESSAGES = {
     "pending_payment": "У клиента уже есть неоплаченный счёт. Отмените его или дождитесь оплаты.",
     "temp_not_found": "Временный ключ не найден или уже недоступен.",
     "invalid_invite": "Ссылка-приглашение недействительна или устарела.",
+    "bad_login": "Логин: 3–32 символа, латиница, цифры, «.», «_», «-», начинается с буквы.",
+    "login_taken": "Этот логин уже занят другим менеджером.",
+    "bad_password": "Пароль не подходит.",
+    "bad_credentials": "Неверный логин или пароль.",
+    "login_locked": "Слишком много неверных попыток. Вход временно закрыт — попробуйте через 15 минут.",
+    "invalid_password_link": "Ссылка недействительна или устарела. Получите новую в боте: «Панель менеджера» → «Вход на сайт».",
     "panel": "VPN-панель временно недоступна. Повторите через несколько секунд.",
     "payment_failed": "Не удалось провести платёж. Ключ не выдан.",
     "generic": "Не удалось выполнить операцию. Обратитесь к администратору.",
@@ -110,6 +120,8 @@ class ManagerView:
     can_view_global_stats: bool
     temp_keys_per_day: int
     cash_limit: int | None
+    login: str | None = None
+    has_password: bool = False
 
 
 @dataclass(frozen=True)
@@ -248,7 +260,7 @@ def _view(m) -> ManagerView:
         can_issue_tariff=m.can_issue_tariff, can_issue_custom=m.can_issue_custom,
         can_issue_temp=m.can_issue_temp, can_accept_cash=m.can_accept_cash,
         can_view_global_stats=m.can_view_global_stats, temp_keys_per_day=m.temp_keys_per_day,
-        cash_limit=m.cash_limit,
+        cash_limit=m.cash_limit, login=m.login, has_password=bool(m.password_hash),
     )
 
 
@@ -333,15 +345,43 @@ class ManagerService:
     # Управление менеджерами (вызывается только из админки)
     # ==========================================================================
 
-    async def invite(self, display_name: str, admin_id: int) -> tuple[ManagerView, str]:
-        """Создаёт менеджера в статусе «приглашён». Возвращает токен ссылки — он нигде не хранится."""
+    async def invite(self, display_name: str, admin_id: int, login: str | None = None) -> tuple[ManagerView, str]:
+        """
+        Создаёт менеджера в статусе «приглашён». Возвращает токен ссылки — он нигде не хранится.
+        Логин для сайта задаёт админ сразу; пароль менеджер придумает сам после принятия приглашения.
+        """
+        normalized = None
+        if login is not None:
+            normalized = await self._check_login(login)
         token = new_token()
         manager = await self._managers.create_invited(
             display_name.strip() or "Менеджер", admin_id, hash_token(token),
             _now() + datetime.timedelta(hours=INVITE_TTL_HOURS),
         )
+        if normalized and not await self._managers.set_login(manager.id, normalized):
+            # Логин заняли между проверкой и записью — менеджер создан, логин админ задаст в карточке.
+            logger.warning(f"[manager] login {normalized!r} was taken while inviting #{manager.id}")
+        else:
+            manager = await self._managers.get(manager.id)
         logger.info(f"[manager] admin {admin_id} invited manager #{manager.id}")
         return _view(manager), token
+
+    async def _check_login(self, raw: str, manager_id: int | None = None) -> str:
+        login = normalize_login(raw)
+        if login is None:
+            raise ManagerError("bad_login")
+        existing = await self._managers.get_by_login(login)
+        if existing is not None and existing.id != manager_id:
+            raise ManagerError("login_taken")
+        return login
+
+    async def set_login(self, manager_id: int, raw: str, admin_id: int) -> str:
+        """Админ задаёт или меняет логин. Сессии не сбрасываем: пароль тот же, сменилось только имя входа."""
+        login = await self._check_login(raw, manager_id)
+        if not await self._managers.set_login(manager_id, login):
+            raise ManagerError("login_taken")
+        logger.info(f"[manager] admin {admin_id} set login of #{manager_id}: {login}")
+        return login
 
     async def reinvite(self, manager_id: int) -> str:
         token = new_token()
@@ -376,17 +416,132 @@ class ManagerService:
     # Вход на сайт
     # ==========================================================================
 
-    async def create_login_token(self, manager_id: int) -> str:
-        await self.require_active(manager_id)
+    async def create_password_link(self, manager_id: int) -> str:
+        """Одноразовая ссылка «задать пароль» (30 мин). Возвращает токен — в БД только его хэш."""
+        manager = await self.require_active(manager_id)
+        if not manager.login:
+            raise ManagerError("bad_login", "Логин для сайта ещё не задан. Обратитесь к администратору.")
         token = new_token()
-        await self._managers.set_login_token(
-            manager_id, hash_token(token), _now() + datetime.timedelta(minutes=LOGIN_LINK_TTL_MINUTES)
+        await self._managers.set_password_token(
+            manager_id, hash_token(token), _now() + datetime.timedelta(minutes=PASSWORD_LINK_TTL_MINUTES)
         )
         return token
 
-    async def consume_login_token(self, token: str):
-        """Погашает одноразовую ссылку входа. Возвращает менеджера (ORM — только для веб-слоя, он берёт id/ver)."""
-        return await self._managers.consume_login_token(hash_token(token))
+    async def password_link_owner(self, token: str) -> ManagerView | None:
+        """Чья ссылка «задать пароль» — для показа формы. Ссылку НЕ гасит (превью мессенджеров открывают GET-ом)."""
+        if not token:
+            return None
+        manager = await self._managers.get_by_password_token(hash_token(token))
+        return _view(manager) if manager else None
+
+    async def set_password_by_link(self, token: str, password: str) -> ManagerView:
+        """
+        Ставит пароль по ссылке из бота. Пароль проверяется ДО погашения ссылки:
+        опечатка в пароле не должна сжигать ссылку. Все прежние сессии сбрасываются.
+        """
+        owner = await self.password_link_owner(token)
+        if owner is None:
+            raise ManagerError("invalid_password_link")
+        problem = password_problem(password, owner.login)
+        if problem:
+            raise ManagerError("bad_password", problem)
+        password_hash = await asyncio.to_thread(hash_password, password)
+        manager = await self._managers.set_password_by_token(hash_token(token), password_hash)
+        if manager is None:
+            raise ManagerError("invalid_password_link")
+        logger.info(f"[manager] #{manager.id} set a web password")
+        await self._notify_manager(
+            manager, "🔐 Пароль для входа на сайт установлен. Все прежние входы на сайте завершены."
+        )
+        return _view(manager)
+
+    async def authenticate(self, raw_login: str, password: str) -> ManagerView:
+        """
+        Вход по логину и паролю. Ответ на неверный логин и неверный пароль одинаковый,
+        а argon2 считается в обоих случаях — по тексту и по времени не понять, есть ли такой логин.
+        Статус (блокировка) раскрываем только тому, кто знает пароль.
+        """
+        login = normalize_login(raw_login)
+        manager = await self._managers.get_by_login(login) if login else None
+        if manager is not None and manager.locked_until and manager.locked_until > _now():
+            raise ManagerError("login_locked")
+
+        ok = await asyncio.to_thread(verify_password, password, manager.password_hash if manager else None)
+        if manager is None or not ok:
+            if manager is not None and manager.password_hash:
+                locked = await self._managers.register_failed_login(
+                    manager.id, MAX_FAILED_LOGINS, _now() + datetime.timedelta(minutes=LOGIN_LOCK_MINUTES)
+                )
+                if locked:
+                    logger.warning(f"[manager] #{manager.id}: web login locked after {MAX_FAILED_LOGINS} failures")
+                    await self._notify_manager(
+                        manager,
+                        f"⚠️ {MAX_FAILED_LOGINS} неверных попыток входа на сайт под вашим логином. "
+                        f"Вход закрыт на {LOGIN_LOCK_MINUTES} минут.\n\n"
+                        "Если это были не вы — смените пароль: «Панель менеджера» → «Вход на сайт».",
+                    )
+                    raise ManagerError("login_locked")
+            raise ManagerError("bad_credentials")
+
+        if manager.status == "blocked":
+            raise ManagerError("blocked")
+        if manager.status != "active":
+            raise ManagerError("bad_credentials")
+        if manager.failed_logins or manager.locked_until:
+            await self._managers.reset_failed_logins(manager.id)
+        return _view(manager)
+
+    async def notify_web_login(self, manager: ManagerView, ip: str | None, device: str | None) -> None:
+        """Уведомление в бот о каждом входе на сайт — с кнопкой «завершить все сеансы»."""
+        if self.notifier is None or not manager.telegram_id:
+            return
+        try:
+            await self.notifier.notify_web_login(manager.telegram_id, ip=ip, device=device, when=fmt_dt(_now()))
+        except Exception as e:
+            logger.warning(f"[manager] cannot notify #{manager.id} about web login: {e}")
+
+    async def change_password(self, manager_id: int, old_password: str, new_password: str) -> int:
+        """Смена пароля на сайте (нужен текущий). Остальные сессии сбрасываются; возвращает новую версию для текущей."""
+        manager = await self.require_active(manager_id)
+        if not await asyncio.to_thread(verify_password, old_password, manager.password_hash):
+            raise ManagerError("bad_password", "Текущий пароль указан неверно.")
+        problem = password_problem(new_password, manager.login)
+        if problem:
+            raise ManagerError("bad_password", problem)
+        if new_password == old_password:
+            raise ManagerError("bad_password", "Новый пароль совпадает с текущим.")
+        version = await self._managers.set_password(manager_id, await asyncio.to_thread(hash_password, new_password))
+        logger.info(f"[manager] #{manager_id} changed the web password")
+        await self._notify_manager(manager, "🔐 Пароль для входа на сайт изменён. Остальные входы на сайте завершены.")
+        return version
+
+    async def reset_password(self, manager_id: int, admin_id: int) -> str | None:
+        """
+        Сброс админом: пароль стёрт, все веб-сессии закрыты. Активному менеджеру с логином
+        возвращается токен новой ссылки «задать пароль» (её шлют ему в бот).
+        """
+        manager = await self._managers.get(manager_id)
+        if manager is None or manager.status == "deleted":
+            raise ManagerError("not_manager")
+        await self._managers.set_password(manager_id, None)
+        logger.info(f"[manager] admin {admin_id} reset the web password of #{manager_id}")
+        if manager.status != "active" or not manager.login:
+            return None
+        return await self.create_password_link(manager_id)
+
+    async def end_web_sessions(self, manager_id: int) -> None:
+        """«Это был не я»: все входы на сайте закрываются, пароль остаётся."""
+        await self.require_active(manager_id)
+        await self._managers.bump_session(manager_id)
+        logger.info(f"[manager] #{manager_id} ended all web sessions")
+
+    async def _notify_manager(self, manager, text: str) -> None:
+        if self.notifier is None or not getattr(manager, "telegram_id", None):
+            return
+        try:
+            await self.notifier.notify_manager_text(manager.telegram_id, text)
+        except Exception as e:
+            logger.warning(f"[manager] cannot notify #{manager.id}: {e}")
 
     # ==========================================================================
     # Настройки

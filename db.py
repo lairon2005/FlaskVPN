@@ -293,8 +293,17 @@ class Manager(Base):
     # В БД только sha256 токенов — сами токены существуют лишь в ссылке.
     invite_token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=True)
     invite_expires_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+    # Одноразовая ссылка из бота «задать пароль» (после приглашения, по кнопке, после сброса админом).
     login_token_hash: Mapped[str] = mapped_column(String(64), nullable=True)
     login_token_expires_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+
+    # Вход на сайт: логин задаёт админ, пароль — сам менеджер (по ссылке из бота). Хэш argon2.
+    login: Mapped[str] = mapped_column(String(32), unique=True, nullable=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=True)
+    password_changed_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+    # Подбор пароля: после MAX_FAILED_LOGINS неверных попыток вход закрыт до locked_until.
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0, server_default='0', nullable=False)
+    locked_until: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
 
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
     created_by: Mapped[int] = mapped_column(BigInteger, nullable=True)

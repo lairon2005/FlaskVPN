@@ -1,0 +1,38 @@
+{% extends "manager/base.html" %}
+{% import "_icons.html" as ic %}
+
+{% block content %}
+<h1 class="font-display font-black text-2xl mb-4">Аккаунт</h1>
+
+<div class="sticker p-5 max-w-md">
+    <p class="text-sm text-subtle">Логин для входа</p>
+    <p class="font-mono font-semibold">{{ manager.login }}</p>
+
+    <h2 class="mt-5 font-display font-black text-lg">Сменить пароль</h2>
+    {% if message %}
+        <div class="alert alert-success mt-3">{{ ic.icon('check-circle', 'w-5 h-5 shrink-0') }}<span>{{ message }}</span></div>
+    {% endif %}
+    {% if error %}
+        <div class="alert alert-error mt-3" role="alert">{{ ic.icon('alert', 'w-5 h-5 shrink-0') }}<span>{{ error }}</span></div>
+    {% endif %}
+    <form action="/manager/account/password" method="post" class="space-y-4 mt-3">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="text" name="username" value="{{ manager.login }}" autocomplete="username" hidden>
+        <div>
+            <label class="field-label" for="accOld">Текущий пароль</label>
+            <input type="password" id="accOld" name="old_password" class="input" required maxlength="128" autocomplete="current-password">
+        </div>
+        <div>
+            <label class="field-label" for="accNew">Новый пароль</label>
+            <input type="password" id="accNew" name="password" class="input" required minlength="8" maxlength="128" autocomplete="new-password">
+            <p class="mt-1.5 text-xs text-subtle">Не короче 8 символов. После смены остальные входы на сайте завершатся.</p>
+        </div>
+        <div>
+            <label class="field-label" for="accNew2">Повторите новый пароль</label>
+            <input type="password" id="accNew2" name="password2" class="input" required minlength="8" maxlength="128" autocomplete="new-password">
+        </div>
+        <button type="submit" class="btn-pop"><span class="btn-text">Сменить пароль</span></button>
+    </form>
+    <p class="mt-4 text-xs text-subtle">Забыли пароль? В боте: «Панель менеджера» → «Вход на сайт» → «Сменить пароль».</p>
+</div>
+{% endblock %}

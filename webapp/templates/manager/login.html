@@ -2,22 +2,44 @@
 {% import "_icons.html" as ic %}
 
 {% block meta_title %}Вход для менеджера | FlaskVPN{% endblock %}
-{% block head %}<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">{% endblock %}
+{% block head %}<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="same-origin">{% endblock %}
 {% block auth_title %}Вход для менеджера{% endblock %}
-{% block auth_subtitle %}Одноразовая ссылка из бота{% endblock %}
+{% block auth_subtitle %}Логин и пароль от панели{% endblock %}
 
 {% block auth_body %}
-{% if token %}
 <form action="/manager/login" method="post" class="space-y-4">
-    <input type="hidden" name="token" value="{{ token }}">
-    <p class="text-sm text-subtle">Подтвердите вход. Ссылка сработает один раз, дальше сессия живёт 12 часов.</p>
-    <button type="submit" class="btn-pop w-full"><span class="btn-text">Войти в панель</span></button>
+    <div>
+        <label class="field-label" for="mgrLogin">Логин</label>
+        <div class="input-wrap">
+            <span class="input-icon">{{ ic.icon('user', 'w-5 h-5') }}</span>
+            <input type="text" id="mgrLogin" name="login" class="input" value="{{ login }}"
+                   required maxlength="32" autocomplete="username" autocapitalize="none" spellcheck="false"
+                   {% if not login %}autofocus{% endif %}>
+        </div>
+    </div>
+
+    <div>
+        <label class="field-label" for="mgrPassword">Пароль</label>
+        <div class="input-wrap">
+            <span class="input-icon">{{ ic.icon('lock', 'w-5 h-5') }}</span>
+            <input type="password" id="mgrPassword" name="password" class="input"
+                   required maxlength="128" autocomplete="current-password" {% if login %}autofocus{% endif %}>
+        </div>
+    </div>
+
+    <label class="flex items-center gap-2 text-sm font-semibold cursor-pointer select-none">
+        <input type="checkbox" name="remember" value="1" class="w-4 h-4 accent-current">
+        Запомнить меня на 30 дней
+    </label>
+
+    <button type="submit" class="btn-pop w-full"><span class="btn-text">Войти</span></button>
 </form>
-{% else %}
-<p class="text-sm text-subtle">
-    В боте откройте «Панель менеджера» → «Панель на сайте» — бот пришлёт свежую ссылку для входа.
+{% endblock %}
+
+{% block auth_footer %}
+<p class="mt-6 text-center text-sm text-subtle">
+    Нет пароля или забыли его? В боте: «Панель менеджера» → «Вход на сайт» → «Задать пароль».
 </p>
-{% endif %}
 {% endblock %}
 
 {% block scripts %}{% endblock %}

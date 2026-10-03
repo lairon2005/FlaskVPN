@@ -71,16 +71,33 @@ class RaceTests(RepoCase):
         results = await asyncio.gather(*(self.managers.accept_invite("tok", 100 + i) for i in range(5)))
         self.assertEqual(len([r for r in results if r]), 1)
 
-    async def test_login_token_has_a_single_winner(self):
+    async def test_password_link_has_a_single_winner(self):
         manager = await self.active_manager()
-        await self.managers.set_login_token(manager.id, "lt", FUTURE())
-        results = await asyncio.gather(*(self.managers.consume_login_token("lt") for _ in range(5)))
+        await self.managers.set_password_token(manager.id, "lt", FUTURE())
+        results = await asyncio.gather(*(self.managers.set_password_by_token("lt", f"hash{i}") for i in range(5)))
         self.assertEqual(len([r for r in results if r]), 1)
 
-    async def test_expired_login_token_is_refused(self):
+    async def test_expired_password_link_is_refused(self):
         manager = await self.active_manager()
-        await self.managers.set_login_token(manager.id, "lt", datetime.datetime.now() - datetime.timedelta(seconds=1))
-        self.assertIsNone(await self.managers.consume_login_token("lt"))
+        await self.managers.set_password_token(manager.id, "lt", datetime.datetime.now() - datetime.timedelta(seconds=1))
+        self.assertIsNone(await self.managers.get_by_password_token("lt"))
+        self.assertIsNone(await self.managers.set_password_by_token("lt", "hash"))
+
+    async def test_login_is_unique(self):
+        a = await self.active_manager()
+        b = await self.managers.create_invited("Б", 1, "tok-b", FUTURE())
+        self.assertTrue(await self.managers.set_login(a.id, "ivan"))
+        self.assertFalse(await self.managers.set_login(b.id, "ivan"))
+        self.assertTrue(await self.managers.set_login(a.id, "ivan"))  # повторно себе — можно
+        self.assertEqual((await self.managers.get_by_login("ivan")).id, a.id)
+
+    async def test_failed_logins_lock_on_the_limit(self):
+        manager = await self.active_manager()
+        results = [await self.managers.register_failed_login(manager.id, 3, FUTURE()) for _ in range(3)]
+        self.assertEqual(results, [False, False, True])
+        stored = await self.managers.get(manager.id)
+        self.assertEqual(stored.failed_logins, 0)
+        self.assertIsNotNone(stored.locked_until)
 
     async def test_access_code_has_a_single_winner(self):
         user = await self.users.create_offline_client(lambda: "AAAAAA", "h", None)

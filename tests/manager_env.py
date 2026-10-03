@@ -112,6 +112,8 @@ class RecordingNotifier:
         self.manager_msgs: list[dict] = []
         self.client_msgs: list[tuple[int, str]] = []
         self.client_access: list[tuple[int, str]] = []
+        self.manager_texts: list[tuple[int, str]] = []
+        self.web_logins: list[dict] = []
         self._next_message_id = 1000
 
     async def post_group_receipt(self, op_id, text, existing):
@@ -129,6 +131,12 @@ class RecordingNotifier:
 
     async def notify_client_access(self, user_id, manager_name):
         self.client_access.append((user_id, manager_name))
+
+    async def notify_manager_text(self, telegram_id, text):
+        self.manager_texts.append((telegram_id, text))
+
+    async def notify_web_login(self, telegram_id, *, ip, device, when):
+        self.web_logins.append({"to": telegram_id, "ip": ip, "device": device, "when": when})
 
 
 class FakeSubscriptionService:
@@ -225,13 +233,16 @@ async def build_env(*, tariffs=None, settings=None, save_card=True, manager_righ
         create_payment=create_payment, config=config, notifier=notifier,
     )
 
-    async def make_manager(name="Иван Петров", telegram_id=1001, **rights):
-        manager, token = await service.invite(name, admin_id=1)
+    async def make_manager(name="Иван Петров", telegram_id=1001, login=None, password=None, **rights):
+        """Активный менеджер. login/password — сразу с входом на сайт (пароль ставится через ссылку, как в жизни)."""
+        manager, token = await service.invite(name, admin_id=1, login=login)
         await service.accept_invite(token, telegram_id)
         merged = dict(manager_rights or {})
         merged.update(rights)
         if merged:
             await repos.managers.update_rights(manager.id, **merged)
+        if password is not None:
+            await service.set_password_by_link(await service.create_password_link(manager.id), password)
         return manager
 
     async def make_telegram_client(user_id=555, **fields):

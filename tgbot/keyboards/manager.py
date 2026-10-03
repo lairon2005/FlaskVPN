@@ -13,7 +13,7 @@ def manager_menu_keyboard(*, can_global_stats: bool = False, can_temp: bool = Tr
     builder.button(text="👥 Мои клиенты", callback_data="mgr:clients:0")
     builder.button(text="📜 История", callback_data="mgr:hist:0")
     builder.button(text="📊 Моя статистика", callback_data="mgr:stats")
-    builder.button(text="🌐 Панель на сайте", callback_data="mgr:web")
+    builder.button(text="🌐 Вход на сайт", callback_data="mgr:web")
     if can_global_stats:
         builder.button(text="📈 Общая статистика", callback_data="mgr:gstats")
     builder.button(text="⬅️ Главное меню", callback_data="back_to_main_menu")
@@ -193,4 +193,31 @@ def client_access_notice_keyboard() -> InlineKeyboardMarkup:
     """Клиенту: отозвать доступ менеджера. Хендлер — в tgbot/handlers/user/manager_code.py."""
     builder = InlineKeyboardBuilder()
     builder.button(text="🚫 Закрыть доступ менеджеру", callback_data="mgr_client_revoke")
+    return builder.as_markup()
+
+
+def web_access_keyboard(site_url: str, *, has_password: bool) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🌐 Открыть сайт", url=site_url)
+    builder.button(text="🔑 Сменить пароль" if has_password else "🔑 Задать пароль", callback_data="mgr:pwd")
+    if has_password:
+        builder.button(text="🚪 Завершить все входы на сайте", callback_data="mgr:endsess")
+    builder.button(text="⬅️ Панель менеджера", callback_data="mgr:menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def password_link_keyboard(url: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔑 Задать пароль", url=url)
+    builder.button(text="⬅️ Панель менеджера", callback_data="mgr:menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def web_login_notice_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🚪 Это не я — завершить все входы", callback_data="mgr:endsess")
+    builder.button(text="🔑 Сменить пароль", callback_data="mgr:pwd")
+    builder.adjust(1)
     return builder.as_markup()

@@ -8,6 +8,7 @@
 import datetime
 
 from sqlalchemy import select, update, func, and_, or_
+from sqlalchemy.exc import IntegrityError
 
 from db import Manager, ManagerClient, User
 
@@ -106,7 +107,9 @@ class ManagerRepository:
             if status in (BLOCKED, DELETED):
                 values.update(login_token_hash=None, login_token_expires_at=None)
             if status == DELETED:
-                values.update(invite_token_hash=None, invite_expires_at=None)
+                # Логин освобождается: его можно отдать новому менеджеру, журнал на логин не ссылается.
+                values.update(invite_token_hash=None, invite_expires_at=None,
+                              login=None, password_hash=None, locked_until=None, failed_logins=0)
             result = await session.execute(update(Manager).where(Manager.id == manager_id).values(**values))
             await session.commit()
             return result.rowcount > 0
@@ -131,18 +134,57 @@ class ManagerRepository:
             await session.commit()
             return result.rowcount > 0
 
-    # --- вход на сайт ------------------------------------------------------
+    # --- вход на сайт: логин и пароль ----------------------------------------
 
-    async def set_login_token(self, manager_id: int, token_hash: str, expires_at: datetime.datetime) -> None:
+    async def get_by_login(self, login: str) -> Manager | None:
+        """Менеджер по логину (удалённые логин уже не держат)."""
         async with self._session_maker() as session:
-            await session.execute(
+            result = await session.execute(select(Manager).where(Manager.login == login))
+            return result.scalar_one_or_none()
+
+    async def set_login(self, manager_id: int, login: str) -> bool:
+        """Задаёт логин. False — логин занят другим менеджером."""
+        async with self._session_maker() as session:
+            taken = await session.execute(
+                select(Manager.id).where(Manager.login == login, Manager.id != manager_id)
+            )
+            if taken.first() is not None:
+                return False
+            try:
+                await session.execute(update(Manager).where(Manager.id == manager_id).values(login=login))
+                await session.commit()
+            except IntegrityError:  # гонка двух админов за один логин
+                await session.rollback()
+                return False
+            return True
+
+    async def set_password_token(self, manager_id: int, token_hash: str, expires_at: datetime.datetime) -> bool:
+        """Ссылка «задать пароль» (новая отменяет прежнюю). Только для активных."""
+        async with self._session_maker() as session:
+            result = await session.execute(
                 update(Manager).where(Manager.id == manager_id, Manager.status == ACTIVE)
                 .values(login_token_hash=token_hash, login_token_expires_at=expires_at)
             )
             await session.commit()
+            return result.rowcount > 0
 
-    async def consume_login_token(self, token_hash: str) -> Manager | None:
-        """Одноразовая ссылка входа: гасится атомарно в момент использования."""
+    async def get_by_password_token(self, token_hash: str) -> Manager | None:
+        """Менеджер по действующей ссылке «задать пароль» — без погашения (для показа формы)."""
+        async with self._session_maker() as session:
+            result = await session.execute(
+                select(Manager).where(
+                    Manager.login_token_hash == token_hash,
+                    Manager.login_token_expires_at > datetime.datetime.now(),
+                    Manager.status == ACTIVE,
+                )
+            )
+            return result.scalar_one_or_none()
+
+    async def set_password_by_token(self, token_hash: str, password_hash: str) -> Manager | None:
+        """
+        Гасит ссылку и ставит пароль одним UPDATE: ссылку нельзя использовать дважды.
+        Все прежние веб-сессии сбрасываются, счётчик неверных попыток обнуляется.
+        """
         async with self._session_maker() as session:
             result = await session.execute(
                 update(Manager)
@@ -151,12 +193,64 @@ class ManagerRepository:
                     Manager.login_token_expires_at > datetime.datetime.now(),
                     Manager.status == ACTIVE,
                 )
-                .values(login_token_hash=None, login_token_expires_at=None)
+                .values(
+                    login_token_hash=None, login_token_expires_at=None,
+                    password_hash=password_hash, password_changed_at=datetime.datetime.now(),
+                    failed_logins=0, locked_until=None,
+                    session_version=Manager.session_version + 1,
+                )
                 .returning(Manager)
             )
             manager = result.scalar_one_or_none()
             await session.commit()
             return manager
+
+    async def set_password(self, manager_id: int, password_hash: str | None) -> int | None:
+        """
+        Новый пароль (None — сброс админом). Сбрасывает веб-сессии и блокировку подбора.
+        Возвращает новую версию сессии или None, если менеджера нет.
+        """
+        async with self._session_maker() as session:
+            values = dict(
+                password_hash=password_hash, failed_logins=0, locked_until=None,
+                password_changed_at=datetime.datetime.now() if password_hash else None,
+                session_version=Manager.session_version + 1,
+            )
+            if password_hash is None:
+                values.update(login_token_hash=None, login_token_expires_at=None)
+            result = await session.execute(
+                update(Manager).where(Manager.id == manager_id).values(**values)
+                .returning(Manager.session_version)
+            )
+            version = result.scalar_one_or_none()
+            await session.commit()
+            return version
+
+    async def register_failed_login(self, manager_id: int, max_attempts: int,
+                                    lock_until: datetime.datetime) -> bool:
+        """+1 неверная попытка. На max_attempts — блокировка входа до lock_until. True — только что заблокировали."""
+        async with self._session_maker() as session:
+            result = await session.execute(
+                update(Manager).where(Manager.id == manager_id)
+                .values(failed_logins=Manager.failed_logins + 1)
+                .returning(Manager.failed_logins)
+            )
+            count = result.scalar_one_or_none() or 0
+            locked = count >= max_attempts
+            if locked:
+                await session.execute(
+                    update(Manager).where(Manager.id == manager_id)
+                    .values(failed_logins=0, locked_until=lock_until)
+                )
+            await session.commit()
+            return locked
+
+    async def reset_failed_logins(self, manager_id: int) -> None:
+        async with self._session_maker() as session:
+            await session.execute(
+                update(Manager).where(Manager.id == manager_id).values(failed_logins=0, locked_until=None)
+            )
+            await session.commit()
 
     async def bump_session(self, manager_id: int) -> None:
         async with self._session_maker() as session:

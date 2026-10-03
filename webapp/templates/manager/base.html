@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title|default('Панель менеджера') }} | FlaskVPN</title>
     <meta name="robots" content="noindex, nofollow">
-    <meta name="referrer" content="no-referrer">
+    <meta name="referrer" content="same-origin">
     <meta name="csrf-token" content="{{ csrf|default('') }}">
     <meta name="theme-color" content="#F7F1E8">
     <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
@@ -31,7 +31,7 @@
             <a class="px-3 py-1.5 rounded-lg hover:bg-blue/10" href="/manager/history">История</a>
         </nav>
         <div class="ml-auto flex items-center gap-3 text-sm">
-            <span class="text-muted truncate max-w-[10rem]">{{ manager.display_name }}</span>
+            <a href="/manager/account" class="text-muted truncate max-w-[10rem] hover:text-orange transition" title="Аккаунт и пароль">{{ manager.display_name }}</a>
             <form action="/manager/logout" method="post">
                 <input type="hidden" name="csrf" value="{{ csrf }}">
                 <button class="btn-pop btn-pop-outline !min-h-0 !py-1.5 !px-3 text-sm" type="submit">Выйти</button>

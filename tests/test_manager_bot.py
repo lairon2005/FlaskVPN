@@ -38,6 +38,14 @@ class InviteTests(BotCase):
         self.assertEqual((await self.svc.view_by_telegram(MANAGER_TG)).display_name, "Иван Петров")
         self.bot.handlers.commands.apply_commands.assert_awaited()
 
+    async def test_invite_with_login_sends_a_password_link(self):
+        manager, token = await self.svc.invite("Иван Петров", admin_id=1, login="ivan")
+        await self.bot.send(MANAGER_TG, f"/start mgr_{token}")
+        last = self.session.of("SendMessage")[-1]
+        self.assertIn("ivan", last["text"])
+        link_token = str(last["reply_markup"]).split("password?t=")[1].split("'")[0]
+        self.assertEqual((await self.svc.password_link_owner(link_token)).id, manager.id)
+
     async def test_second_person_cannot_reuse_the_link(self):
         manager, token = await self.svc.invite("Иван", admin_id=1)
         await self.bot.send(MANAGER_TG, f"/start mgr_{token}")
@@ -106,13 +114,35 @@ class AccessTests(BotCase):
         await self.bot.press(MANAGER_TG, "mgr:gstats")
         self.assertTrue(any("права" in a for a in self.session.alerts()) or "права" in self.session.last_text())
 
-    async def test_web_login_link(self):
-        await self.manager()
+    async def test_web_access_screen_shows_login_not_a_login_link(self):
+        await self.env.make_manager(telegram_id=MANAGER_TG, login="ivan")
         await self.bot.press(MANAGER_TG, "mgr:web")
         text = self.session.last_text()
-        self.assertIn("https://example.com/manager/login?t=", text)
-        token = text.split("?t=")[1].split()[0].strip()
-        self.assertIsNotNone(await self.svc.consume_login_token(token))
+        self.assertIn("https://example.com/manager/login", text)
+        self.assertNotIn("?t=", text)
+        self.assertIn("ivan", text)
+        self.assertIn("не задан", text)
+        self.assertIn("mgr:pwd", str(self.session.of("EditMessageText")[-1]["reply_markup"]))
+
+    async def test_web_access_without_login(self):
+        await self.manager()
+        await self.bot.press(MANAGER_TG, "mgr:web")
+        self.assertIn("Логин для сайта ещё не задан", self.session.last_text())
+
+    async def test_password_link_from_the_panel(self):
+        manager = await self.env.make_manager(telegram_id=MANAGER_TG, login="ivan")
+        await self.bot.press(MANAGER_TG, "mgr:pwd")
+        markup = str(self.session.of("SendMessage")[-1]["reply_markup"])
+        self.assertIn("https://example.com/manager/password?t=", markup)
+        token = markup.split("password?t=")[1].split("'")[0]
+        self.assertEqual((await self.svc.password_link_owner(token)).id, manager.id)
+
+    async def test_end_all_web_sessions(self):
+        manager = await self.env.make_manager(telegram_id=MANAGER_TG, login="ivan", password="Секрет-2026")
+        before = await self.svc.session_version(manager.id)
+        await self.bot.press(MANAGER_TG, "mgr:endsess")
+        self.assertGreater(await self.svc.session_version(manager.id), before)
+        self.assertTrue(any("завершены" in a for a in self.session.alerts()))
 
 
 class IssueFlowTests(BotCase):

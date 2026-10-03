@@ -154,18 +154,161 @@ class InviteTests(EnvTestCase):
 
 
 class WebLoginTests(EnvTestCase):
-    async def test_login_link_is_one_time(self):
-        manager = await self.manager()
-        token = await self.svc.create_login_token(manager.id)
-        first = await self.svc.consume_login_token(token)
-        self.assertEqual(first.id, manager.id)
-        self.assertIsNone(await self.svc.consume_login_token(token))
+    PASSWORD = "Секрет-2026"
 
-    async def test_blocked_manager_cannot_log_in(self):
+    async def code_of(self, coro):
+        with self.assertRaises(self.E) as ctx:
+            await coro
+        return ctx.exception.code
+
+    async def test_invite_sets_a_normalized_login(self):
+        manager, _ = await self.svc.invite("Иван", admin_id=1, login="  Ivan.P ")
+        self.assertEqual(manager.login, "ivan.p")
+        self.assertFalse(manager.has_password)
+
+    async def test_bad_and_taken_logins_are_refused_before_creating(self):
+        await self.svc.invite("Иван", admin_id=1, login="ivan")
+        for raw, code in (("IVAN", "login_taken"), ("ив", "bad_login"), ("иван", "bad_login"),
+                          ("1abc", "bad_login"), ("a b", "bad_login"), ("x" * 33, "bad_login")):
+            self.assertEqual(await self.code_of(self.svc.invite("Другой", admin_id=1, login=raw)), code, raw)
+        self.assertEqual(len(await self.svc.list_managers()), 1)
+
+    async def test_admin_changes_login(self):
+        a = await self.manager(login="ivan", telegram_id=1)
+        b = await self.manager(login="petr", telegram_id=2)
+        self.assertEqual(await self.code_of(self.svc.set_login(b.id, "ivan", admin_id=1)), "login_taken")
+        self.assertEqual(await self.svc.set_login(a.id, "Ivan", admin_id=1), "ivan")  # свой логин — не «занят»
+        self.assertEqual(await self.svc.set_login(b.id, "petr.n", admin_id=1), "petr.n")
+
+    async def test_password_link_needs_a_login(self):
         manager = await self.manager()
-        token = await self.svc.create_login_token(manager.id)
+        self.assertEqual(await self.code_of(self.svc.create_password_link(manager.id)), "bad_login")
+
+    async def test_password_link_lifecycle(self):
+        manager = await self.manager(login="ivan")
+        token = await self.svc.create_password_link(manager.id)
+        for _ in range(3):  # показ формы ссылку не гасит
+            self.assertEqual((await self.svc.password_link_owner(token)).id, manager.id)
+        # плохой пароль ссылку не сжигает
+        self.assertEqual(await self.code_of(self.svc.set_password_by_link(token, "short")), "bad_password")
+        self.assertEqual(await self.code_of(self.svc.set_password_by_link(token, "ivan12345")), "bad_password")
+        view = await self.svc.set_password_by_link(token, self.PASSWORD)
+        self.assertTrue(view.has_password)
+        self.assertEqual(await self.code_of(self.svc.set_password_by_link(token, self.PASSWORD)), "invalid_password_link")
+        self.assertIsNone(await self.svc.password_link_owner(token))
+        self.assertIsNone(await self.svc.password_link_owner(""))
+
+    async def test_password_is_stored_as_argon2_hash(self):
+        manager = await self.manager(login="ivan", password=self.PASSWORD)
+        stored = await self.env.repos.managers.get(manager.id)
+        self.assertTrue(stored.password_hash.startswith("$argon2"))
+        self.assertNotIn(self.PASSWORD, stored.password_hash)
+        self.assertIsNone(stored.login_token_hash)
+
+    async def test_new_link_replaces_the_old_one(self):
+        manager = await self.manager(login="ivan")
+        old = await self.svc.create_password_link(manager.id)
+        new = await self.svc.create_password_link(manager.id)
+        self.assertIsNone(await self.svc.password_link_owner(old))
+        self.assertIsNotNone(await self.svc.password_link_owner(new))
+
+    async def test_setting_a_password_ends_web_sessions(self):
+        manager = await self.manager(login="ivan")
+        before = await self.svc.session_version(manager.id)
+        await self.svc.set_password_by_link(await self.svc.create_password_link(manager.id), self.PASSWORD)
+        self.assertGreater(await self.svc.session_version(manager.id), before)
+        self.assertTrue(any("Пароль" in text for _, text in self.env.notifier.manager_texts))
+
+    async def test_authenticate(self):
+        manager = await self.manager(login="ivan", password=self.PASSWORD)
+        self.assertEqual((await self.svc.authenticate(" IVAN ", self.PASSWORD)).id, manager.id)
+        self.assertEqual(await self.code_of(self.svc.authenticate("ivan", "wrong-pass")), "bad_credentials")
+        self.assertEqual(await self.code_of(self.svc.authenticate("nobody", self.PASSWORD)), "bad_credentials")
+        self.assertEqual(await self.code_of(self.svc.authenticate("", "")), "bad_credentials")
+
+    async def test_manager_without_password_cannot_log_in(self):
+        await self.manager(login="ivan")
+        self.assertEqual(await self.code_of(self.svc.authenticate("ivan", "")), "bad_credentials")
+        self.assertEqual(await self.code_of(self.svc.authenticate("ivan", "anything-1")), "bad_credentials")
+
+    async def test_lockout_after_five_failures(self):
+        await self.manager(login="ivan", password=self.PASSWORD)
+        for _ in range(4):
+            self.assertEqual(await self.code_of(self.svc.authenticate("ivan", "wrong-pass")), "bad_credentials")
+        self.assertEqual(await self.code_of(self.svc.authenticate("ivan", "wrong-pass")), "login_locked")
+        # даже верный пароль не пускает, пока действует блокировка
+        self.assertEqual(await self.code_of(self.svc.authenticate("ivan", self.PASSWORD)), "login_locked")
+        self.assertTrue(any("неверных попыток" in text for _, text in self.env.notifier.manager_texts))
+
+    async def test_lock_expires_and_success_resets_the_counter(self):
+        import datetime
+        from sqlalchemy import update
+        from db import Manager
+        manager = await self.manager(login="ivan", password=self.PASSWORD)
+        for _ in range(5):
+            with self.assertRaises(self.E):
+                await self.svc.authenticate("ivan", "wrong-pass")
+        async with self.env.session_maker() as session:
+            await session.execute(update(Manager).where(Manager.id == manager.id).values(
+                locked_until=datetime.datetime.now() - datetime.timedelta(seconds=1)))
+            await session.commit()
+        self.assertEqual((await self.svc.authenticate("ivan", self.PASSWORD)).id, manager.id)
+        stored = await self.env.repos.managers.get(manager.id)
+        self.assertEqual((stored.failed_logins, stored.locked_until), (0, None))
+
+    async def test_blocked_status_is_revealed_only_with_the_right_password(self):
+        manager = await self.manager(login="ivan", password=self.PASSWORD)
         await self.svc.set_status(manager.id, "blocked", admin_id=1)
-        self.assertIsNone(await self.svc.consume_login_token(token))
+        self.assertEqual(await self.code_of(self.svc.authenticate("ivan", "wrong-pass")), "bad_credentials")
+        self.assertEqual(await self.code_of(self.svc.authenticate("ivan", self.PASSWORD)), "blocked")
+
+    async def test_deleting_frees_the_login(self):
+        manager = await self.manager(login="ivan", password=self.PASSWORD)
+        await self.svc.set_status(manager.id, "deleted", admin_id=1)
+        self.assertEqual(await self.code_of(self.svc.authenticate("ivan", self.PASSWORD)), "bad_credentials")
+        again, _ = await self.svc.invite("Новый Иван", admin_id=1, login="ivan")
+        self.assertEqual(again.login, "ivan")
+
+    async def test_change_password(self):
+        manager = await self.manager(login="ivan", password=self.PASSWORD)
+        before = await self.svc.session_version(manager.id)
+        self.assertEqual(await self.code_of(self.svc.change_password(manager.id, "wrong-pass", "Новый-пароль-1")), "bad_password")
+        self.assertEqual(await self.code_of(self.svc.change_password(manager.id, self.PASSWORD, self.PASSWORD)), "bad_password")
+        self.assertEqual(await self.code_of(self.svc.change_password(manager.id, self.PASSWORD, "123")), "bad_password")
+        version = await self.svc.change_password(manager.id, self.PASSWORD, "Новый-пароль-1")
+        self.assertGreater(version, before)
+        self.assertEqual(await self.code_of(self.svc.authenticate("ivan", self.PASSWORD)), "bad_credentials")
+        await self.svc.authenticate("ivan", "Новый-пароль-1")
+
+    async def test_admin_reset(self):
+        manager = await self.manager(login="ivan", password=self.PASSWORD)
+        before = await self.svc.session_version(manager.id)
+        token = await self.svc.reset_password(manager.id, admin_id=1)
+        self.assertGreater(await self.svc.session_version(manager.id), before)
+        self.assertFalse((await self.svc.view(manager.id)).has_password)
+        self.assertEqual(await self.code_of(self.svc.authenticate("ivan", self.PASSWORD)), "bad_credentials")
+        await self.svc.set_password_by_link(token, "Другой-пароль-2")
+        await self.svc.authenticate("ivan", "Другой-пароль-2")
+
+    async def test_reset_of_blocked_manager_gives_no_link(self):
+        manager = await self.manager(login="ivan", password=self.PASSWORD)
+        await self.svc.set_status(manager.id, "blocked", admin_id=1)
+        self.assertIsNone(await self.svc.reset_password(manager.id, admin_id=1))
+
+    async def test_blocked_manager_cannot_get_a_password_link(self):
+        manager = await self.manager(login="ivan")
+        token = await self.svc.create_password_link(manager.id)
+        await self.svc.set_status(manager.id, "blocked", admin_id=1)
+        self.assertIsNone(await self.svc.password_link_owner(token))
+        with self.assertRaises(self.E):
+            await self.svc.create_password_link(manager.id)
+
+    async def test_end_web_sessions(self):
+        manager = await self.manager(login="ivan", password=self.PASSWORD)
+        before = await self.svc.session_version(manager.id)
+        await self.svc.end_web_sessions(manager.id)
+        self.assertGreater(await self.svc.session_version(manager.id), before)
+        await self.svc.authenticate("ivan", self.PASSWORD)  # пароль остался
 
     async def test_blocking_bumps_session_version(self):
         manager = await self.manager()
@@ -174,8 +317,12 @@ class WebLoginTests(EnvTestCase):
         after = (await self.env.repos.managers.get(manager.id)).session_version
         self.assertGreater(after, before)
 
-    async def test_garbage_token(self):
-        self.assertIsNone(await self.svc.consume_login_token("garbage"))
+    async def test_web_login_notification(self):
+        manager = await self.manager(login="ivan", password=self.PASSWORD)
+        view = await self.svc.authenticate("ivan", self.PASSWORD)
+        await self.svc.notify_web_login(view, "1.2.3.4", "Chrome · Windows")
+        self.assertEqual(self.env.notifier.web_logins[-1]["to"], 1001)
+        self.assertEqual(self.env.notifier.web_logins[-1]["ip"], "1.2.3.4")
 
 
 # =============================================================================

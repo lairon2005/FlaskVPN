@@ -63,3 +63,69 @@ def temp_username() -> str:
     """Имя временного пользователя в панели: tmp_ + 8 случайных символов (a-z0-9)."""
     alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
     return "tmp_" + "".join(secrets.choice(alphabet) for _ in range(8))
+
+
+# --- Логин и пароль для входа на сайт -------------------------------------------
+
+LOGIN_MIN, LOGIN_MAX = 3, 32
+PASSWORD_MIN, PASSWORD_MAX = 8, 128
+_LOGIN_CHARS = set("abcdefghijklmnopqrstuvwxyz0123456789._-")
+
+
+def normalize_login(raw: str | None) -> str | None:
+    """
+    Логин в каноническом виде (нижний регистр, без пробелов по краям) или None.
+
+    Только латиница, цифры, «.», «_», «-» и первой — буква: логин диктуют и
+    вводят на телефоне, кириллица и похожие символы (a/а) дали бы два «одинаковых» логина.
+    """
+    login = (raw or "").strip().lower()
+    if not LOGIN_MIN <= len(login) <= LOGIN_MAX:
+        return None
+    if not login[0].isascii() or not login[0].isalpha() or any(ch not in _LOGIN_CHARS for ch in login):
+        return None
+    return login
+
+
+def password_problem(password: str | None, login: str | None = None) -> str | None:
+    """Почему пароль не годится (текст для человека) или None, если годится."""
+    password = password or ""
+    if len(password) < PASSWORD_MIN:
+        return f"Пароль должен быть не короче {PASSWORD_MIN} символов."
+    if len(password) > PASSWORD_MAX:
+        return f"Пароль должен быть не длиннее {PASSWORD_MAX} символов."
+    if password.strip() != password:
+        return "Пароль не должен начинаться или заканчиваться пробелом."
+    if len(set(password)) < 4:
+        return "Пароль слишком простой: используйте разные символы."
+    if login and login.lower() in password.lower():
+        return "Пароль не должен содержать логин."
+    return None
+
+
+_pwd_context = None
+
+
+def _context():
+    # Ленивая инициализация: passlib/argon2 нужны только при работе с паролями,
+    # и модуль остаётся импортируемым в тестах, которым пароли не нужны.
+    global _pwd_context
+    if _pwd_context is None:
+        from passlib.context import CryptContext
+        _pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+    return _pwd_context
+
+
+def hash_password(password: str) -> str:
+    return _context().hash(password)
+
+
+def verify_password(password: str, password_hash: str | None) -> bool:
+    """Проверка пароля. Без хэша — всё равно тратим время на argon2, чтобы по таймингу нельзя было понять, есть ли логин."""
+    if not password_hash:
+        _context().hash(password or "x")
+        return False
+    try:
+        return _context().verify(password or "", password_hash)
+    except (ValueError, TypeError):
+        return False

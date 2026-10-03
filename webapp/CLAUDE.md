@@ -163,14 +163,21 @@ python3 tools/make_collage.py  # пересобрать коллажную ка�
 | POST | `/payment/apply-bonus-promo` | JSON: `{code}` → применить бонус-дни сразу |
 
 ### `manager.py` (prefix `/manager`) — панель менеджера
-Подробно — `docs/managers.md`. Вход: `GET /login?t=<токен>` показывает кнопку (токен НЕ гасится —
-превью ссылок в мессенджерах открывают GET), `POST /login` гасит одноразовый токен и ставит cookie
-`mgr_session` (JWT `{type:'manager', sub, ver, csrf}`, 12 ч, `Path=/manager`, HttpOnly, SameSite=Strict).
-Каждый запрос сверяет статус и версию сессии с БД: блокировка и смена прав разлогинивают сразу.
+Подробно — `docs/managers.md`. Вход: `POST /login` — логин + пароль (+ «запомнить»), ставит cookie
+`mgr_session` (JWT `{type:'manager', sub, ver, csrf, rem}`; 12 ч и сессионная cookie, с «запомнить» — 30 дней;
+`Path=/manager`, HttpOnly, SameSite=Strict). Пароль задаётся по ссылке из бота `GET/POST /password?t=<токен>`
+(GET токен НЕ гасит — превью мессенджеров; POST гасит и ставит пароль). Подбор: 5 неверных паролей → логин
+закрыт на 15 мин (БД), плюс 20 неудач с одного IP за 15 мин (память процесса). О входе — уведомление в бот.
+Каждый запрос сверяет статус и версию сессии с БД: блокировка, смена прав и пароля разлогинивают сразу.
+**`Referrer-Policy` в панели — `same-origin`, не `no-referrer`**: при `no-referrer` браузер шлёт формы и fetch
+с `Origin: null`, и проверка Origin отклоняет каждый POST.
 
 | Метод | Путь | Описание |
 |-------|------|----------|
-| GET | `/manager/`, `/issue`, `/temp`, `/clients`, `/clients/{код}`, `/history` | Страницы |
+| GET/POST | `/manager/login` | Форма входа / вход по логину и паролю |
+| GET/POST | `/manager/password?t=…` | Задать пароль по ссылке из бота |
+| GET | `/manager/`, `/issue`, `/temp`, `/clients`, `/clients/{код}`, `/history`, `/account` | Страницы |
+| POST | `/manager/account/password` | Смена пароля (текущий + новый, CSRF в форме); остальные сессии сбрасываются |
 | POST | `/manager/logout` | Выход (CSRF в форме) |
 | POST | `/manager/api/quote` · `/issue` · `/temp` | Предпросмотр цены · подтверждение выдачи (идемпотентно по nonce) · временный ключ |
 | POST | `/manager/api/client-code` · `/link` · `/noauto` · `/cabinet-reset` · `/qr` | Добавить клиента по коду · ссылка для установки (в журнал) · выкл. автопродление · новая ссылка кабинета · QR (только https) |

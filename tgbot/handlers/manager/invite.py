@@ -7,7 +7,8 @@ from aiogram.types import CallbackQuery, Message
 from loader import logger
 from tgbot.commands import apply_commands
 from tgbot.filters.manager import forget
-from tgbot.keyboards.manager import manager_menu_keyboard
+from tgbot.handlers.manager.common import password_link_text, site_url
+from tgbot.keyboards.manager import manager_menu_keyboard, password_link_keyboard
 from tgbot.services import manager_service
 from tgbot.services.manager_service import ManagerError
 
@@ -34,6 +35,19 @@ async def accept_invite(message: Message, bot: Bot):
         reply_markup=manager_menu_keyboard(
             can_global_stats=manager.can_view_global_stats, can_temp=manager.can_issue_temp,
         ),
+    )
+    if not manager.login:
+        return
+    # Сразу — пароль для сайта: логин задал админ, пароль знает только сам менеджер.
+    try:
+        token = await manager_service.create_password_link(manager.id)
+    except ManagerError as e:
+        logger.warning(f"[manager] #{manager.id}: no password link after invite: {e.code}")
+        return
+    text, url = password_link_text(token)
+    await message.answer(
+        f"{text}\n\nВаш логин: <code>{manager.login}</code>\nВход: {site_url('/manager/login')}",
+        reply_markup=password_link_keyboard(url),
     )
 
 

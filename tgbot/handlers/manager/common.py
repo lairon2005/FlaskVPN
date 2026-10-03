@@ -4,6 +4,7 @@ import uuid
 
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
 
+from loader import config
 from tgbot.services import manager_service
 from tgbot.services.manager_receipts import fmt_dt, fmt_money
 from tgbot.services.manager_service import ManagerError, ManagerView
@@ -16,6 +17,21 @@ OP_TITLES = {
     "autorenew_off": "Автопродление выкл.", "cabinet_link_reset": "Новая ссылка кабинета",
 }
 STATUS_ICONS = {"completed": "✅", "pending_payment": "⏳", "cancelled": "🚫", "failed": "❌", "processing": "⚙️"}
+
+
+def site_url(path: str) -> str:
+    return f"https://{config.webhook.domain}{path}"
+
+
+def password_link_text(token: str) -> tuple[str, str]:
+    """Текст и адрес ссылки «задать пароль» — одинаковые в меню менеджера, приглашении и сбросе админом."""
+    url = site_url(f"/manager/password?t={token}")
+    text = (
+        "🔑 <b>Пароль для входа на сайт</b>\n\n"
+        "Нажмите кнопку ниже и придумайте пароль (не короче 8 символов). "
+        "Ссылка одноразовая и действует 30 минут — не пересылайте её никому."
+    )
+    return text, url
 
 
 async def current_manager(event: Message | CallbackQuery) -> ManagerView:

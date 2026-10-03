@@ -15,21 +15,25 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 from tgbot.services import manager_service
 from tgbot.services.manager_receipts import fmt_dt, fmt_money
 from tgbot.services.manager_service import ManagerError
 from tgbot.services.qr_generator import create_qr_code
 from webapp.core.manager_auth import (
-    COOKIE_NAME, COOKIE_PATH, SESSION_HOURS, ManagerSession, create_session_token,
-    get_session, require_api_session, verify_csrf, origin_allowed,
+    COOKIE_NAME, COOKIE_PATH, ManagerSession, client_ip, decode_session_token, describe_device,
+    get_session, ip_blocked, origin_allowed, register_ip_failure, require_api_session,
+    set_session_cookie, verify_csrf,
 )
 from webapp.templating import render
 
 router = APIRouter(prefix="/manager")
 logger = logging.getLogger(__name__)
 
-_NO_STORE = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
+# same-origin, а не no-referrer: при no-referrer браузер шлёт формы и fetch с `Origin: null`,
+# и проверка Origin отклоняла бы каждый POST панели (так ломался вход по ссылке из бота).
+_NO_STORE = {"Cache-Control": "no-store", "Referrer-Policy": "same-origin"}
 _FORBIDDEN_CODES = {"not_manager", "blocked", "no_right"}
 HISTORY_PAGE = 20
 CLIENTS_PAGE = 50
@@ -56,42 +60,89 @@ async def _page_session(request: Request) -> ManagerSession | RedirectResponse:
 
 # --- Вход / выход ----------------------------------------------------------------
 
-@router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request, t: str | None = None):
-    """
-    Страница подтверждения входа. Саму ссылку здесь НЕ гасим: превью ссылок в
-    мессенджерах открывает их GET-запросом и сожгло бы одноразовый токен раньше
-    человека. Гасит только POST, который делает кнопка.
-    """
+def _login_page(request: Request, *, error: str | None = None, message: str | None = None,
+                login: str = "", status_code: int = 200) -> HTMLResponse:
     response = render(request, "manager/login.html", {
-        "token": t or "", "title": "Вход для менеджера",
-        "error": None if t else "Откройте ссылку из бота: «Панель менеджера» → «Панель на сайте».",
-    })
+        "title": "Вход для менеджера", "error": error, "message": message, "login": login,
+    }, status_code=status_code)
     response.headers.update(_NO_STORE)
     return response
 
 
+@router.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, done: int = 0):
+    if await get_session(request) is not None:
+        return RedirectResponse("/manager/", status_code=303)
+    return _login_page(request, message="Пароль сохранён. Войдите с новым паролем." if done else None)
+
+
 @router.post("/login")
-async def login_submit(request: Request, token: str = Form(...)):
+async def login_submit(request: Request, login: str = Form(""), password: str = Form(""),
+                       remember: str | None = Form(None)):
     if not origin_allowed(request):
         raise HTTPException(status_code=403, detail="Bad origin")
-    manager = await manager_service.consume_login_token(token)
-    if manager is None:
-        response = render(request, "manager/login.html", {
-            "token": "", "title": "Вход для менеджера",
-            "error": "Ссылка недействительна или устарела. Получите новую в боте.",
-        }, status_code=400)
-        response.headers.update(_NO_STORE)
-        return response
+    ip = client_ip(request)
+    if ip_blocked(ip):
+        return _login_page(request, login=login, status_code=429,
+                           error="Слишком много неудачных попыток входа. Попробуйте через 15 минут.")
+    try:
+        manager = await manager_service.authenticate(login, password)
+    except ManagerError as e:
+        if e.code in ("bad_credentials", "login_locked"):
+            register_ip_failure(ip)
+        status = 429 if e.code == "login_locked" else 403 if e.code == "blocked" else 400
+        return _login_page(request, login=login, error=e.message, status_code=status)
 
-    jwt_token, _csrf = create_session_token(manager.id, manager.session_version)
     response = RedirectResponse("/manager/", status_code=303)
-    response.set_cookie(
-        COOKIE_NAME, jwt_token, max_age=SESSION_HOURS * 3600, path=COOKIE_PATH,
-        httponly=True, secure=request.url.scheme == "https", samesite="strict",
-    )
+    set_session_cookie(response, request, manager.id, await manager_service.session_version(manager.id),
+                       remember=bool(remember))
     response.headers.update(_NO_STORE)
+    response.background = BackgroundTask(
+        manager_service.notify_web_login, manager, ip or None, describe_device(request.headers.get("user-agent")),
+    )
     logger.info(f"Manager #{manager.id} logged in to the web panel")
+    return response
+
+
+def _password_page(request: Request, token: str, owner, *, error: str | None = None,
+                   status_code: int = 200) -> HTMLResponse:
+    response = render(request, "manager/password.html", {
+        "title": "Пароль для входа", "token": token if owner else "", "owner": owner, "error": error, "message": None,
+    }, status_code=status_code)
+    response.headers.update(_NO_STORE)
+    return response
+
+
+@router.get("/password", response_class=HTMLResponse)
+async def password_page(request: Request, t: str = ""):
+    """
+    Форма «задать пароль» по ссылке из бота. GET ссылку не гасит: превью ссылок
+    в мессенджерах открывают её сами и сожгли бы её раньше человека.
+    """
+    owner = await manager_service.password_link_owner(t)
+    error = None if owner else ManagerError("invalid_password_link").message
+    return _password_page(request, t, owner, error=error, status_code=200 if owner else 400)
+
+
+@router.post("/password")
+async def password_submit(request: Request, token: str = Form(""), password: str = Form(""),
+                          password2: str = Form("")):
+    if not origin_allowed(request):
+        raise HTTPException(status_code=403, detail="Bad origin")
+    owner = await manager_service.password_link_owner(token)
+    if owner is None:
+        return _password_page(request, "", None, error=ManagerError("invalid_password_link").message, status_code=400)
+    if password != password2:
+        return _password_page(request, token, owner, error="Пароли не совпадают.", status_code=400)
+    try:
+        await manager_service.set_password_by_link(token, password)
+    except ManagerError as e:
+        still_valid = await manager_service.password_link_owner(token)
+        return _password_page(request, token if still_valid else "", still_valid, error=e.message, status_code=400)
+    # Прежние сессии сброшены вместе со сменой пароля — входим заново, уже паролем.
+    response = RedirectResponse("/manager/login?done=1", status_code=303)
+    response.delete_cookie(COOKIE_NAME, path=COOKIE_PATH)
+    response.headers.update(_NO_STORE)
     return response
 
 
@@ -102,6 +153,42 @@ async def logout(request: Request, csrf: str = Form("")):
         verify_csrf(request, session, csrf)
     response = RedirectResponse("/manager/login", status_code=303)
     response.delete_cookie(COOKIE_NAME, path=COOKIE_PATH)
+    return response
+
+
+@router.get("/account", response_class=HTMLResponse)
+async def account_page(request: Request, ok: int = 0):
+    session = await _page_session(request)
+    if isinstance(session, RedirectResponse):
+        return session
+    return _page(request, "manager/account.html", session, "Аккаунт",
+                 message="Пароль изменён. Остальные входы на сайте завершены." if ok else None, error=None)
+
+
+@router.post("/account/password")
+async def account_password(request: Request, csrf: str = Form(""), old_password: str = Form(""),
+                           password: str = Form(""), password2: str = Form("")):
+    session = await _page_session(request)
+    if isinstance(session, RedirectResponse):
+        return session
+    verify_csrf(request, session, csrf)
+
+    def fail(text: str) -> HTMLResponse:
+        response = _page(request, "manager/account.html", session, "Аккаунт", message=None, error=text)
+        response.status_code = 400
+        return response
+
+    if password != password2:
+        return fail("Новые пароли не совпадают.")
+    try:
+        version = await manager_service.change_password(session.manager.id, old_password, password)
+    except ManagerError as e:
+        return fail(e.message)
+    # Текущий вход сохраняем (новая версия сессии), остальные устройства выкинуло.
+    payload = decode_session_token(request.cookies.get(COOKIE_NAME)) or {}
+    response = RedirectResponse("/manager/account?ok=1", status_code=303)
+    set_session_cookie(response, request, session.manager.id, version, remember=bool(payload.get("rem")))
+    response.headers.update(_NO_STORE)
     return response
 
 

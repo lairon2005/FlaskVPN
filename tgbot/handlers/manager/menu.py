@@ -1,14 +1,17 @@
-"""Главное меню панели менеджера, история, статистика, вход на сайт."""
+"""Главное меню панели менеджера, история, статистика, вход на сайт (логин, пароль, сеансы)."""
 from aiogram import F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command, ExceptionTypeFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, ErrorEvent, Message
 
-from loader import config
 from tgbot.filters.manager import IsManager, forget
-from tgbot.handlers.manager.common import current_manager, format_brief, show, show_error
-from tgbot.keyboards.manager import back_to_manager_menu, history_keyboard, manager_menu_keyboard
+from tgbot.handlers.manager.common import (
+    current_manager, format_brief, password_link_text, show, show_error, site_url,
+)
+from tgbot.keyboards.manager import (
+    back_to_manager_menu, history_keyboard, manager_menu_keyboard, password_link_keyboard, web_access_keyboard,
+)
 from tgbot.services import manager_service
 from tgbot.services.manager_receipts import fmt_money
 from tgbot.services.manager_service import ManagerError
@@ -134,19 +137,43 @@ async def global_stats_handler(call: CallbackQuery):
 
 
 @manager_router.callback_query(F.data == "mgr:web")
-async def web_login_handler(call: CallbackQuery):
-    """Одноразовая ссылка входа на сайт: 5 минут и один переход."""
+async def web_access_handler(call: CallbackQuery):
+    """Адрес сайта и логин. Входа по ссылке нет — только логин и пароль."""
+    await call.answer()
+    manager = await current_manager(call)
+    if not manager.login:
+        await show(call, "🌐 <b>Вход на сайт</b>\n\nЛогин для сайта ещё не задан. Обратитесь к администратору.",
+                   back_to_manager_menu())
+        return
+    password = "задан ✅" if manager.has_password else "не задан — нажмите «Задать пароль»"
+    await show(
+        call,
+        "🌐 <b>Вход в панель на сайте</b>\n\n"
+        f"Адрес: {site_url('/manager/login')}\n"
+        f"Логин: <code>{manager.login}</code>\n"
+        f"Пароль: {password}\n\n"
+        "О каждом входе на сайт придёт уведомление сюда.",
+        web_access_keyboard(site_url("/manager/login"), has_password=manager.has_password),
+    )
+
+
+@manager_router.callback_query(F.data == "mgr:pwd")
+async def password_link_handler(call: CallbackQuery):
     manager = await current_manager(call)
     try:
-        token = await manager_service.create_login_token(manager.id)
+        token = await manager_service.create_password_link(manager.id)
     except ManagerError as e:
         await call.answer(e.message, show_alert=True)
         return
     await call.answer()
-    url = f"https://{config.webhook.domain}/manager/login?t={token}"
-    await show(
-        call,
-        "🌐 <b>Панель на сайте</b>\n\nСсылка действует 5 минут и срабатывает один раз. "
-        "Не пересылайте её никому — она открывает вашу панель.\n\n" + url,
-        back_to_manager_menu(),
-    )
+    text, url = password_link_text(token)
+    # Новым сообщением: уведомление о входе, из которого жмут кнопку, должно остаться в истории.
+    await call.message.answer(text, reply_markup=password_link_keyboard(url))
+
+
+@manager_router.callback_query(F.data == "mgr:endsess")
+async def end_sessions_handler(call: CallbackQuery):
+    manager = await current_manager(call)
+    await manager_service.end_web_sessions(manager.id)
+    await call.answer("Все входы на сайте завершены. Если пароль мог узнать кто-то ещё — смените его.",
+                      show_alert=True)

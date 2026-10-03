@@ -2,8 +2,10 @@ from aiogram.fsm.state import State, StatesGroup
 
 
 class AdminManagerFSM(StatesGroup):
-    """Диалоги админки менеджеров: имя нового менеджера и числовые лимиты."""
+    """Диалоги админки менеджеров: имя и логин нового менеджера, логин существующего, числовые лимиты."""
     new_name = State()
+    new_login = State()
+    edit_login = State()
     edit_number = State()
 
 

@@ -404,6 +404,20 @@ async def fix_database():
         ))
         print("  ✅ payments.manager_id / payments.days")
 
+        # ── 19. Менеджеры: вход на сайт по логину и паролю ───────────────────
+        print("\n📋 Менеджеры: логин и пароль...")
+        await conn.execute(text("ALTER TABLE managers ADD COLUMN IF NOT EXISTS login VARCHAR(32);"))
+        await conn.execute(text("ALTER TABLE managers ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);"))
+        await conn.execute(text("ALTER TABLE managers ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP;"))
+        await conn.execute(text(
+            "ALTER TABLE managers ADD COLUMN IF NOT EXISTS failed_logins INTEGER NOT NULL DEFAULT 0;"
+        ))
+        await conn.execute(text("ALTER TABLE managers ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP;"))
+        await conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_managers_login ON managers(login) WHERE login IS NOT NULL;"
+        ))
+        print("  ✅ managers.login / password_hash / password_changed_at / failed_logins / locked_until")
+
     print("\n🎉 Миграция завершена успешно!")
 
 

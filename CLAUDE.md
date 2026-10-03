@@ -313,8 +313,8 @@ subscription-settings; как только записано персональн
 - **Идемпотентность**: подтверждение несёт nonce → `manager_operations.idempotency_key` (UNIQUE).
 - **Права**: `IsManager` (фильтр с TTL-кэшем 30 с — только роутинг) + `ManagerService.require_active`
   на каждое действие (БД). Админские права живут под `IsAdmin` и менеджеру недоступны.
-- **Сайт**: вход по одноразовой ссылке из бота (GET только показывает кнопку — превью ссылок не жгут
-  токен; гасит POST), cookie `mgr_session` (JWT с версией сессии, `Path=/manager`, SameSite=Strict),
+- **Сайт**: вход по логину и паролю (логин задаёт админ, пароль — сам менеджер по одноразовой ссылке
+  из бота; 5 ошибок → блок на 15 мин; уведомление о входе в бот), cookie `mgr_session` (JWT с версией сессии, `Path=/manager`, SameSite=Strict),
   CSRF-токен в заголовке + проверка Origin.
 - **«Свои дни»**: `tgbot/services/custom_pricing.py`, формула и параметры — в `docs/managers.md`.
 

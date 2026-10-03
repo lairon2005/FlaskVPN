@@ -42,12 +42,56 @@ class InviteAndCardTests(AdminCase):
     async def test_invite_flow(self):
         await self.bot.press(ADMIN, "admin_mgr_new")
         await self.bot.send(ADMIN, "Иван Петров")
+        self.assertIn("логин", self.session.last_text())
+        await self.bot.send(ADMIN, "Иван")  # кириллица — нельзя
+        self.assertIn("латиница", self.session.last_text())
+        self.assertEqual(await self.svc.list_managers(), [])
+        await self.bot.send(ADMIN, "Ivan.P")
         text = self.session.last_text()
         self.assertIn("Иван Петров", text)
+        self.assertIn("ivan.p", text)
         self.assertIn("https://t.me/bot?start=mgr_", text)
         token = text.split("start=mgr_")[1].split("<")[0].strip()
         manager = await self.svc.accept_invite(token, MGR)
-        self.assertEqual(manager.display_name, "Иван Петров")
+        self.assertEqual((manager.display_name, manager.login), ("Иван Петров", "ivan.p"))
+
+    async def test_invite_with_a_taken_login_asks_again(self):
+        await self.env.make_manager(telegram_id=MGR, login="ivan")
+        await self.bot.press(ADMIN, "admin_mgr_new")
+        await self.bot.send(ADMIN, "Второй")
+        await self.bot.send(ADMIN, "ivan")
+        self.assertIn("занят", self.session.last_text())
+        self.assertEqual(len(await self.svc.list_managers()), 1)
+
+    async def test_set_login_for_an_existing_manager_sends_a_password_link(self):
+        manager = await self.manager()
+        await self.bot.press(ADMIN, f"admin_mgr:{manager.id}")
+        self.assertIn("логин не задан", self.session.last_text())
+        await self.bot.press(ADMIN, f"admin_mgr_login:{manager.id}")
+        await self.bot.send(ADMIN, "petr")
+        self.assertIn("отправлена ссылка", self.session.last_text())
+        to_manager = [m for m in self.session.of("SendMessage") if m["chat_id"] == MGR][-1]
+        token = str(to_manager["reply_markup"]).split("password?t=")[1].split("'")[0]
+        self.assertEqual((await self.svc.password_link_owner(token)).id, manager.id)
+        self.assertEqual((await self.svc.view(manager.id)).login, "petr")
+
+    async def test_reset_password(self):
+        manager = await self.env.make_manager(telegram_id=MGR, login="ivan", password="Секрет-2026")
+        await self.bot.press(ADMIN, f"admin_mgr:{manager.id}")
+        self.assertIn(f"admin_mgr_pwreset:{manager.id}", self.markup())
+        await self.bot.press(ADMIN, f"admin_mgr_pwreset:{manager.id}")
+        self.assertTrue((await self.svc.view(manager.id)).has_password)  # до подтверждения ничего не сброшено
+        await self.bot.press(ADMIN, f"admin_mgr_pwresetok:{manager.id}")
+        self.assertFalse((await self.svc.view(manager.id)).has_password)
+        to_manager = [m for m in self.session.of("SendMessage") if m["chat_id"] == MGR][-1]
+        self.assertIn("сбросил", to_manager["text"])
+        self.assertIn("password?t=", str(to_manager["reply_markup"]))
+
+    async def test_manager_cannot_reset_passwords(self):
+        manager = await self.env.make_manager(telegram_id=MGR, login="ivan", password="Секрет-2026")
+        for data in (f"admin_mgr_pwresetok:{manager.id}", f"admin_mgr_login:{manager.id}"):
+            self.assertIs(await self.bot.press(MGR, data), UNHANDLED, data)
+        self.assertTrue((await self.svc.view(manager.id)).has_password)
 
     async def test_name_validation(self):
         await self.bot.press(ADMIN, "admin_mgr_new")
