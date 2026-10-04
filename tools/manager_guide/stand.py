@@ -47,9 +47,11 @@ MANAGER_TG = 7001
 class Recorder:
     """Собирает «экраны»: последовательности сообщений бота (и реплик менеджера) после действия."""
 
-    def __init__(self, session):
+    def __init__(self, session, out: Path):
         self.session = session
+        self.out = out
         self.screens: dict[str, list[dict]] = {}
+        self._photos = 0
 
     def mark(self):
         return len(self.session.calls)
@@ -62,10 +64,18 @@ class Recorder:
                 continue
             markup = data.get("reply_markup") or {}
             rows = [[b.get("text") for b in row] for row in (markup.get("inline_keyboard") or [])]
-            messages.append({
+            message = {
                 "from": "bot", "kind": "photo" if call == "SendPhoto" else "text",
                 "text": data.get("text") or data.get("caption") or "", "buttons": rows,
-            })
+            }
+            # Настоящая картинка сообщения (чек, QR) — в макет бота вместо условного QR.
+            photo = getattr(data.get("photo"), "data", None)
+            if photo:
+                self._photos += 1
+                file_name = f"photo_{self._photos}.png"
+                (self.out / file_name).write_bytes(photo)
+                message["image"] = file_name
+            messages.append(message)
         if last:
             messages = ([m for m in messages if m["from"] == "user"] + [m for m in messages if m["from"] == "bot"][-last:])
         self.screens[name] = messages
@@ -75,7 +85,7 @@ class Recorder:
 async def record_bot(out: Path) -> None:
     env, bot = await build_bot_env()
     svc = env.service
-    rec = Recorder(bot.session)
+    rec = Recorder(bot.session, out)
 
     # Приглашение и пароль
     manager, token = await svc.invite("Иван Петров", admin_id=1, login=LOGIN)
@@ -86,13 +96,15 @@ async def record_bot(out: Path) -> None:
     # Главный экран
     m = rec.mark(); await bot.send(MANAGER_TG, "/manager")
     rec.take("menu", m, user_text="/manager")
+    m = rec.mark(); await bot.press(MANAGER_TG, "mgr:fee"); rec.take("fee", m)
+    await bot.press(MANAGER_TG, "mgr:menu")
 
     # Быстрая продажа: тариф → пометка → наличные
     m = rec.mark(); await bot.press(MANAGER_TG, "mgr:q:2"); rec.take("quick_preview", m)
     m = rec.mark(); await bot.press(MANAGER_TG, "mgr:label"); rec.take("label_prompt", m)
     m = rec.mark(); await bot.send(MANAGER_TG, "Анна, кофейня на Ленина")
     rec.take("label_preview", m, user_text="Анна, кофейня на Ленина")
-    m = rec.mark(); await bot.press(MANAGER_TG, "mgr:go:cash"); rec.take("cash_done", m)
+    m = rec.mark(); await bot.press(MANAGER_TG, "mgr:go:cash"); rec.take("cash_done", m, last=1)  # чек — последним
 
     # Оплата по QR
     await bot.press(MANAGER_TG, "mgr:q:3")

@@ -65,7 +65,8 @@ def tma_mode_enabled() -> bool:
 # =============================================================================
 
 def main_menu_keyboard(
-    has_active_sub: bool = True, has_email: bool = True, is_manager: bool = False
+    has_active_sub: bool = True, has_email: bool = True, is_manager: bool = False,
+    is_partner: bool = False,
 ) -> InlineKeyboardMarkup:
     """
     Главная клавиатура пользователя. Условные кнопки зависят от статуса подписки и email.
@@ -77,7 +78,11 @@ def main_menu_keyboard(
     if tma_mode_enabled():
         builder.button(text='💎 Оплатить', web_app=WebAppInfo(url=build_tma_url('/tma/tariffs')))
         builder.button(text='🛜 Подключиться', web_app=WebAppInfo(url=build_tma_url('/tma/import')))
-        builder.button(text='👥 Пригласить друга', web_app=WebAppInfo(url=build_tma_url('/tma/referral')))
+        if is_partner:
+            # Партнёрский баланс и вывод живут только в боте.
+            builder.button(text='👥 Пригласить друга', callback_data='referral_program')
+        else:
+            builder.button(text='👥 Пригласить друга', web_app=WebAppInfo(url=build_tma_url('/tma/referral')))
         builder.button(text="💬 Поддержка", web_app=WebAppInfo(url=build_tma_url('/tma/support')))
     else:
         builder.button(text='💎 Оплатить', callback_data='buy_subscription')
@@ -559,6 +564,7 @@ def admin_main_menu_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="📱 Доп. устройства", callback_data="admin_device_settings")
     builder.button(text="📊 Трафик", callback_data="admin_traffic_settings")
     builder.button(text="👔 Менеджеры", callback_data="admin_managers")
+    builder.button(text="🤝 Партнёры", callback_data="admin_partners")
     builder.button(text="💲 Свои дни и врем. ключи", callback_data="admin_pricing")
     builder.button(text="📤 Рассылка", callback_data="admin_broadcast")
     builder.button(text="⬅️ Выйти из админ-панели", callback_data="back_to_main_menu")

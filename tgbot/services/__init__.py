@@ -2,6 +2,7 @@ from database import (
     user_repo, tariff_repo, promo_repo, channel_repo, stats_repo,
     payment_repo, payment_method_repo, lifecycle_repo, settings_repo,
     manager_repo, manager_client_repo, manager_op_repo, temp_key_repo, client_access_repo,
+    partner_repo,
 )
 from loader import remnawave_client, bot, config
 
@@ -20,6 +21,8 @@ from .payment_method_service import PaymentMethodService
 from .support_service import SupportService
 from .manager_service import ManagerService
 from .manager_notifier import ManagerNotifier
+from .partner_service import PartnerService
+from .partner_notifier import PartnerNotifier
 from .payment import create_payment
 
 # traffic_service создаётся первым: базовую квоту новых пользователей
@@ -28,7 +31,7 @@ traffic_service = TrafficService(user_repo, settings_repo, remnawave_client)
 subscription_service = SubscriptionService(
     user_repo, remnawave_client, base_traffic_gb=traffic_service.base_gb
 )
-referral_service = ReferralService(user_repo, subscription_service)
+referral_service = ReferralService(user_repo, subscription_service, partner_repo=partner_repo)
 promo_service = PromoCodeService(promo_repo, user_repo)
 user_service = UserService(user_repo, stats_repo)
 profile_service = ProfileService(user_repo, remnawave_client)
@@ -56,3 +59,11 @@ manager_service = ManagerService(
     config=config,
 )
 manager_service.notifier = ManagerNotifier(bot, config)
+
+# Партнёры (денежная рефералка). Конвейер оплат зовёт сервис для начислений и сторно,
+# а сервис платит с баланса через тот же конвейер — поэтому подключение после создания.
+partner_service = PartnerService(
+    partner_repo, user_repo, settings_repo, tariff_repo=tariff_repo, payment_service=payment_service,
+)
+partner_service.notifier = PartnerNotifier(bot, config)
+payment_service.partner_service = partner_service

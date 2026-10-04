@@ -7,6 +7,10 @@ from db import Payment, Tariff
 
 _MSK = ZoneInfo("Europe/Moscow")
 
+# Не рублёвая выручка: Stars считаются в XTR, а оплата с партнёрского баланса —
+# деньги, которые магазин уже отдал партнёру начислением (живых денег не пришло).
+NON_REVENUE_SOURCES = ("stars", "balance")
+
 
 def _msk_period_start(kind: str, now_utc: datetime | None = None) -> datetime:
     """Начало календарного периода в МСК, приведённое к наивному UTC —
@@ -186,7 +190,7 @@ class PaymentRepository:
                 Payment.completed_at >= since,
                 # Stars-платежи (docs/tma-roadmap.md фаза 3.2) хранят сумму в XTR,
                 # а не в рублях — не смешиваем их с рублёвым доходом (см. get_stars_revenue_total).
-                Payment.source != 'stars',
+                Payment.source.notin_(NON_REVENUE_SOURCES),
             )
             result = await session.execute(stmt)
             row = result.one()
@@ -204,7 +208,7 @@ class PaymentRepository:
             ).where(
                 Payment.status == 'succeeded',
                 Payment.completed_at >= since,
-                Payment.source != 'stars',
+                Payment.source.notin_(NON_REVENUE_SOURCES),
             )
             result = await session.execute(stmt)
             row = result.one()
@@ -215,7 +219,7 @@ class PaymentRepository:
             stmt = select(
                 func.count(Payment.id),
                 func.coalesce(func.sum(Payment.final_amount), 0)
-            ).where(Payment.status == 'succeeded', Payment.source != 'stars')
+            ).where(Payment.status == 'succeeded', Payment.source.notin_(NON_REVENUE_SOURCES))
             result = await session.execute(stmt)
             row = result.one()
             return {"count": row[0], "revenue": float(row[1])}
@@ -247,7 +251,7 @@ class PaymentRepository:
             ).where(
                 Payment.status == 'succeeded',
                 Payment.completed_at >= month_start,
-                Payment.source != 'stars',
+                Payment.source.notin_(NON_REVENUE_SOURCES),
             )
             result = await session.execute(stmt)
             row = result.one()

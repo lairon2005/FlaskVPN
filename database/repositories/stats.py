@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import select, func
 
-from db import User, Payment
+from db import User, Payment, Partner
 
 # Грейс-окно для когорты продлений: продление засчитывается, если платёж прошёл
 # не раньше, чем за RENEWAL_WINDOW_BEFORE_DAYS до истечения подписки (досрочная
@@ -58,10 +58,13 @@ class StatsRepository:
         """
         start, end = self._month_bounds(year, month)
         async with self._session_maker() as session:
+            # Активные партнёры получают деньги, а не дни, и в лидерборде не участвуют.
+            active_partners = select(Partner.user_id).where(Partner.status == "active")
             stmt = (
                 select(User.referrer_id, func.count().label("cnt"))
                 .where(
                     User.referrer_id.is_not(None),
+                    User.referrer_id.not_in(active_partners),
                     User.reg_date >= start,
                     User.reg_date < end,
                 )

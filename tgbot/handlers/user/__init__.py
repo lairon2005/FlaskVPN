@@ -17,6 +17,7 @@ from .trial_sub import trial_sub_router
 from .link_email import link_email_router
 from .lifecycle import lifecycle_router
 from .stars_payment import stars_payment_router
+from .partner import partner_router
 
 # Создаем один большой роутер для всех пользовательских хендлеров
 user_router = Router(name="user")
@@ -42,6 +43,7 @@ user_router.include_routers(
     link_email_router,
     lifecycle_router,
     stars_payment_router,
+    partner_router,
 )
 
 __all__ = ["user_router"]

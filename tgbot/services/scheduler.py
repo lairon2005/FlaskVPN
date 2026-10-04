@@ -1152,6 +1152,18 @@ async def manager_renewal_digest(bot: Bot):
 
 # --- 5. Функция для добавления всех задач в планировщик ---
 
+async def release_partner_holds():
+    """Каждые 30 минут: начисления партнёров с истёкшим холдом переходят на баланс."""
+    from tgbot.services import partner_service
+
+    try:
+        released = await partner_service.release_holds()
+        if released:
+            logger.info(f"Партнёры: из холда на баланс переведено начислений — {released}")
+    except Exception as e:
+        logger.error(f"Партнёры: перевод из холда не выполнен: {e}", exc_info=True)
+
+
 def schedule_jobs(scheduler: AsyncIOScheduler, bot: Bot):
     """
     Добавляет все фоновые задачи в планировщик.
@@ -1250,6 +1262,9 @@ def schedule_jobs(scheduler: AsyncIOScheduler, bot: Bot):
     scheduler.add_job(sync_manager_operations, trigger='cron', minute='*/2')
     scheduler.add_job(manager_renewal_digest, trigger='cron', hour=11, minute=0, kwargs={'bot': bot})
 
+    # Партнёры: холд снимается с точностью до получаса.
+    scheduler.add_job(release_partner_holds, trigger='cron', minute='7,37')
+
     # Автоотмена зависших счетов — каждые 15 минут. Задача чисто служебная
     # (пометка в БД), пользователю и админам писать не о чем, поэтому bot не нужен.
     scheduler.add_job(
@@ -1265,5 +1280,5 @@ def schedule_jobs(scheduler: AsyncIOScheduler, bot: Bot):
         "sync_device_limits (каждый час в :20), sync_traffic_limits (в :25), "
         "traffic_usage_alerts (9-21 каждые 3 ч), expire_temp_keys (каждую минуту), "
         "sync_manager_operations (каждые 2 мин), manager_renewal_digest (11:00), "
-        "cancel_stale_payments (каждые 15 мин)."
+        "cancel_stale_payments (каждые 15 мин), release_partner_holds (в :07 и :37)."
     )

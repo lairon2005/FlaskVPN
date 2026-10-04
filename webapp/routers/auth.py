@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, update
 
 from db import async_session_maker, User
+from database import partner_repo
 from webapp.core.mail import send_reset_code, send_verification_email, MailSendError
 from webapp.core.verification import generate_code, hash_code, check_code
 from webapp.core.security import get_password_hash, verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, SECRET_KEY, ALGORITHM
@@ -209,6 +210,9 @@ async def verify_email(
         except (ValueError, TypeError):
             pass
 
+    # Друг активного партнёра: партнёру с его оплат пойдут проценты (partner_service).
+    partner_referred = bool(referrer_id) and await partner_repo.is_active(referrer_id)
+
     new_user = User(
         user_id=new_user_id,
         email=payload["email"],
@@ -217,6 +221,7 @@ async def verify_email(
         username=payload["email"].split('@')[0],
         has_received_trial=False,
         referrer_id=referrer_id,
+        partner_referred=partner_referred,
         is_email_verified=True,
     )
 

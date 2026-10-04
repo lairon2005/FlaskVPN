@@ -12,6 +12,7 @@ from database.repositories.manager import ManagerRepository, ManagerClientReposi
 from database.repositories.manager_operation import ManagerOperationRepository
 from database.repositories.temp_key import TempKeyRepository
 from database.repositories.client_access import ClientAccessRepository
+from database.repositories.partner import PartnerRepository
 
 user_repo = UserRepository(async_session_maker)
 tariff_repo = TariffRepository(async_session_maker)
@@ -27,3 +28,4 @@ manager_client_repo = ManagerClientRepository(async_session_maker)
 manager_op_repo = ManagerOperationRepository(async_session_maker)
 temp_key_repo = TempKeyRepository(async_session_maker)
 client_access_repo = ClientAccessRepository(async_session_maker)
+partner_repo = PartnerRepository(async_session_maker)

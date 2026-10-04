@@ -12,11 +12,12 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 # --- Импорты ---
 from loader import logger
 from database import channel_repo, user_repo, stats_repo
-from tgbot.services import user_service, referral_service, subscription_service, profile_service
+from tgbot.services import user_service, referral_service, subscription_service, profile_service, partner_service
 from tgbot.services.referral_service import (
     REFERRAL_TRIAL_DAYS, REFERRER_LAUNCH_BONUS_DAYS, REFERRER_PAYMENT_BONUS_DAYS,
 )
 from tgbot.services.subscription import check_subscription
+from tgbot.handlers.user.partner import show_partner_menu
 from tgbot.services.subscription_service import TRIAL_DAYS
 from utils.subscription_view import build_db_subscription_view
 from tgbot.services.utils import get_user_attribute, decline_word
@@ -66,6 +67,7 @@ async def _show_main_menu(target: Message | CallbackQuery, user_id: int, full_na
     reply_markup = main_menu_keyboard(
         has_active_sub=has_active_sub, has_email=has_email,
         is_manager=await manager_service.get_by_telegram(user_id) is not None,
+        is_partner=await partner_service.get(user_id) is not None,
     )
 
     if isinstance(target, CallbackQuery):
@@ -187,11 +189,18 @@ async def _activate_and_show_connect(event: Message | CallbackQuery, bot: Bot,
             # Реферальный путь: установить реферера + выдать подписку
             await referral_service.activate_new_user_referral(user_id, referrer_id, trial_days)
             try:
+                if await referral_service.is_partner(referrer_id):
+                    percent = (await partner_service.overview(referrer_id)).percent
+                    reward = f"💰 С каждой его оплаты вам будет начисляться <b>{percent}%</b> на баланс."
+                else:
+                    reward = (
+                        f"🎁 Вам начислено <b>{REFERRER_LAUNCH_BONUS_DAYS} {_days_word(REFERRER_LAUNCH_BONUS_DAYS)}</b> подписки. "
+                        f"Ещё +{REFERRER_PAYMENT_BONUS_DAYS} {_days_word(REFERRER_PAYMENT_BONUS_DAYS)} — после его первой оплаты."
+                    )
                 await bot.send_message(
                     referrer_id,
-                    f"По вашей ссылке зарегистрировался новый пользователь: {event.from_user.full_name}!\n"
-                    f"🎁 Вам начислено <b>{REFERRER_LAUNCH_BONUS_DAYS} {_days_word(REFERRER_LAUNCH_BONUS_DAYS)}</b> подписки. "
-                    f"Ещё +{REFERRER_PAYMENT_BONUS_DAYS} {_days_word(REFERRER_PAYMENT_BONUS_DAYS)} — после его первой оплаты."
+                    f"По вашей ссылке зарегистрировался новый пользователь: {escape(event.from_user.full_name)}!\n"
+                    + reward
                 )
             except Exception as e:
                 logger.error(f"Could not notify referrer {referrer_id}: {e}")
@@ -286,6 +295,20 @@ async def onboarding_app_installed(call: CallbackQuery, bot: Bot):
 async def show_referral_info(message: Message, bot: Bot):
     """Вспомогательная функция для показа информации о реферальной программе (§7.5)."""
     user_id = message.from_user.id
+
+    # Активному партнёру — денежная рефералка вместо дней (handlers/user/partner.py).
+    partner = await partner_service.get(user_id)
+    if partner is not None and partner.status == "active":
+        await show_partner_menu(message, bot)
+        return
+    reply_markup = back_to_main_menu_keyboard()
+    if partner is not None:
+        # Отключённый партнёр: обычная программа, но доступ к накопленному балансу остаётся.
+        builder = InlineKeyboardBuilder()
+        builder.button(text="💰 Партнёрский баланс", callback_data="pt:menu")
+        builder.button(text="⬅️ Назад в меню", callback_data="back_to_main_menu")
+        builder.adjust(1)
+        reply_markup = builder.as_markup()
     bot_info = await bot.get_me()
     referral_link = f"https://t.me/{bot_info.username}?start=ref{user_id}"
     ref_info = await user_service.get_referral_info(user_id)
@@ -335,12 +358,12 @@ async def show_referral_info(message: Message, bot: Bot):
     # Если это колбэк, редактируем сообщение. Если команда - отправляем новое.
     if isinstance(message, CallbackQuery):
         try:
-            await message.message.edit_text(text, reply_markup=back_to_main_menu_keyboard())
+            await message.message.edit_text(text, reply_markup=reply_markup)
         except TelegramBadRequest:
             await message.message.delete()
-            await message.message.answer(text, reply_markup=back_to_main_menu_keyboard())
+            await message.message.answer(text, reply_markup=reply_markup)
     else:
-        await message.answer(text, reply_markup=back_to_main_menu_keyboard())
+        await message.answer(text, reply_markup=reply_markup)
 
 # Хендлер для команды /referral
 @start_router.message(Command("referral"))

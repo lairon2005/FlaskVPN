@@ -40,6 +40,37 @@ class PaymentResult:
 
 
 @dataclass
+class RenewalQuote:
+    """Из чего складывается продление: тариф + уже купленные слоты и пакеты трафика."""
+    tariff: Tariff
+    tariff_amount: float
+    slots: int = 0
+    slots_amount: float = 0.0
+    packs: int = 0
+    traffic_gb: int = 0
+    traffic_amount: float = 0.0
+
+    @property
+    def total(self) -> float:
+        return self.tariff_amount + self.slots_amount + self.traffic_amount
+
+    def receipt_items(self) -> list[dict]:
+        """Позиции чека: тариф, устройства и трафик — разные услуги (54-ФЗ)."""
+        items = [{"description": f"Подписка VPN: {self.tariff.name}", "quantity": 1, "amount": self.tariff_amount}]
+        if self.slots_amount:
+            items.append({
+                "description": f"Дополнительные устройства ({self.tariff.duration_days} дн.)",
+                "quantity": self.slots, "amount": self.slots_amount / self.slots,
+            })
+        if self.traffic_amount:
+            items.append({
+                "description": f"Дополнительный трафик ({self.tariff.duration_days} дн.)",
+                "quantity": self.packs, "amount": self.traffic_amount / self.packs,
+            })
+        return items
+
+
+@dataclass
 class StarsPaymentResult:
     tariff: Tariff
     extension: ExtensionResult
@@ -74,6 +105,9 @@ class PaymentService:
         self._traffic_service = traffic_service
         # Нужен одному месту: на какой тариф продлевается карта после «своих дней».
         self._settings_repo = settings_repo
+        # Денежная рефералка: процент партнёру с оплаты друга и сторно при возврате.
+        # Подключается после создания (partner_service сам зависит от payment_service).
+        self.partner_service = None
 
     async def _custom_renew_tariff_id(self) -> int | None:
         """
@@ -480,6 +514,14 @@ class PaymentService:
         # 7. Update payment status
         await self._payment_repo.update_status(yookassa_payment_id, 'succeeded')
 
+        # 7b. Партнёру — процент с оплаты приглашённого друга. Деньги клиента уже
+        #     приняты, поэтому сбой начисления оплату не роняет (видно в логе).
+        if self.partner_service is not None:
+            try:
+                await self.partner_service.on_payment_succeeded(payment)
+            except Exception:
+                logger.exception(f"Партнёрское начисление не прошло: payment={yookassa_payment_id}")
+
         # 8. Сохраняем метод оплаты для автопродления (не ломаем обработку при ошибке).
         #    После вводного тарифа карта продлевает не его, а тариф продления;
         #    после «своих дней» — тариф из настройки custom_renew_tariff_id.
@@ -770,11 +812,47 @@ class PaymentService:
                         logger.error(f"Refund: Failed to update Remnawave for user {payment.user_id}: {e}")
 
         await self._payment_repo.update_status(yookassa_payment_id, 'refunded')
+        if self.partner_service is not None:
+            try:
+                await self.partner_service.on_payment_refunded(payment)
+            except Exception:
+                logger.exception(f"Сторно партнёрского начисления не прошло: payment={yookassa_payment_id}")
         logger.info(f"Refund processed: payment={yookassa_payment_id}, user={payment.user_id}, days_deducted={days_to_deduct}")
         return payment
 
     async def get_user_payments(self, user_id: int, limit: int = 20) -> list[Payment]:
         return await self._payment_repo.get_user_payments(user_id, limit)
+
+    async def renewal_quote(self, user, tariff: Tariff, tariff_amount: float) -> "RenewalQuote":
+        """
+        Сумма продления на тариф вместе с уже купленными слотами и трафиком.
+
+        Доп. устройства продлеваются вместе с подпиской и стоят столько же за месяц,
+        сколько при покупке; докупленный трафик — так же. Без этих слагаемых купленные
+        один раз слоты и гигабайты становились бы бесплатными навсегда. Безлимитному
+        тарифу пакеты не нужны. Общий расчёт для автосписания и оплаты с баланса партнёра.
+        """
+        slots = (user.extra_devices or 0) if user else 0
+        slots_amount = 0.0
+        if slots and self._device_slot_service is not None:
+            device_settings = await self._device_slot_service.settings()
+            slots_amount = slots_cost_for_tariff(device_settings, tariff.duration_days, slots)
+
+        traffic_gb = (user.extra_traffic_gb or 0) if user else 0
+        packs = 0
+        traffic_amount = 0.0
+        if traffic_gb and self._traffic_service is not None:
+            traffic_settings = await self._traffic_service.settings()
+            if tariff_quota_gb(traffic_settings, tariff.data_limit_gb) > 0:
+                packs = gb_to_packs(traffic_settings, traffic_gb)
+                traffic_amount = packs_cost_for_tariff(traffic_settings, tariff.duration_days, packs)
+            else:
+                traffic_gb = 0
+        else:
+            traffic_gb = 0
+
+        return RenewalQuote(tariff=tariff, tariff_amount=tariff_amount, slots=slots, slots_amount=slots_amount,
+                            packs=packs, traffic_gb=traffic_gb, traffic_amount=traffic_amount)
 
     async def charge_renewal(self, user_id: int) -> str:
         """Попытка автоматического продления подписки по сохранённой карте.
@@ -822,53 +900,11 @@ class PaymentService:
         else:
             tariff_amount = effective_price(tariff, user_has_active_sub=True)
 
-        # Доп. устройства продлеваются вместе с подпиской и стоят столько же за
-        # месяц, сколько при покупке. Без этого слагаемого автосписание навсегда
-        # оставалось бы в цене голого тарифа при расширенном лимите устройств —
-        # то есть купленные один раз слоты становились бы бесплатными.
-        slots = (user.extra_devices or 0) if user else 0
-        slots_amount = 0.0
-        if slots and self._device_slot_service is not None:
-            device_settings = await self._device_slot_service.settings()
-            slots_amount = slots_cost_for_tariff(device_settings, tariff.duration_days, slots)
-
-        # Докупленный трафик продлевается так же, как слоты: без этого слагаемого
-        # купленные один раз гигабайты становились бы бесплатными навсегда.
-        # Безлимитному тарифу пакеты не нужны.
-        traffic_gb = (user.extra_traffic_gb or 0) if user else 0
-        packs = 0
-        traffic_amount = 0.0
-        if traffic_gb and self._traffic_service is not None:
-            traffic_settings = await self._traffic_service.settings()
-            if tariff_quota_gb(traffic_settings, tariff.data_limit_gb) > 0:
-                packs = gb_to_packs(traffic_settings, traffic_gb)
-                traffic_amount = packs_cost_for_tariff(traffic_settings, tariff.duration_days, packs)
-            else:
-                traffic_gb = 0
-        else:
-            traffic_gb = 0
-
-        charge_amount = tariff_amount + slots_amount + traffic_amount
-
-        # Позиции чека: тариф и устройства — разные услуги (54-ФЗ).
-        receipt_items = [{
-            "description": f"Подписка VPN: {tariff.name}",
-            "quantity": 1,
-            "amount": tariff_amount,
-        }]
-        if slots_amount:
-            receipt_items.append({
-                "description": f"Дополнительные устройства ({tariff.duration_days} дн.)",
-                "quantity": slots,
-                "amount": slots_amount / slots,
-            })
-
-        if traffic_amount:
-            receipt_items.append({
-                "description": f"Дополнительный трафик ({tariff.duration_days} дн.)",
-                "quantity": packs,
-                "amount": traffic_amount / packs,
-            })
+        quote = await self.renewal_quote(user, tariff, tariff_amount)
+        slots, slots_amount = quote.slots, quote.slots_amount
+        packs, traffic_gb, traffic_amount = quote.packs, quote.traffic_gb, quote.traffic_amount
+        charge_amount = quote.total
+        receipt_items = quote.receipt_items()
 
         # 5. Создаём платёж в ЮKassa
         try:

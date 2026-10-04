@@ -12,6 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `webapp/CLAUDE.md` | Web-dashboard: все маршруты, JWT, шаблоны, CSS/JS-паттерны, деплой |
 | `docs/manager-guide.pdf` | Руководство для менеджеров (PDF со снимками); пересборка — `./tools/manager_guide/build.sh` |
 | `docs/managers.md` | **Менеджеры офлайн-продаж**: роли и права, приватность клиента, журнал и чеки, наличные/QR, офлайн-клиенты (кабинет `/c/<токен>`), формула «своих дней», временные ключи, докупка трафика, джобы, деплой |
+| `docs/partners.md` | **Партнёры — денежная рефералка**: выборочно вместо дней 30% с оплат друзей на баланс, холд, вывод по СБП заявкой, оплата подписки с баланса, деплой (`fix_db.py` секция 22, `PARTNER_PAYOUT_TOPIC_ID`) |
 | `docs/*.md` | Эксплуатация нод Remnawave (setup, cover-сайт, XHTTP/Hysteria2, анти-флуд, proxy-failover), `panel-server.md` — панель + нода fl-1, `node-pl-1.md` — нода pl-1 рядом с чужим marzban-node, `node-de-1.md` — нода de-1 (Германия), `node-nl-1.md` — нода nl-1 (Нидерланды, `shop.flaskvpn.ru`, **self-steal**: REALITY → свой Caddy с сертификатом LE), `anti-vpn-detection.md` — защита от детекта VPN российскими приложениями (правила в шаблоне подписки, `scripts/remnawave_anti_detect.py`), `subscription-hosts.md` — порядок хостов в подписке (три «✴️ Авто» сверху, затем Основные → Запасные → Турбо; авто выбирает по пингу внутри группы) (`scripts/remnawave_host_order.py`; новая нода — хосты с «Основной/Запасной/Турбо» в названии и повторный запуск), `tma-roadmap.md` — план Mini App, `brand.md` — бренд-бук FLASK (палитра, шрифты, где что лежит) |
 
 ## Project Overview
@@ -98,6 +99,7 @@ python3 -m unittest tests.test_device_pricing -v                # то же че
 | `REMNAWAVE_ACCESS_COOKIE` | опц. | Секретная часть ссылки для eGames reverse proxy (`name=value`) |
 | `REMNAWAVE_PROXY_URL` | опц. | Резервный HTTP/SOCKS5-маршрут: сначала прямой запрос, при таймауте — повтор через прокси |
 | `REMNAWAVE_SUB_HOST` | опц. | Хост страницы подписки (nginx `/sub/` → 302) |
+| `PARTNER_PAYOUT_TOPIC_ID` | опц. | Топик в `SUPPORT_CHAT_ID` для заявок партнёров на вывод. Не задан — в топик лога транзакций |
 | `MANAGER_LOG_CHAT_ID` / `MANAGER_LOG_TOPIC_ID` | опц. | Группа (и топик) для чеков менеджеров. Не заданы — чеки идут туда же, куда лог транзакций |
 | `SECRET_KEY` | нужна webapp | Подпись JWT |
 | `TG_PROXY_URL` | опц., нет в `env.dist` | Прокси для самого Bot API |
@@ -187,7 +189,8 @@ Alembic не используется. Таблицы создаются `Base.m
 
 Модели: `User`, `Tariff`, `PromoCode`, `UsedPromoCode`, `Payment`, `UserPaymentMethod`,
 `LifecycleMessage`, `Channel`, `AppSetting`, а для менеджеров — `Manager`, `ManagerClient`,
-`ManagerOperation` (журнал), `TempKey`, `ManagerSettlement`, `ManagerPayout`, `ClientAccessCode`.
+`ManagerOperation` (журнал), `TempKey`, `ManagerSettlement`, `ManagerPayout`, `ClientAccessCode`,
+а для партнёров — `Partner`, `PartnerLedger`, `PartnerWithdrawal` (см. `docs/partners.md`).
 
 Особенности:
 - `User.user_id` — Telegram ID; пользователи веб-кабинета создаются с **отрицательными** id,
@@ -209,7 +212,8 @@ Alembic не используется. Таблицы создаются `Base.m
   подписки не двигается). Вебхук обязан их различать: в последних двух трогать `expireAt` и
   счётчик трафика нельзя.
 - `Payment.source`: `bot` / `web` / `tma` / `auto` (автосписание) / `stars` / `manager` (QR-оплата
-  офлайн-продажи) / `cash` (наличные у менеджера; `yookassa_payment_id = "cash:<op_id>"`).
+  офлайн-продажи) / `cash` (наличные у менеджера; `yookassa_payment_id = "cash:<op_id>"`) /
+  `balance` (оплата с партнёрского баланса, `balance:<user>:<nonce>`; в выручку не входит).
   `Payment.manager_id` — менеджер, проведший платёж.
 - `Payment.status`: `pending` / `succeeded` / `failed` / `refunded` / `cancelled`.
   Пока висит `pending`, новый счёт выставить нельзя — поэтому есть кнопка отмены и джоб автоотмены.
@@ -233,6 +237,7 @@ Alembic не используется. Таблицы создаются `Base.m
 | `expire_temp_keys` | каждую минуту | Удаляет из панели истёкшие временные ключи менеджеров |
 | `sync_manager_operations` | каждые 2 мин | Сверяет висящие онлайн-операции менеджеров с платежами |
 | `manager_renewal_digest` | 11:00 | Менеджеру — его клиенты без автопродления, подписка кончается ≤ 3 дн. |
+| `release_partner_holds` | в :07 и :37 | Начисления партнёров с истёкшим холдом → на баланс |
 
 ### Режимы бота
 

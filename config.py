@@ -18,6 +18,8 @@ class TgBot:
     # чат и топик, что и лог транзакций (support_chat_id / transaction_log_topic_id).
     manager_log_chat_id: int | None = None
     manager_log_topic_id: int | None = None
+    # Топик в чате поддержки для заявок партнёров на вывод. Не задан — туда же, где лог транзакций.
+    partner_payout_topic_id: int | None = None
 
     @property
     def manager_receipts_target(self) -> tuple[int, int | None]:
@@ -25,6 +27,11 @@ class TgBot:
         if self.manager_log_chat_id:
             return self.manager_log_chat_id, self.manager_log_topic_id
         return self.support_chat_id, self.transaction_log_topic_id
+
+    @property
+    def partner_payout_target(self) -> tuple[int, int | None]:
+        """(chat_id, topic_id), куда уходят заявки партнёров на вывод."""
+        return self.support_chat_id, self.partner_payout_topic_id or self.transaction_log_topic_id
 
     @staticmethod
     def from_env(env: Env):
@@ -54,6 +61,7 @@ class TgBot:
             raise ValueError(f"UI_MODE должен быть 'bot' или 'tma', получено: {ui_mode!r}")
         manager_log_chat_id = env.int("MANAGER_LOG_CHAT_ID", default=None)
         manager_log_topic_id = env.int("MANAGER_LOG_TOPIC_ID", default=None)
+        partner_payout_topic_id = env.int("PARTNER_PAYOUT_TOPIC_ID", default=None)
         return TgBot(token=token, admin_ids=admin_ids,
                      support_chat_id=support_chat_id,
                      transaction_log_topic_id=transaction_log_topic_id,
@@ -63,7 +71,8 @@ class TgBot:
                      tma_app_name=tma_app_name,
                      ui_mode=ui_mode,
                      manager_log_chat_id=manager_log_chat_id,
-                     manager_log_topic_id=manager_log_topic_id)
+                     manager_log_topic_id=manager_log_topic_id,
+                     partner_payout_topic_id=partner_payout_topic_id)
 @dataclass
 class YooKassa:
     shop_id: str

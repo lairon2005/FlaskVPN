@@ -170,6 +170,11 @@ class UserRepository:
             await session.execute(stmt)
             await session.commit()
 
+    async def set_partner_referred(self, user_id: int) -> None:
+        async with self._session_maker() as session:
+            await session.execute(update(User).where(User.user_id == user_id).values(partner_referred=True))
+            await session.commit()
+
     async def add_bonus_days(self, user_id: int, days: int):
         async with self._session_maker() as session:
             user = await session.get(User, user_id)

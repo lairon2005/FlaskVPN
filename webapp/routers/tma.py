@@ -27,12 +27,14 @@ from tgbot.services import (
     payment_service,
     profile_service,
     referral_service,
+    partner_service,
     traffic_service,
     user_service,
 )
 from tgbot.services import support_service
 from tgbot.services.key_service import CODE_OK, REVOKE_NOTICES
 from tgbot.services.referral_service import REFERRAL_TRIAL_DAYS
+from tgbot.services.partner_rules import fmt_rub
 from tgbot.services.intro_offer import consent_text, conversion_price, is_in_intro
 from tgbot.services.pricing import effective_price
 from tgbot.services.traffic_pricing import gb_to_packs
@@ -172,6 +174,10 @@ async def tma_referral(request: Request, user: User | None = Depends(get_current
         return _auth_splash(request)
 
     info = await user_service.get_referral_info(user.user_id)
+    # Активный партнёр: денежная рефералка, баланс и вывод — только в боте.
+    partner = await partner_service.overview(user.user_id)
+    if partner is not None and not partner.active:
+        partner = None
 
     bot_username = config.tg_bot.tg_bot_username
     ref_link = None
@@ -184,6 +190,9 @@ async def tma_referral(request: Request, user: User | None = Depends(get_current
         "referral_count": info["referral_count"],
         "referral_bonus": info["bonus_days"],
         "ref_link": ref_link,
+        "partner": partner,
+        "partner_balance": fmt_rub(partner.balance_kop) if partner else None,
+        "bot_link": f"https://t.me/{bot_username}" if bot_username else None,
         "title": "Реферальная программа",
         "active_tab": "referral",
     })

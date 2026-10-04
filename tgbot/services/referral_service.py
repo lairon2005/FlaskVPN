@@ -11,9 +11,17 @@ REFERRER_PAYMENT_BONUS_DAYS = 7  # рефереру — после первой 
 
 
 class ReferralService:
-    def __init__(self, user_repo: UserRepository, subscription_service: SubscriptionService):
+    def __init__(self, user_repo: UserRepository, subscription_service: SubscriptionService,
+                 partner_repo=None):
         self._user_repo = user_repo
         self._subscription_service = subscription_service
+        # Партнёры (денежная рефералка) получают не дни, а процент с оплат друзей —
+        # см. partner_service.py. None — только в тестах: все рефереры обычные.
+        self._partner_repo = partner_repo
+
+    async def is_partner(self, user_id: int) -> bool:
+        """Активный партнёр: вместо бонусных дней получает процент с оплат друзей."""
+        return self._partner_repo is not None and await self._partner_repo.is_active(user_id)
 
     async def activate_new_user_referral(self, user_id: int, referrer_id: int, bonus_days: int = REFERRAL_TRIAL_DAYS,
                                           referrer_launch_bonus_days: int = REFERRER_LAUNCH_BONUS_DAYS):
@@ -47,6 +55,12 @@ class ReferralService:
             logger.warning(f"Referral: referrer {referrer_id} not found, skip referrer bonus")
         else:
             await self._user_repo.set_referrer(user_id, referrer_id)
+            if await self.is_partner(referrer_id):
+                # Друг партнёра: другу — тот же триал, партнёру дней не даём,
+                # а с оплат этого друга будут капать проценты.
+                await self._user_repo.set_partner_referred(user_id)
+                logger.info(f"Referral: user {user_id} attributed to partner {referrer_id}")
+                referrer = None
 
         # Другу — пробная подписка (всегда, независимо от анти-абуз проверок выше)
         result = await self._subscription_service.extend(user_id, bonus_days)
@@ -79,6 +93,8 @@ class ReferralService:
         referrer = await self._user_repo.get(user.referrer_id)
         if not referrer:
             return None
+        if getattr(user, "partner_referred", False) or await self.is_partner(user.referrer_id):
+            return None   # партнёр получает процент (partner_service), а не дни
 
         referrer_id = user.referrer_id
 

@@ -442,6 +442,14 @@ async def fix_database():
         print("  ✅ managers.service_fee / service_fee_locked, manager_operations.service_fee / fee_paid_at / "
               "fee_payout_id, manager_payouts")
 
+        # ── 22. Партнёры: денежная рефералка ───────────────────────────────
+        # Таблицы partners / partner_ledger / partner_withdrawals создаёт create_all.
+        print("\n📋 Партнёры: денежная рефералка...")
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS partner_referred BOOLEAN NOT NULL DEFAULT false;"
+        ))
+        print("  ✅ users.partner_referred")
+
     print("\n🎉 Миграция завершена успешно!")
 
 

@@ -95,6 +95,10 @@ class User(Base):
     acquired_by_manager_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey('managers.id', ondelete='SET NULL'), nullable=True
     )
+    # Пришёл по ссылке пользователя, который В ТОТ МОМЕНТ был активным партнёром
+    # (денежная рефералка, tgbot/services/partner_service.py). Только с оплат таких
+    # друзей партнёру капают проценты: приглашённые до включения партнёрки не считаются.
+    partner_referred: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false', nullable=False)
 
 class Tariff(Base):
     __tablename__ = 'tariffs'
@@ -437,6 +441,85 @@ class ClientAccessCode(Base):
     used_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
     used_by_manager_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+
+
+class Partner(Base):
+    """
+    Партнёр — пользователь с денежной рефералкой вместо дней: с каждой рублёвой оплаты
+    приглашённого друга ему начисляется процент на баланс. Назначает только админ.
+
+    Деньги — в копейках (целые), чтобы проценты от любой суммы не копили ошибку округления.
+    balance_kop — доступно к выводу/оплате; начисления в холде лежат в partner_ledger.
+    """
+    __tablename__ = 'partners'
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('users.user_id', ondelete='CASCADE'), primary_key=True)
+    # active — начисления идут; disabled — новых начислений нет, баланс можно вывести/потратить.
+    status: Mapped[str] = mapped_column(String(12), default='active', server_default='active', nullable=False)
+    # Персональная ставка, %. NULL — общая из app_settings (partner_percent).
+    percent: Mapped[int] = mapped_column(Integer, nullable=True)
+    balance_kop: Mapped[int] = mapped_column(BigInteger, default=0, server_default='0', nullable=False)
+    # Реквизиты для вывода по СБП: вводятся один раз, меняются из меню партнёра.
+    sbp_phone: Mapped[str] = mapped_column(String(20), nullable=True)
+    sbp_bank: Mapped[str] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    disabled_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+
+
+class PartnerLedger(Base):
+    """
+    Журнал движения денег партнёра. Записи не удаляются, меняется только статус начислений.
+
+    kind / amount_kop (знак — влияние на баланс):
+      accrual            +  процент с оплаты друга; status hold → available (или cancelled при возврате в холде)
+      reversal           −  возврат оплаты друга после холда (не больше, чем есть на балансе)
+      withdrawal         −  заявка на вывод (деньги заморожены до решения админа)
+      withdrawal_return  +  заявка отклонена
+      spend              −  оплата своей подписки с баланса
+      spend_return       +  оплата с баланса не прошла
+    UNIQUE(kind, payment_id) — идемпотентность: одна оплата не начисляется и не списывается дважды.
+    """
+    __tablename__ = 'partner_ledger'
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    partner_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey('partners.user_id', ondelete='CASCADE'), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(20))
+    amount_kop: Mapped[int] = mapped_column(BigInteger)
+    # accrual: hold | available | cancelled | reversed; остальные — done
+    status: Mapped[str] = mapped_column(String(12), default='done', server_default='done', nullable=False)
+    friend_user_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    payment_id: Mapped[str] = mapped_column(String, nullable=True)        # yookassa_payment_id
+    base_amount_kop: Mapped[int] = mapped_column(BigInteger, nullable=True)  # от какой суммы считали процент
+    percent: Mapped[int] = mapped_column(Integer, nullable=True)
+    withdrawal_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    available_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True, index=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('kind', 'payment_id', name='uq_partner_ledger_kind_payment'),
+    )
+
+
+class PartnerWithdrawal(Base):
+    """Заявка партнёра на вывод по СБП. Сумма списана с баланса при создании, при отказе возвращается."""
+    __tablename__ = 'partner_withdrawals'
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    partner_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey('partners.user_id', ondelete='CASCADE'), index=True
+    )
+    amount_kop: Mapped[int] = mapped_column(BigInteger)
+    sbp_phone: Mapped[str] = mapped_column(String(20))   # снимок реквизитов на момент заявки
+    sbp_bank: Mapped[str] = mapped_column(String(64))
+    # pending | paid | rejected
+    status: Mapped[str] = mapped_column(String(12), default='pending', server_default='pending', nullable=False)
+    reject_reason: Mapped[str] = mapped_column(String(128), nullable=True)
+    admin_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    # Сообщение с заявкой в топике выплат — правится после решения.
+    notify_chat_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    notify_message_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+    processed_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
 
 
 # --- 4. Функция для создания таблиц ---

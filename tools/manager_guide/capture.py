@@ -50,6 +50,7 @@ body { margin: 0; background: transparent; font-family: -apple-system, 'Segoe UI
           line-height: 1.38; color: #111; box-shadow: 0 1px 1px rgba(0,0,0,.08); white-space: pre-wrap; word-wrap: break-word; }
 .photo { border-radius: 14px 14px 0 0; overflow: hidden; background: #fff; padding: 12px 0 4px; }
 .photo img { display: block; width: 190px; margin: 0 auto; }
+.photo.full { padding: 0; } .photo.full img { width: 100%; }
 .photo + .bubble { border-radius: 0 0 14px 4px; }
 .user { margin-left: auto; } .user .bubble { background: #e1fec6; border-radius: 14px 14px 4px 14px; }
 .kb { display: grid; gap: 4px; margin-top: 4px; }
@@ -60,7 +61,7 @@ code { font-family: Menlo, monospace; font-size: 13px; color: #b5373a; }
 """
 
 
-def render_bot(screen: list[dict], qr_uri: str) -> str:
+def render_bot(screen: list[dict], qr_uri: str, data: Path) -> str:
     parts = ['<div class="chat"><div class="head"><div class="ava">F</div>'
              '<div><div class="name">FlaskVPN</div><div class="sub">бот</div></div></div>']
     for m in screen:
@@ -68,7 +69,18 @@ def render_bot(screen: list[dict], qr_uri: str) -> str:
             parts.append(f'<div class="msg user"><div class="bubble">{html.escape(m["text"])}</div></div>')
             continue
         text = _demo_links(m["text"])
-        photo = f'<div class="photo"><img src="{qr_uri}"></div>' if m["kind"] == "photo" else ""
+        photo = ""
+        if m["kind"] == "photo":
+            image = m.get("image")
+            if image:   # настоящая картинка сообщения (чек во всю ширину пузыря)
+                uri = "data:image/png;base64," + base64.b64encode((data / image).read_bytes()).decode()
+                photo = f'<div class="photo full"><img src="{uri}"></div>'
+                # Подпись чека повторяет картинку — в макете хватит первых строк.
+                lines = text.split("\n")
+                if len(lines) > 3:
+                    text = "\n".join(lines[:3]) + "\n…"
+            else:
+                photo = f'<div class="photo"><img src="{qr_uri}"></div>'
         kb = ""
         if m["buttons"]:
             rows = "".join('<div class="row">' + "".join(f'<div class="btn">{html.escape(b)}</div>' for b in row)
@@ -85,7 +97,7 @@ def shoot_bot(browser, data: Path, img: Path) -> None:
     qr_uri = "data:image/png;base64," + base64.b64encode((data / "qr.png").read_bytes()).decode()
     page = browser.new_page(device_scale_factor=2, viewport={"width": 420, "height": 900})
     for name, screen in screens.items():
-        page.set_content(render_bot(screen, qr_uri))
+        page.set_content(render_bot(screen, qr_uri, data))
         page.wait_for_load_state("load")
         page.locator(".chat").screenshot(path=str(img / f"bot_{name}.jpg"), type="jpeg", quality=82)
     page.close()
