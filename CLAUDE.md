@@ -187,7 +187,7 @@ Alembic не используется. Таблицы создаются `Base.m
 
 Модели: `User`, `Tariff`, `PromoCode`, `UsedPromoCode`, `Payment`, `UserPaymentMethod`,
 `LifecycleMessage`, `Channel`, `AppSetting`, а для менеджеров — `Manager`, `ManagerClient`,
-`ManagerOperation` (журнал), `TempKey`, `ManagerSettlement`, `ClientAccessCode`.
+`ManagerOperation` (журнал), `TempKey`, `ManagerSettlement`, `ManagerPayout`, `ClientAccessCode`.
 
 Особенности:
 - `User.user_id` — Telegram ID; пользователи веб-кабинета создаются с **отрицательными** id,
@@ -318,6 +318,10 @@ subscription-settings; как только записано персональн
   из бота; 5 ошибок → блок на 15 мин; уведомление о входе в бот), cookie `mgr_session` (JWT с версией сессии, `Path=/manager`, SameSite=Strict),
   CSRF-токен в заголовке + проверка Origin.
 - **«Свои дни»**: `tgbot/services/custom_pricing.py`, формула и параметры — в `docs/managers.md`.
+- **Услуга менеджера** (`managers.service_fee`, 250 ₽ по умолчанию, задаёт сам менеджер, админ может
+  зафиксировать): входит в каждую продажу отдельной позицией, автопродление её не списывает; наличные —
+  остаётся у менеджера (не в «к сдаче»), QR — «к выплате менеджеру» (`manager_payouts`).
+- **Чек — картинка + текст одним сообщением** везде (`tgbot/services/receipt_image.py`, шрифты `tools/fonts`).
 
 ## Вводный тариф (пробная неделя за 1 ₽ → автопродление)
 

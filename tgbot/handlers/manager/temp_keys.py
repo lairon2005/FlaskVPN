@@ -4,13 +4,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 
 from tgbot.handlers.manager.common import (
-    current_manager, new_nonce, qr_file, show, show_error,
+    current_manager, new_nonce, send_receipt, show, show_error,
 )
 from tgbot.handlers.manager.issue import _show_what
 from tgbot.handlers.manager.menu import manager_router
 from tgbot.keyboards.manager import temp_confirm_keyboard, temp_list_keyboard, temp_result_keyboard
 from tgbot.services import manager_service
-from tgbot.services.manager_guide import install_caption
 from tgbot.services.manager_receipts import fmt_time, receipt_number
 from tgbot.services.manager_service import ManagerError
 
@@ -51,19 +50,13 @@ async def temp_go(call: CallbackQuery, state: FSMContext):
         return
     await state.clear()
 
-    await show(
-        call,
+    # Чек одним сообщением: картинка с QR установки — её и показывают клиенту.
+    text = result.receipt_text or (
         f"✅ <b>Пробный ключ выдан</b> · чек № {receipt_number(result.operation_id)}\n\n"
         f"⏱ Работает до <b>{fmt_time(result.expires_at)}</b> МСК, затем удаляется сам.\n\n"
-        f"🔗 Ссылка для установки:\n<code>{result.subscription_url}</code>",
-        None if result.subscription_url else temp_result_keyboard(result.key_id),
+        f"🔗 Ссылка для установки:\n<code>{result.subscription_url}</code>"
     )
-    if result.subscription_url:
-        await call.message.answer_photo(
-            qr_file(result.subscription_url, "temp.png"),
-            caption=install_caption(title="📲 <b>Покажите клиенту этот QR</b> (пробный ключ)"),
-            reply_markup=temp_result_keyboard(result.key_id),
-        )
+    await send_receipt(call, result.operation_id, text, result.receipt_image, temp_result_keyboard(result.key_id))
 
 
 @manager_router.callback_query(F.data == "mgr:temps")

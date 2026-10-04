@@ -1,10 +1,12 @@
+{# Список операций. Вызывающий передаёт его явно: {% with ops = ... %}{% include %}{% endwith %} —
+   проверка `is defined` внутри include в блоке ненадёжна (Jinja отдаёт служебный missing). #}
 {% set op_titles = {'issue_tariff': 'Подписка по тарифу', 'issue_custom': 'Подписка на любой срок', 'issue_temp': 'Пробный ключ',
                     'convert_temp': 'Подписка на пробный ключ', 'access_grant': 'Доступ к клиенту', 'key_view': 'Показан QR установки',
                     'autorenew_off': 'Автопродление выкл.', 'cabinet_link_reset': 'Новая ссылка на кабинет'} %}
 {% set status_badges = {'completed': ('badge-active', 'готово'), 'pending_payment': ('badge-pending', 'ждём оплату'),
                         'cancelled': ('badge-muted', 'отменено'), 'failed': ('badge-expired', 'ошибка'),
-                        'processing': ('badge-info', 'в работе')} %}
-{% if rows is defined %}{% set ops = rows %}{% else %}{% set ops = recent %}{% endif %}
+                        'processing': ('badge-info', 'в работе'), 'refunded': ('badge-expired', 'возврат')} %}
+{% set sale_types = ('issue_tariff', 'issue_custom', 'issue_temp', 'convert_temp') %}
 {% if ops %}
 <ul class="sticker divide-y-2 divide-blue/10">
     {% for op in ops %}
@@ -13,7 +15,8 @@
             <div class="min-w-0">
                 <p class="font-bold">{{ op_titles.get(op.op_type, op.op_type) }}{% if op.tariff_name and op.op_type != 'issue_temp' %}<span class="font-normal text-subtle"> · {{ op.tariff_name }}{% if op.days %} · {{ op.days }} дн.{% endif %}</span>{% endif %}</p>
                 <p class="text-xs text-muted mt-0.5">
-                    {{ fmt_dt(op.created_at) }} · чек M-{{ '%06d' % op.id }}
+                    {{ fmt_dt(op.created_at) }} ·
+                    {% if op.op_type in sale_types and op.status != 'failed' %}<a class="font-bold text-blue hover:text-orange" href="/manager/receipt/{{ op.id }}.png" target="_blank" rel="noopener">чек M-{{ '%06d' % op.id }}</a>{% else %}чек M-{{ '%06d' % op.id }}{% endif %}
                     {% if op.client_code %} · клиент <a class="font-mono font-bold text-blue" href="/manager/clients/{{ op.client_code }}">{{ op.client_code }}</a>{% endif %}
                 </p>
             </div>

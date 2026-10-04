@@ -29,7 +29,7 @@ from tgbot.services.custom_pricing import (
 )
 from tgbot.services.device_pricing import build_checkout, days_left, receipt_items
 from tgbot.services.manager_receipts import (
-    KIND_CUSTOM, KIND_TARIFF, KIND_TEMP, ReceiptData, fmt_dt, fmt_money, fmt_time,
+    KIND_CUSTOM, KIND_TARIFF, KIND_TEMP, SERVICE_FEE_TITLE, ReceiptData, fmt_dt, fmt_money, fmt_time,
     format_client_receipt, format_group_receipt, format_manager_receipt,
 )
 from tgbot.services.manager_security import (
@@ -37,6 +37,7 @@ from tgbot.services.manager_security import (
     normalize_client_code, normalize_login, password_problem, temp_username, verify_password,
 )
 from tgbot.services.pricing import effective_price
+from tgbot.services.receipt_image import render_receipt
 from tgbot.services.traffic_pricing import (
     GIB, gb_to_packs, packs_cost_for_tariff, packs_to_gb, tariff_quota_gb,
 )
@@ -51,6 +52,11 @@ DEFAULT_TEMP_MINUTES = 60
 DEFAULT_TEMP_TRAFFIC_GB = 5
 DEFAULT_TEMP_DEVICES = 1
 DEFAULT_ACCESS_GRACE_DAYS = 14
+
+# Услуга менеджера (подключение и настройка): входит в каждую его продажу отдельной позицией,
+# автопродление её не включает. Цену задаёт сам менеджер в этих границах.
+SERVICE_FEE_DEFAULT = 250
+SERVICE_FEE_MAX = 1000
 
 # Как называется выдача на произвольный срок в чеках, журнале и на экранах.
 CUSTOM_PRODUCT_NAME = "Любой срок"
@@ -86,6 +92,8 @@ MESSAGES = {
     "cash_limit": "Превышен лимит наличных «к сдаче». Сдайте выручку администратору.",
     "temp_limit": "Дневной лимит временных ключей исчерпан.",
     "price_changed": "Цена изменилась. Проверьте новую сумму и подтвердите ещё раз.",
+    "bad_fee": f"Цена услуги — целое число рублей от 0 до {SERVICE_FEE_MAX}.",
+    "fee_locked": "Цену вашей услуги зафиксировал администратор — изменить её может только он.",
     "pending_payment": "У клиента уже есть неоплаченный счёт. Отмените его или дождитесь оплаты.",
     "temp_not_found": "Временный ключ не найден или уже недоступен.",
     "invalid_invite": "Ссылка-приглашение недействительна или устарела.",
@@ -128,6 +136,8 @@ class ManagerView:
     cash_limit: int | None
     login: str | None = None
     has_password: bool = False
+    service_fee: int = SERVICE_FEE_DEFAULT
+    service_fee_locked: bool = False
 
 
 @dataclass(frozen=True)
@@ -195,6 +205,7 @@ class ClientCard:
 class PeriodStats:
     count: int = 0
     revenue: float = 0.0
+    fees: float = 0.0               # из revenue — услуга менеджера (его заработок)
     by_type: dict = field(default_factory=dict)
     by_method: dict = field(default_factory=dict)
 
@@ -209,6 +220,8 @@ class ManagerStats:
     clients: int
     temp_total: int
     temp_converted: int
+    fees_outstanding: float = 0.0   # услуги из онлайн-продаж, ещё не выплаченные менеджеру
+    fees_operations: int = 0
 
 
 @dataclass
@@ -224,7 +237,7 @@ class IssueQuote:
     packs: int
     traffic_cost: float
     extra_traffic_gb: int
-    total: float
+    total: float                    # к оплате: подписка + услуга менеджера
     quota_gb: int
     devices_limit: int
     breakdown: str | None = None
@@ -241,6 +254,11 @@ class IssueQuote:
     max_packs: int = 0              # 0 — докупать нечего (безлимит)
     pack_gb: int = 0
     pack_price: int = 0             # ₽ за пакет в месяц
+    service_fee: float = 0.0        # услуга менеджера внутри total
+
+    @property
+    def subscription_total(self) -> float:
+        return self.total - self.service_fee
 
 
 @dataclass
@@ -254,6 +272,7 @@ class IssueResult:
     cabinet_url: str | None = None  # только для нового клиента — ссылка показывается один раз
     expires_at: datetime.datetime | None = None
     receipt_text: str | None = None
+    receipt_image: bytes | None = None
     replayed: bool = False          # повторный запрос с тем же ключом — вернули прежний результат
 
 
@@ -265,6 +284,7 @@ class TempKeyResult:
     expires_at: datetime.datetime
     client_code: str | None = None
     receipt_text: str | None = None
+    receipt_image: bytes | None = None
 
 
 def _view(m) -> ManagerView:
@@ -274,6 +294,8 @@ def _view(m) -> ManagerView:
         can_issue_temp=m.can_issue_temp, can_accept_cash=m.can_accept_cash,
         can_view_global_stats=m.can_view_global_stats, temp_keys_per_day=m.temp_keys_per_day,
         cash_limit=m.cash_limit, login=m.login, has_password=bool(m.password_hash),
+        service_fee=m.service_fee if m.service_fee is not None else SERVICE_FEE_DEFAULT,
+        service_fee_locked=bool(m.service_fee_locked),
     )
 
 
@@ -284,6 +306,10 @@ def _brief(op) -> OperationBrief:
         price=op.price or 0.0, payment_method=op.payment_method,
         key_fingerprint=op.key_fingerprint, key_expires_at=op.key_expires_at,
     )
+
+
+# Продажи и выдачи — у них есть чек.
+_SALE_TYPES = frozenset({"issue_tariff", "issue_custom", "issue_temp", "convert_temp"})
 
 
 def _now() -> datetime.datetime:
@@ -433,6 +459,32 @@ class ManagerService:
 
     async def list_managers(self) -> list[ManagerView]:
         return [_view(m) for m in await self._managers.list_all()]
+
+    @staticmethod
+    def _check_fee(fee) -> int:
+        if isinstance(fee, bool) or not isinstance(fee, int) or not 0 <= fee <= SERVICE_FEE_MAX:
+            raise ManagerError("bad_fee")
+        return fee
+
+    async def set_service_fee(self, manager_id: int, fee: int) -> ManagerView:
+        """Менеджер сам задаёт цену своей услуги — если админ её не зафиксировал."""
+        manager = await self.require_active(manager_id)
+        if manager.service_fee_locked:
+            raise ManagerError("fee_locked")
+        fee = self._check_fee(fee)
+        await self._managers.set_service_fee(manager.id, fee)
+        logger.info(f"[manager] #{manager.id} set service fee: {fee} ₽")
+        return _view(await self._managers.get(manager.id))
+
+    async def admin_set_service_fee(self, manager_id: int, admin_id: int, *, fee: int | None = None,
+                                    locked: bool | None = None) -> None:
+        """Админ: задать цену услуги менеджера и/или зафиксировать её (менеджер больше не меняет)."""
+        manager = await self._managers.get(manager_id)
+        if manager is None or manager.status == "deleted":
+            raise ManagerError("not_manager")
+        value = self._check_fee(fee) if fee is not None else manager.service_fee
+        await self._managers.set_service_fee(manager_id, value, locked)
+        logger.info(f"[manager] admin {admin_id} set service fee of #{manager_id}: {value} ₽, locked={locked}")
 
     # ==========================================================================
     # Вход на сайт
@@ -867,6 +919,7 @@ class ManagerService:
             tariff = None
             renew_tariff = await self._payments.custom_renew_tariff()
 
+        fee = float(manager.service_fee or 0)
         checkout = build_checkout(dev_settings, base_price, duration, slots)
         if quota == 0:
             packs = 0  # безлимит: докупать нечего
@@ -878,7 +931,7 @@ class ManagerService:
                 packs_to_gb(traffic_settings, packs),
             )
         details.update(slots=slots, slots_cost=checkout.slots_cost, packs=packs,
-                       traffic_cost=checkout.traffic_cost, days=duration)
+                       traffic_cost=checkout.traffic_cost, days=duration, service_fee=fee)
 
         autorenew = bool(self._config.yookassa.save_payment_method and renew_tariff)
         renew_text = None
@@ -887,20 +940,21 @@ class ManagerService:
             renew_text = (
                 f"После оплаты способ оплаты сохранится, и подписка будет продлеваться автоматически: "
                 f"{renew_tariff.price:.0f} ₽{extras} каждые {renew_tariff.duration_days} дн. "
-                "Отключить можно в личном кабинете или у менеджера."
+                + ("Услуга менеджера при продлении не списывается. " if fee else "")
+                + "Отключить можно в личном кабинете или у менеджера."
             )
 
         return IssueQuote(
             product=product, tariff_id=tariff.id if tariff else None, tariff_name=name, days=duration,
             base_price=base_price, slots=slots, slots_cost=checkout.slots_cost, packs=packs,
-            traffic_cost=checkout.traffic_cost, extra_traffic_gb=checkout.traffic_gb, total=checkout.total,
+            traffic_cost=checkout.traffic_cost, extra_traffic_gb=checkout.traffic_gb, total=checkout.total + fee,
             quota_gb=quota, devices_limit=dev_settings.base_limit + slots, breakdown=breakdown, hint=hint,
             renew_text=renew_text, autorenew_available=autorenew,
             client_code=client.client_code if client else None, client_is_new=client is None,
             price_details=details,
             base_devices=dev_settings.base_limit, max_slots=dev_settings.max_extra, slot_price=dev_settings.price,
             max_packs=traffic_settings.max_packs if quota > 0 else 0, pack_gb=traffic_settings.pack_gb,
-            pack_price=traffic_settings.pack_price,
+            pack_price=traffic_settings.pack_price, service_fee=fee,
         )
 
     # ==========================================================================
@@ -946,7 +1000,7 @@ class ManagerService:
                 quote = await self._build_quote(manager, None, product, tariff_id, days, slots, packs)
                 self._check_expected(expected_total, quote)
                 if method == "cash":
-                    await self._check_cash_limit(manager, quote.total)
+                    await self._check_cash_limit(manager, quote.subscription_total)
             client, is_new, cabinet_token = await self._resolve_client(manager, client_code, temp_key_id, _clean_label(label))
             # Клиент создан — фиксируем в журнале сразу: если дальше что-то сорвётся, _fail
             # знает, кого отвязать от временного ключа.
@@ -954,13 +1008,14 @@ class ManagerService:
             quote = await self._build_quote(manager, client, product, tariff_id, days, slots, packs)
             self._check_expected(expected_total, quote)
             if method == "cash":
-                await self._check_cash_limit(manager, quote.total)
+                await self._check_cash_limit(manager, quote.subscription_total)
             details = dict(quote.price_details, new_client=is_new)
             await self._ops.update(
                 op.id, client_user_id=client.user_id, client_code=client.client_code,
                 tariff_id=quote.tariff_id, tariff_name=quote.tariff_name, days=quote.days,
                 traffic_gb=quote.quota_gb + quote.extra_traffic_gb if quote.quota_gb else 0,
-                extra_devices=quote.slots, price=quote.total, price_details=details,
+                extra_devices=quote.slots, price=quote.total, service_fee=quote.service_fee,
+                price_details=details,
             )
             if method == "cash":
                 return await self._issue_cash(manager, client, quote, op, cabinet_token, temp_key_id)
@@ -983,6 +1038,7 @@ class ManagerService:
             raise ManagerError("cash_not_allowed")
 
     async def _check_cash_limit(self, manager, amount: float) -> None:
+        """amount — деньги магазина (без услуги менеджера): лимит — на то, что придётся сдать."""
         if manager.cash_limit is None:
             return
         outstanding, _ = await self._ops.cash_outstanding(manager.id)
@@ -1071,6 +1127,11 @@ class ManagerService:
             checkout = checkout.with_traffic(quote.packs, quote.traffic_cost, quote.extra_traffic_gb)
         kind = "custom" if quote.product == "custom" else "subscription"
         description = f"Подписка VPN: {quote.tariff_name}" + (f" ({quote.days} дн.)" if kind == "custom" else "")
+        items = receipt_items(quote.tariff_name if kind == "subscription" else f"{quote.days} дн.",
+                              checkout, quote.days)
+        if quote.service_fee:
+            # Отдельная позиция фискального чека: клиент видит, за что платит сверх тарифа.
+            items.append({"description": SERVICE_FEE_TITLE, "quantity": 1, "amount": quote.service_fee})
 
         cfg = self._config
         if cabinet_token:
@@ -1088,8 +1149,7 @@ class ManagerService:
                 shop_id=cfg.yookassa.shop_id, secret_key=cfg.yookassa.secret_key,
                 save_payment_method=quote.autorenew_available,
                 metadata={"manager_id": str(manager.id), "op_id": str(op.id), "kind": kind},
-                items=receipt_items(quote.tariff_name if kind == "tariff" else f"{quote.days} дн.",
-                                    checkout, quote.days),
+                items=items,
             )
         except Exception:
             logger.error(f"[manager] YooKassa payment creation failed: op={op.id}", exc_info=True)
@@ -1122,11 +1182,11 @@ class ManagerService:
             key_username=fresh.vpn_username, key_fingerprint=key_fingerprint(url or fresh.vpn_username or ""),
             key_expires_at=fresh.subscription_end_date,
         )
-        text = await self._publish(op.id, subscription_url=url)
+        text, image = await self._publish(op.id, subscription_url=url, with_image=True)
         return IssueResult(
             operation_id=op.id, status="completed", price=(await self._ops.get(op.id)).price or 0.0,
             subscription_url=url, client_code=fresh.client_code, cabinet_url=self._cabinet_url(cabinet_token),
-            expires_at=fresh.subscription_end_date, receipt_text=text,
+            expires_at=fresh.subscription_end_date, receipt_text=text, receipt_image=image,
         )
 
     # ==========================================================================
@@ -1158,8 +1218,23 @@ class ManagerService:
             key_fingerprint=key_fingerprint(url or client.vpn_username or ""),
             key_expires_at=client.subscription_end_date,
         )
-        await self._mark_invoice(op, "✅ <b>Оплачено</b> · {price}\n\nКлюч выдан — QR для установки пришёл следующим сообщением.")
+        await self._mark_invoice(op, "✅ <b>Оплачено</b> · {price}\n\nКлюч выдан — чек с QR для установки пришёл следующим сообщением.")
         await self._publish(op.id, subscription_url=url, notify_manager=True, notify_client=True)
+
+    async def on_payment_refunded(self, payment_id: str) -> None:
+        """
+        Возврат онлайн-оплаты (вебхук refund.succeeded): операция → refunded, услуга менеджера
+        выпадает из «к выплате» и из заработка. Уже выплаченную услугу забирает админ вручную — пишем в лог.
+        """
+        op = await self._ops.get_by_payment_id(payment_id)
+        if op is None or not await self._ops.transition(op.id, "completed", "refunded"):
+            return
+        if op.service_fee and op.fee_paid_at:
+            logger.error(
+                f"[manager] возврат по чеку M-{op.id:06d}: услуга менеджера #{op.manager_id} "
+                f"({op.service_fee:.0f} ₽) уже выплачена — удержите её при следующей выплате"
+            )
+        await self._publish(op.id, notify_manager=True)
 
     async def remember_invoice_message(self, manager_id: int, operation_id: int, chat_id: int, message_id: int) -> None:
         """Бот показал счёт — запоминаем сообщение, чтобы обновить его, когда придёт оплата или счёт отменится."""
@@ -1307,8 +1382,8 @@ class ManagerService:
             key_fingerprint=key_fingerprint(url or username), key_expires_at=expires_at,
             traffic_gb=gb, extra_devices=0,
         )
-        text = await self._publish(op.id, subscription_url=url)
-        return TempKeyResult(op.id, temp.id, url or "", expires_at, None, text)
+        text, image = await self._publish(op.id, subscription_url=url, with_image=True)
+        return TempKeyResult(op.id, temp.id, url or "", expires_at, None, text, image)
 
     async def _subscription_url_by_username(self, username: str) -> str | None:
         try:
@@ -1406,38 +1481,97 @@ class ManagerService:
     # Чеки
     # ==========================================================================
 
+    @staticmethod
+    async def _render(data: ReceiptData, audience: str) -> bytes | None:
+        """PNG чека. Картинка — украшение: не нарисовалась — чек уходит текстом."""
+        try:
+            return await asyncio.to_thread(render_receipt, data, audience)
+        except Exception:
+            logger.error(f"[manager] cannot render receipt image: op={data.op_id}", exc_info=True)
+            return None
+
     async def _publish(self, op_id: int, *, subscription_url: str | None = None,
                        temp_deleted: bool = False, notify_manager: bool = False,
-                       notify_client: bool = False) -> str | None:
-        """Собирает чек операции и отдаёт notifier'у. Возвращает текст чека менеджеру."""
+                       notify_client: bool = False, with_image: bool = False):
+        """
+        Собирает чек операции и отдаёт notifier'у: каждому адресату — картинка и текст
+        одним сообщением. Возвращает текст чека менеджеру, а с with_image — (текст, PNG):
+        его показывает хендлер, когда менеджер сам ждёт результат.
+        """
         op = await self._ops.get(op_id)
         if op is None:
-            return None
+            return (None, None) if with_image else None
         manager = await self._managers.get(op.manager_id)
         data = await self._receipt_data(op, manager, subscription_url, temp_deleted)
         manager_text = format_manager_receipt(data)
+        manager_image = await self._render(data, "manager") if (with_image or notify_manager) else None
+        result = (manager_text, manager_image) if with_image else manager_text
         if self.notifier is None:
-            return manager_text
+            return result
 
         try:
-            group_text = format_group_receipt(data)
             ids = await self.notifier.post_group_receipt(
-                op.id, group_text,
+                op.id, format_group_receipt(data),
                 (op.receipt_chat_id, op.receipt_message_id) if op.receipt_message_id else None,
+                image=await self._render(data, "group"),
             )
             if ids and ids != (op.receipt_chat_id, op.receipt_message_id):
                 await self._ops.update(op.id, receipt_chat_id=ids[0], receipt_message_id=ids[1])
             if notify_manager and manager and manager.telegram_id:
                 await self.notifier.notify_manager(
-                    manager.telegram_id, manager_text, subscription_url=subscription_url if data.status == "completed" else None,
-                    operation_id=op.id,
+                    manager.telegram_id, manager_text, image=manager_image,
+                    has_key=bool(subscription_url) and data.status == "completed" and not temp_deleted,
+                    client_code=op.client_code if op.op_type != "issue_temp" else None,
                 )
             if notify_client and op.client_user_id and op.client_user_id > 0:
-                await self.notifier.notify_client(op.client_user_id, format_client_receipt(data))
+                await self.notifier.notify_client(
+                    op.client_user_id, format_client_receipt(data), image=await self._render(data, "client"),
+                )
         except Exception:
             # Чек — отчётность, а не условие выдачи: ключ уже выдан, деньги приняты.
             logger.error(f"[manager] receipt delivery failed: op={op.id}", exc_info=True)
-        return manager_text
+        return result
+
+    async def receipt_image(self, manager_id: int, operation_id: int) -> bytes | None:
+        """PNG чека своей операции — для сайта (скачать, переслать клиенту). Чужая — None."""
+        manager = await self.require_active(manager_id)
+        op = await self._ops.get(operation_id)
+        if op is None or op.manager_id != manager.id or op.op_type not in _SALE_TYPES:
+            return None
+        url = None
+        if op.status == "completed" and op.client_user_id:
+            client = await self._users.get(op.client_user_id)
+            url = await self._subscription_url(client) if client else None
+        elif op.status == "completed" and op.op_type == "issue_temp" and op.key_username:
+            url = await self._subscription_url_by_username(op.key_username)
+        temp_deleted = False
+        if op.op_type == "issue_temp":
+            key = await self._temps.get_by_operation(op.id)
+            temp_deleted = bool(key and key.status == "deleted")
+            if temp_deleted:
+                url = None
+        data = await self._receipt_data(op, manager, url, temp_deleted)
+        return await self._render(data, "manager")
+
+    async def client_receipt_image(self, user_id: int, operation_id: int) -> bytes | None:
+        """PNG чека покупки у менеджера — самому клиенту (кабинет). Только его операция."""
+        op = await self._ops.get(operation_id)
+        if op is None or op.client_user_id != user_id or op.op_type not in _SALE_TYPES - {"issue_temp"}:
+            return None
+        if op.status not in ("completed", "refunded"):
+            return None
+        manager = await self._managers.get(op.manager_id)
+        client = await self._users.get(user_id)
+        url = await self._subscription_url(client) if client and op.status == "completed" else None
+        data = await self._receipt_data(op, manager, url, False)
+        return await self._render(data, "client")
+
+    async def client_receipts(self, user_id: int, limit: int = 5) -> list[OperationBrief]:
+        """Покупки клиента у менеджеров — список чеков для его кабинета."""
+        return [
+            _brief(op) for op in await self._ops.list_for_client_any(user_id, limit)
+            if op.op_type in _SALE_TYPES and op.status in ("completed", "refunded")
+        ]
 
     async def _receipt_data(self, op, manager, subscription_url, temp_deleted) -> ReceiptData:
         kind = {"issue_temp": KIND_TEMP, "issue_custom": KIND_CUSTOM}.get(op.op_type, KIND_TARIFF)
@@ -1468,7 +1602,8 @@ class ManagerService:
             client_code=op.client_code, client_is_new=bool(details.get("new_client")),
             product_title=op.tariff_name or "", days=op.days, custom_note=custom_note,
             traffic_gb=op.traffic_gb, devices_limit=devices_limit,
-            expires_at=op.key_expires_at, price=op.price or 0.0, payment_method=op.payment_method,
+            expires_at=op.key_expires_at, price=op.price or 0.0, service_fee=op.service_fee or 0.0,
+            payment_method=op.payment_method,
             autorenew=autorenew, cash_outstanding=outstanding, key_username=op.key_username,
             key_fingerprint=op.key_fingerprint,
             temp_deleted_at=_now() if temp_deleted else None,
@@ -1501,19 +1636,22 @@ class ManagerService:
             by_method: dict = {}
             count = 0
             revenue = 0.0
-            for op_type, method, cnt, rev in await self._ops.stats(manager_id, since):
-                if op_type in ("issue_tariff", "issue_custom", "issue_temp", "convert_temp"):
+            fees = 0.0
+            for op_type, method, cnt, rev, fee in await self._ops.stats(manager_id, since):
+                if op_type in _SALE_TYPES:
                     count += cnt
                     revenue += rev
+                    fees += fee
                     by_type[op_type] = by_type.get(op_type, 0) + cnt
                     by_method[method or "free"] = by_method.get(method or "free", 0.0) + rev
-            built[name] = PeriodStats(count, revenue, by_type, by_method)
+            built[name] = PeriodStats(count, revenue, fees, by_type, by_method)
 
         cash, cash_ops = await self._ops.cash_outstanding(manager_id) if manager_id else (0.0, 0)
+        fees_due, fee_ops = await self._ops.fees_outstanding(manager_id) if manager_id else (0.0, 0)
         conv = await self._temps.conversion_stats(manager_id, periods["month"])
         clients = await self._clients.count_for_manager(manager_id) if manager_id else 0
         return ManagerStats(built["today"], built["week"], built["month"], cash, cash_ops, clients,
-                            conv["total"], conv["converted"])
+                            conv["total"], conv["converted"], fees_due, fee_ops)
 
     async def global_stats(self, manager_id: int) -> ManagerStats:
         """Сводка по всем менеджерам — только с правом can_view_global_stats."""
@@ -1542,3 +1680,22 @@ class ManagerService:
 
     async def cash_outstanding(self, manager_id: int) -> tuple[float, int]:
         return await self._ops.cash_outstanding(manager_id)
+
+    async def fees_outstanding(self, manager_id: int) -> tuple[float, int]:
+        """Услуги менеджера из онлайн-продаж, ещё не выплаченные ему: (сумма, операций)."""
+        return await self._ops.fees_outstanding(manager_id)
+
+    async def payout_fees(self, manager_id: int, admin_id: int):
+        """Админ выплатил менеджеру его услуги из онлайн-продаж."""
+        payout = await self._ops.payout_fees(manager_id, admin_id)
+        if payout:
+            logger.info(
+                f"[manager] admin {admin_id} paid out manager #{manager_id}: "
+                f"{payout.amount} ₽, {payout.operations_count} операций"
+            )
+            manager = await self._managers.get(manager_id)
+            await self._notify_manager(
+                manager, f"💸 Администратор выплатил вам {fmt_money(payout.amount)} "
+                         f"за услуги в {payout.operations_count} онлайн-продажах."
+            )
+        return payout

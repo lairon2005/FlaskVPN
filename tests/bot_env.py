@@ -77,6 +77,8 @@ class RecordingSession(BaseSession):
                 out.append(data.get("text") or "")
             elif call in ("SendPhoto", "EditMessageCaption"):
                 out.append(data.get("caption") or "")
+            elif call == "EditMessageMedia":
+                out.append((data.get("media") or {}).get("caption") or "")
         return out
 
     def alerts(self) -> list[str]:

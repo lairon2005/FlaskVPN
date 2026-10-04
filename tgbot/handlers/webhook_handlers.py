@@ -344,6 +344,12 @@ async def yookassa_webhook_handler(request: web.Request):
             refunded_payment = await payment_service.process_refund(yookassa_payment_id)
             if refunded_payment:
                 await _log_refund(bot, refunded_payment)
+                # Продажа менеджера: операция → «возврат», его услуга выпадает из «к выплате».
+                if getattr(refunded_payment, 'manager_id', None):
+                    try:
+                        await manager_service.on_payment_refunded(yookassa_payment_id)
+                    except Exception as e:
+                        logger.error(f"Manager refund hook failed for {yookassa_payment_id}: {e}", exc_info=True)
                 # Уведомляем пользователя
                 if refunded_payment.user_id > 0:
                     try:

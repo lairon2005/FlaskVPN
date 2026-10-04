@@ -6,6 +6,7 @@
     <p class="text-xs font-bold text-muted uppercase tracking-wide">{{ title }}</p>
     <p class="mt-1 font-display font-black text-xl sm:text-2xl tabular-nums">{{ fmt_money(period.revenue) }}</p>
     <p class="text-xs sm:text-sm text-subtle">{{ period.count }} операц.</p>
+    {% if period.fees %}<p class="mt-1 text-xs sm:text-sm font-bold text-blue tabular-nums">ваши: {{ fmt_money(period.fees) }}</p>{% endif %}
 </div>
 {% endmacro %}
 
@@ -61,13 +62,26 @@
 <div class="sticker p-4 mt-3 flex flex-wrap items-center justify-between gap-3">
     <div>
         <p class="font-bold flex items-center gap-2">{{ ic.icon('banknote', 'w-5 h-5 text-blue') }}К сдаче администратору</p>
-        <p class="text-sm text-subtle">{{ stats.cash_operations }} оплат наличными ещё не сданы</p>
+        <p class="text-sm text-subtle">{{ stats.cash_operations }} оплат наличными ещё не сданы · без вашей услуги</p>
     </div>
     <p class="font-display font-black text-2xl tabular-nums">{{ fmt_money(stats.cash_outstanding) }}</p>
 </div>
 {% endif %}
 
+<a href="/manager/account#fee" class="sticker sticker-hover p-4 mt-3 flex flex-wrap items-center justify-between gap-3">
+    <div>
+        <p class="font-bold flex items-center gap-2">{{ ic.icon('briefcase', 'w-5 h-5 text-blue') }}Моя услуга: {{ fmt_money(manager.service_fee) }}{% if manager.service_fee_locked %} {{ ic.icon('lock', 'w-4 h-4 text-muted') }}{% endif %}</p>
+        <p class="text-sm text-subtle">Подключение и настройка — в каждой продаже. За месяц заработано {{ fmt_money(stats.month.fees) }}</p>
+    </div>
+    {% if stats.fees_outstanding %}
+    <div class="text-right">
+        <p class="text-xs font-bold text-muted uppercase tracking-wide">К выплате вам</p>
+        <p class="font-display font-black text-2xl tabular-nums">{{ fmt_money(stats.fees_outstanding) }}</p>
+    </div>
+    {% endif %}
+</a>
+
 <h2 class="font-display font-extrabold text-lg mt-8 mb-3">Последние операции</h2>
-{% include "manager/_ops_table.html" %}
+{% with ops = recent %}{% include "manager/_ops_table.html" %}{% endwith %}
 {% if recent %}<p class="mt-3"><a class="font-bold text-blue hover:text-orange" href="/manager/history">Вся история →</a></p>{% endif %}
 {% endblock %}

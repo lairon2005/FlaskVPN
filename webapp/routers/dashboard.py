@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from db import User
 from webapp.dependencies import get_current_user
@@ -106,6 +106,9 @@ async def dashboard_page(
     # Payment history
     payments_list = await payment_service.get_user_payments(user.user_id, limit=10)
 
+    # Чеки покупок у менеджера (офлайн-продажи) — картинкой, как в Telegram.
+    manager_receipts = await manager_service.client_receipts(user.user_id)
+
     # Saved payment method
     saved_card = await payment_method_service.get_card(user.user_id)
 
@@ -128,6 +131,7 @@ async def dashboard_page(
         "referral_count": referral_count,
         "referral_bonus": referral_bonus,
         "payments": payments_list,
+        "manager_receipts": manager_receipts,
         "saved_card": saved_card,
         "devices": devices,
         "slot_quote": slot_quote,
@@ -250,6 +254,20 @@ async def revoke_key(
     result = await key_service.revoke(user.user_id)
     code = CODE_OK if result.ok else (result.code or "generic")
     return RedirectResponse(url=f"/profile/?key={code}", status_code=303)
+
+
+@router.get("/receipt/{operation_id}.png")
+async def manager_receipt(operation_id: int, user: User = Depends(get_current_user)):
+    """Чек покупки у менеджера — только самому клиенту."""
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    image = await manager_service.client_receipt_image(user.user_id, operation_id)
+    if image is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return Response(image, media_type="image/png", headers={
+        "Cache-Control": "no-store",
+        "Content-Disposition": f'inline; filename="check-M-{operation_id:06d}.png"',
+    })
 
 
 @router.post("/manager-code")

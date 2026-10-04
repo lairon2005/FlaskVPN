@@ -21,6 +21,9 @@ KIND_TARIFF = "tariff"
 KIND_CUSTOM = "custom"
 KIND_TEMP = "temp"
 
+# Услуга менеджера — так она называется в чеках (наших и фискальном ЮKassa).
+SERVICE_FEE_TITLE = "Подключение и настройка VPN"
+
 
 def receipt_number(op_id: int) -> str:
     return f"M-{op_id:06d}"
@@ -56,7 +59,7 @@ class ReceiptData:
     manager_id: int
     manager_name: str
     kind: str                         # tariff | custom | temp
-    status: str                       # completed | pending_payment | failed | cancelled
+    status: str                       # completed | pending_payment | failed | cancelled | refunded
     client_code: str | None = None
     client_is_new: bool = False
     client_label: str | None = None   # пометка менеджера — только в его чеке
@@ -66,7 +69,8 @@ class ReceiptData:
     traffic_gb: int | None = None     # 0 — безлимит
     devices_limit: int | None = None
     expires_at: datetime | None = None
-    price: float = 0.0
+    price: float = 0.0                # итого, вместе с услугой менеджера
+    service_fee: float = 0.0          # услуга менеджера внутри price
     payment_method: str | None = None  # cash | online | free
     autorenew: bool | None = None
     cash_outstanding: float | None = None
@@ -102,6 +106,8 @@ def _status_line(data: ReceiptData) -> str:
         return "⏳ Ждём оплату"
     if data.status == "cancelled":
         return "🚫 Отменено"
+    if data.status == "refunded":
+        return "↩️ Оплата возвращена клиенту"
     return "❌ Не выдан (ошибка)"
 
 
@@ -116,6 +122,19 @@ def _payment_line(data: ReceiptData) -> str | None:
         )
         return f"💵 Наличные{outstanding}"
     return None
+
+
+def money_lines(data: ReceiptData) -> list[tuple[str, float]]:
+    """Из чего сложилась сумма: [(название, ₽)]. Без услуги менеджера — пусто, хватает «Итого»."""
+    if not data.service_fee:
+        return []
+    return [("Подписка", data.price - data.service_fee), (SERVICE_FEE_TITLE, data.service_fee)]
+
+
+def _money_block(data: ReceiptData) -> list[str]:
+    lines = [f"▫️ {title}: {fmt_money(amount)}" for title, amount in money_lines(data)]
+    lines.append(f"💰 <b>Итого: {fmt_money(data.price)}</b>")
+    return lines
 
 
 def _body(data: ReceiptData, *, for_group: bool) -> list[str]:
@@ -149,7 +168,7 @@ def _body(data: ReceiptData, *, for_group: bool) -> list[str]:
         lines.append(f"📅 Действует до {fmt_dt(data.expires_at)}")
 
     if data.kind != KIND_TEMP:
-        lines.append(f"💰 <b>Итого: {fmt_money(data.price)}</b>")
+        lines.extend(_money_block(data))
         payment = _payment_line(data)
         if payment:
             lines.append(payment)
@@ -185,5 +204,8 @@ def format_client_receipt(data: ReceiptData) -> str:
     ]
     if data.expires_at:
         lines.append(f"📅 Действует до {fmt_dt(data.expires_at)}")
+    lines.extend(f"▫️ {title}: {fmt_money(amount)}" for title, amount in money_lines(data))
     lines.append(f"💰 Сумма: <b>{fmt_money(data.price)}</b>")
+    if data.service_fee:
+        lines.append("<i>Автопродление списывает только стоимость подписки.</i>")
     return "\n".join(lines)

@@ -178,6 +178,8 @@ python3 tools/make_collage.py  # пересобрать коллажную ка�
 | GET/POST | `/manager/password?t=…` | Задать пароль по ссылке из бота |
 | GET | `/manager/`, `/issue` (`?tariff=<id>`, `?custom=1`, `?client=`, `?temp=`), `/temp`, `/clients`, `/clients/{код}`, `/history`, `/help`, `/account` | Страницы (мобильная нижняя панель вкладок, экран «Покажите клиенту» в `manager/base.html`) |
 | POST | `/manager/account/password` | Смена пароля (текущий + новый, CSRF в форме); остальные сессии сбрасываются |
+| POST | `/manager/account/fee` | Цена своей услуги (0…1000 ₽, CSRF в форме); зафиксированную админом — нельзя |
+| GET | `/manager/receipt/{id}.png` | Чек своей операции картинкой (`?download=1` — скачать); чужая — 404 |
 | POST | `/manager/logout` | Выход (CSRF в форме) |
 | POST | `/manager/api/quote` · `/issue` · `/temp` | Предпросмотр цены · подтверждение выдачи (идемпотентно по nonce) · временный ключ |
 | POST | `/manager/api/label` | Пометка о клиенте `{client_code, label}` |
@@ -195,7 +197,7 @@ python3 tools/make_collage.py  # пересобрать коллажную ка�
 |-------|------|----------|
 | GET | `/c/{токен}` | Кабинет офлайн-клиента по ссылке из чека: токен → cookie `access_token` → `/profile/`. В БД только sha256; `Referrer-Policy: no-referrer` |
 
-В `dashboard.py` добавлены `POST /profile/manager-code` (одноразовый код для менеджера, JSON) и
+В `dashboard.py` добавлены `GET /profile/receipt/{id}.png` (чек покупки у менеджера — только своей), `POST /profile/manager-code` (одноразовый код для менеджера, JSON) и
 `POST /profile/manager-access/revoke`. В `payment.py` — `POST /payment/traffic` (докупка трафика) и
 поле `extra_traffic_packs` в `/payment/create`.
 

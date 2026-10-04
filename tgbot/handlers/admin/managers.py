@@ -1,6 +1,6 @@
 """
 Админка менеджеров: приглашение, логин для сайта, сброс пароля, права, лимиты,
-статистика, журнал, инкассация.
+цена услуги менеджера, статистика, журнал, инкассация и выплаты.
 
 Пароль админ не видит и не задаёт: логин назначает он, а пароль менеджер придумывает
 сам по одноразовой ссылке из бота (после приглашения или после сброса).
@@ -26,7 +26,7 @@ from tgbot.keyboards.inline import cancel_fsm_keyboard
 from tgbot.keyboards.manager import password_link_keyboard
 from tgbot.services import manager_service
 from tgbot.services.manager_receipts import fmt_dt, fmt_money, receipt_number
-from tgbot.services.manager_service import ManagerError
+from tgbot.services.manager_service import SERVICE_FEE_MAX, ManagerError
 from tgbot.states.admin_manager_states import AdminManagerFSM
 
 admin_managers_router = Router()
@@ -43,6 +43,7 @@ RIGHTS = {
 NUMBERS = {
     "temp_keys_per_day": ("Лимит временных ключей в день", 0, 1000),
     "cash_limit": ("Потолок наличных «к сдаче», ₽ («-» — без лимита)", 0, 10_000_000),
+    "service_fee": ("Цена услуги менеджера, ₽ (подключение и настройка, входит в каждую продажу)", 0, SERVICE_FEE_MAX),
 }
 STATUS_TITLES = {"invited": "⏳ приглашён", "active": "✅ активен", "blocked": "🚫 заблокирован"}
 LOG_PAGE = 10
@@ -174,6 +175,8 @@ async def _card(manager_id: int):
         return None, None
     stats = await manager_service.admin_stats(manager_id)
     outstanding, ops = await manager_service.cash_outstanding(manager_id)
+    fees_due, fee_ops = await manager_service.fees_outstanding(manager_id)
+    fee_lock = " · 🔒 зафиксирована" if manager.service_fee_locked else " · менеджер меняет сам"
 
     rights = "\n".join(f"{'✅' if getattr(manager, key) else '❌'} {title}" for key, title in RIGHTS.items())
     limit = "без лимита" if manager.cash_limit is None else fmt_money(manager.cash_limit)
@@ -184,12 +187,16 @@ async def _card(manager_id: int):
         f"Сайт: {_web_line(manager)}\n\n"
         f"<b>Права:</b>\n{rights}\n\n"
         f"Временных ключей в день: {manager.temp_keys_per_day}\n"
-        f"Потолок наличных: {limit}\n\n"
-        f"<b>Сегодня:</b> {stats.today.count} оп. · {fmt_money(stats.today.revenue)}\n"
-        f"<b>Месяц:</b> {stats.month.count} оп. · {fmt_money(stats.month.revenue)}\n"
+        f"Потолок наличных: {limit}\n"
+        f"💼 Услуга: {fmt_money(manager.service_fee)}{fee_lock}\n\n"
+        f"<b>Сегодня:</b> {stats.today.count} оп. · {fmt_money(stats.today.revenue)}"
+        f" (услуги {fmt_money(stats.today.fees)})\n"
+        f"<b>Месяц:</b> {stats.month.count} оп. · {fmt_money(stats.month.revenue)}"
+        f" (услуги {fmt_money(stats.month.fees)})\n"
         f"<b>Клиентов:</b> {stats.clients} · временных за месяц: {stats.temp_total} "
         f"(стали подпиской: {stats.temp_converted})\n"
-        f"💵 <b>К сдаче:</b> {fmt_money(outstanding)} ({ops} оп.)"
+        f"💵 <b>К сдаче:</b> {fmt_money(outstanding)} ({ops} оп.) — без его услуги\n"
+        f"💸 <b>К выплате менеджеру:</b> {fmt_money(fees_due)} ({fee_ops} оп.) — услуги из оплат по QR"
     )
 
     builder = InlineKeyboardBuilder()
@@ -199,8 +206,13 @@ async def _card(manager_id: int):
                            callback_data=f"admin_mgr_tg:{manager.id}:{key}")
         builder.button(text="🔢 Лимит временных ключей", callback_data=f"admin_mgr_num:{manager.id}:temp_keys_per_day")
         builder.button(text="💵 Потолок наличных", callback_data=f"admin_mgr_num:{manager.id}:cash_limit")
+        builder.button(text="💼 Цена услуги", callback_data=f"admin_mgr_num:{manager.id}:service_fee")
+        builder.button(text="🔓 Разрешить менять цену" if manager.service_fee_locked else "🔒 Зафиксировать цену",
+                       callback_data=f"admin_mgr_feelock:{manager.id}")
         if ops:
             builder.button(text=f"💰 Принять выручку {fmt_money(outstanding)}", callback_data=f"admin_mgr_settle:{manager.id}")
+        if fee_ops:
+            builder.button(text=f"💸 Выплатить {fmt_money(fees_due)}", callback_data=f"admin_mgr_payout:{manager.id}")
         builder.button(text="🔤 Логин для сайта", callback_data=f"admin_mgr_login:{manager.id}")
         if manager.has_password:
             builder.button(text="🔑 Сбросить пароль", callback_data=f"admin_mgr_pwreset:{manager.id}")
@@ -283,9 +295,25 @@ async def number_apply(message: Message, state: FSMContext):
             return
         value = int(raw)
     await state.clear()
-    await manager_service.update_rights(manager_id, message.from_user.id, **{field: value})
+    if field == "service_fee":
+        # Цена — не право: сессии менеджера не сбрасываем.
+        await manager_service.admin_set_service_fee(manager_id, message.from_user.id, fee=value)
+    else:
+        await manager_service.update_rights(manager_id, message.from_user.id, **{field: value})
     await message.answer(f"✅ Сохранено: {title} — {'без лимита' if value is None else value}.",
                          reply_markup=_kb((("⬅️ К менеджеру", f"admin_mgr:{manager_id}"),)))
+
+
+@admin_managers_router.callback_query(F.data.startswith("admin_mgr_feelock:"))
+async def toggle_fee_lock(call: CallbackQuery):
+    manager_id = int(call.data.split(":")[1])
+    current = next((m for m in await manager_service.list_managers() if m.id == manager_id), None)
+    if current is None:
+        await call.answer("Менеджер не найден", show_alert=True)
+        return
+    await manager_service.admin_set_service_fee(manager_id, call.from_user.id, locked=not current.service_fee_locked)
+    await call.answer("Цена зафиксирована" if not current.service_fee_locked else "Менеджер снова может менять цену")
+    await _show_card(call, manager_id)
 
 
 # --- Логин и пароль для сайта ----------------------------------------------------------
@@ -455,6 +483,33 @@ async def settle_apply(call: CallbackQuery):
     await _show_card(call, manager_id)
 
 
+@admin_managers_router.callback_query(F.data.startswith("admin_mgr_payout:"))
+async def payout_ask(call: CallbackQuery):
+    manager_id = int(call.data.split(":")[1])
+    total, count = await manager_service.fees_outstanding(manager_id)
+    await call.answer()
+    if not count:
+        await _show_card(call, manager_id)
+        return
+    await call.message.edit_text(
+        f"💸 <b>Выплата менеджеру</b>\n\nЕго услуги в оплатах по QR: {count} оп.\nСумма: <b>{fmt_money(total)}</b>\n\n"
+        "Подтверждайте, когда деньги реально переведены. Менеджеру придёт уведомление.",
+        reply_markup=_kb((("✅ Выплачено", f"admin_mgr_payoutok:{manager_id}"),
+                          ("Отмена", f"admin_mgr:{manager_id}"))),
+    )
+
+
+@admin_managers_router.callback_query(F.data.startswith("admin_mgr_payoutok:"))
+async def payout_apply(call: CallbackQuery):
+    manager_id = int(call.data.split(":")[1])
+    payout = await manager_service.payout_fees(manager_id, call.from_user.id)
+    await call.answer(
+        f"Выплачено {fmt_money(payout.amount)} ({payout.operations_count} оп.)" if payout else "Нечего выплачивать",
+        show_alert=True,
+    )
+    await _show_card(call, manager_id)
+
+
 # --- Журнал -------------------------------------------------------------------------------
 
 def _log_line(op) -> str:
@@ -468,6 +523,8 @@ def _log_line(op) -> str:
         detail.append(op.tariff_name + (f" {op.days} дн." if op.days else ""))
     if op.price:
         detail.append(f"{fmt_money(op.price)} {'нал.' if op.payment_method == 'cash' else 'онлайн'}")
+    if op.service_fee:
+        detail.append(f"услуга {fmt_money(op.service_fee)}" + (" ✓" if op.fee_paid_at else ""))
     if op.key_fingerprint:
         detail.append(f"ключ …{op.key_fingerprint}")
     if detail:
@@ -503,7 +560,8 @@ async def csv_export(call: CallbackQuery):
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";")
     writer.writerow(["чек", "менеджер_id", "дата_UTC", "тип", "статус", "клиент_код", "тариф", "дней",
-                     "срок_действия_до", "цена", "оплата", "ключ", "отпечаток", "сдано"])
+                     "срок_действия_до", "цена", "услуга_менеджера", "оплата", "ключ", "отпечаток", "сдано",
+                     "услуга_выплачена"])
     page = 0
     while True:
         rows = await manager_service.admin_history(manager_id, page, 200)
@@ -512,8 +570,8 @@ async def csv_export(call: CallbackQuery):
                 receipt_number(op.id), op.manager_id, op.created_at.strftime("%Y-%m-%d %H:%M:%S"),
                 op.op_type, op.status, op.client_code or "", op.tariff_name or "", op.days or "",
                 op.key_expires_at.strftime("%Y-%m-%d %H:%M") if op.key_expires_at else "",
-                op.price or 0, op.payment_method or "", op.key_username or "", op.key_fingerprint or "",
-                "да" if op.settled_at else "",
+                op.price or 0, op.service_fee or 0, op.payment_method or "", op.key_username or "",
+                op.key_fingerprint or "", "да" if op.settled_at else "", "да" if op.fee_paid_at else "",
             ])
         if len(rows) < 200:
             break

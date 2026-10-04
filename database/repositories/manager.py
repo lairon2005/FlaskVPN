@@ -126,6 +126,19 @@ class ManagerRepository:
             await session.commit()
             return result.rowcount > 0
 
+    async def set_service_fee(self, manager_id: int, fee: int, locked: bool | None = None) -> bool:
+        """
+        Цена услуги менеджера. Сессии НЕ сбрасываются: это не право, а цена.
+        locked=None — замок не трогаем (так меняет цену сам менеджер).
+        """
+        values = {"service_fee": fee}
+        if locked is not None:
+            values["service_fee_locked"] = locked
+        async with self._session_maker() as session:
+            result = await session.execute(update(Manager).where(Manager.id == manager_id).values(**values))
+            await session.commit()
+            return result.rowcount > 0
+
     async def rename(self, manager_id: int, display_name: str) -> bool:
         async with self._session_maker() as session:
             result = await session.execute(

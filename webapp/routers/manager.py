@@ -13,18 +13,18 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from tgbot.services import manager_service
 from tgbot.services.manager_guide import CABINET_HINT, GUIDE, INSTALL_STEPS
 from tgbot.services.manager_receipts import fmt_dt, fmt_money, fmt_time
-from tgbot.services.manager_service import ManagerError
+from tgbot.services.manager_service import SERVICE_FEE_MAX, ManagerError
 from tgbot.services.qr_generator import create_qr_code
 from webapp.core.manager_auth import (
     COOKIE_NAME, COOKIE_PATH, ManagerSession, client_ip, decode_session_token, describe_device,
-    get_session, ip_blocked, origin_allowed, register_ip_failure, require_api_session,
+    get_session, ip_blocked, origin_allowed, register_ip_failure, require_api_session, require_session,
     set_session_cookie, verify_csrf,
 )
 from webapp.templating import render
@@ -158,13 +158,45 @@ async def logout(request: Request, csrf: str = Form("")):
     return response
 
 
+async def _account(request: Request, session: ManagerSession, *, message: str | None = None,
+                   error: str | None = None, fee_message: str | None = None, fee_error: str | None = None,
+                   status_code: int = 200) -> HTMLResponse:
+    fees_due, fee_ops = await manager_service.fees_outstanding(session.manager.id)
+    response = _page(request, "manager/account.html", session, "Аккаунт", message=message, error=error,
+                     fee_message=fee_message, fee_error=fee_error, fee_max=SERVICE_FEE_MAX,
+                     fees_due=fees_due, fee_ops=fee_ops)
+    response.status_code = status_code
+    return response
+
+
 @router.get("/account", response_class=HTMLResponse)
-async def account_page(request: Request, ok: int = 0):
+async def account_page(request: Request, ok: int = 0, fee: int = 0):
     session = await _page_session(request)
     if isinstance(session, RedirectResponse):
         return session
-    return _page(request, "manager/account.html", session, "Аккаунт",
-                 message="Пароль изменён. Остальные входы на сайте завершены." if ok else None, error=None)
+    return await _account(
+        request, session, message="Пароль изменён. Остальные входы на сайте завершены." if ok else None,
+        fee_message="Цена услуги сохранена. Новые продажи — уже по ней." if fee else None,
+    )
+
+
+@router.post("/account/fee")
+async def account_fee(request: Request, csrf: str = Form(""), service_fee: str = Form("")):
+    """Цена своей услуги (подключение и настройка): входит в каждую продажу, автопродление её не списывает."""
+    session = await _page_session(request)
+    if isinstance(session, RedirectResponse):
+        return session
+    verify_csrf(request, session, csrf)
+    raw = service_fee.strip()
+    try:
+        if not raw.isdigit():
+            raise ManagerError("bad_fee")
+        await manager_service.set_service_fee(session.manager.id, int(raw))
+    except ManagerError as e:
+        return await _account(request, session, fee_error=e.message, status_code=400)
+    response = RedirectResponse("/manager/account?fee=1#fee", status_code=303)
+    response.headers.update(_NO_STORE)
+    return response
 
 
 @router.post("/account/password")
@@ -175,17 +207,12 @@ async def account_password(request: Request, csrf: str = Form(""), old_password:
         return session
     verify_csrf(request, session, csrf)
 
-    def fail(text: str) -> HTMLResponse:
-        response = _page(request, "manager/account.html", session, "Аккаунт", message=None, error=text)
-        response.status_code = 400
-        return response
-
     if password != password2:
-        return fail("Новые пароли не совпадают.")
+        return await _account(request, session, error="Новые пароли не совпадают.", status_code=400)
     try:
         version = await manager_service.change_password(session.manager.id, old_password, password)
     except ManagerError as e:
-        return fail(e.message)
+        return await _account(request, session, error=e.message, status_code=400)
     # Текущий вход сохраняем (новая версия сессии), остальные устройства выкинуло.
     payload = decode_session_token(request.cookies.get(COOKIE_NAME)) or {}
     response = RedirectResponse("/manager/account?ok=1", status_code=303)
@@ -277,6 +304,21 @@ async def history_page(request: Request, page: int = 0):
     rows = await manager_service.history(session.manager.id, page, HISTORY_PAGE + 1)
     return _page(request, "manager/history.html", session, "История операций", rows=rows[:HISTORY_PAGE],
                  page=page, has_next=len(rows) > HISTORY_PAGE)
+
+
+@router.get("/receipt/{operation_id}.png")
+async def receipt_png(operation_id: int, download: int = 0, session: ManagerSession = Depends(require_session)):
+    """Чек своей операции картинкой: показать, скачать, переслать клиенту. Чужой — 404."""
+    try:
+        image = await manager_service.receipt_image(session.manager.id, operation_id)
+    except ManagerError as e:
+        raise HTTPException(status_code=403, detail=e.message)
+    if image is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    headers = dict(_NO_STORE)
+    disposition = "attachment" if download else "inline"
+    headers["Content-Disposition"] = f'{disposition}; filename="check-M-{operation_id:06d}.png"'
+    return Response(image, media_type="image/png", headers=headers)
 
 
 # --- JSON API -----------------------------------------------------------------------------

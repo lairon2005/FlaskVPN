@@ -19,7 +19,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from tgbot.handlers.manager.common import (
-    current_manager, new_nonce, qr_file, quote_text, show, show_error,
+    current_manager, new_nonce, qr_file, quote_text, send_receipt, show, show_error,
 )
 from tgbot.handlers.manager.menu import manager_router, show_menu
 from tgbot.keyboards.manager import (
@@ -27,7 +27,7 @@ from tgbot.keyboards.manager import (
     preview_keyboard, receipt_keyboard, tariffs_keyboard, what_keyboard, who_keyboard, PAGE,
 )
 from tgbot.services import manager_service
-from tgbot.services.manager_guide import CABINET_HINT, install_caption
+from tgbot.services.manager_guide import CABINET_HINT
 from tgbot.services.manager_receipts import fmt_money, receipt_number
 from tgbot.services.manager_service import LABEL_MAX, ManagerError
 from tgbot.states.manager_states import ManagerFSM
@@ -313,23 +313,19 @@ async def confirm_issue(call: CallbackQuery, state: FSMContext):
 
 async def _show_done(call: CallbackQuery, result):
     """
-    Готово: чек → (новому клиенту) QR личного кабинета → QR установки с шагами для клиента.
-    Последнее сообщение — то, что менеджер разворачивает к клиенту, и под ним — что дальше.
+    Готово: (новому клиенту) QR личного кабинета → чек одним сообщением: картинка с QR
+    установки и шагами для клиента + текст чека. Чек — последним: его менеджер разворачивает
+    к клиенту, и под ним — что дальше.
     """
     text = result.receipt_text or "✅ Ключ выдан."
-    if not result.subscription_url:
-        await show(call, text, receipt_keyboard(has_key=False, client_code=result.client_code))
-        return
-    await show(call, text)
     if result.cabinet_url:
         await call.message.answer_photo(
             qr_file(result.cabinet_url, "cabinet.png"),
             caption=f"🔗 <b>Личный кабинет клиента</b>\n\n{CABINET_HINT}\n\n<code>{result.cabinet_url}</code>",
         )
-    await call.message.answer_photo(
-        qr_file(result.subscription_url, "key.png"),
-        caption=install_caption(),
-        reply_markup=receipt_keyboard(has_key=True, client_code=result.client_code),
+    await send_receipt(
+        call, result.operation_id, text, result.receipt_image,
+        receipt_keyboard(has_key=bool(result.subscription_url), client_code=result.client_code),
     )
 
 
@@ -337,7 +333,7 @@ async def _show_invoice(call: CallbackQuery, result):
     caption = (
         f"💳 <b>Счёт на {fmt_money(result.price)}</b> · чек № {receipt_number(result.operation_id)}\n\n"
         "📱 Разверните телефон к клиенту: он наводит камеру на QR и платит картой или через СБП.\n\n"
-        "⏳ <b>Ждём оплату.</b> Это сообщение обновится само, а QR для установки придёт сразу после оплаты.\n\n"
+        "⏳ <b>Ждём оплату.</b> Это сообщение обновится само, а чек с QR для установки придёт сразу после оплаты.\n\n"
         f"<code>{result.payment_url}</code>"
     )
     if result.cabinet_url:
@@ -369,7 +365,7 @@ async def check_payment(call: CallbackQuery):
     if brief is None:
         await call.answer("Операция не найдена.", show_alert=True)
     elif brief.status == "completed":
-        await call.answer("✅ Оплата получена — ключ выдан, QR для установки пришёл отдельным сообщением.", show_alert=True)
+        await call.answer("✅ Оплата получена — ключ выдан, чек с QR для установки пришёл отдельным сообщением.", show_alert=True)
     elif brief.status == "pending_payment":
         await call.answer("⏳ Оплата ещё не пришла.", show_alert=False)
     else:

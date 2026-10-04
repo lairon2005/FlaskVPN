@@ -12,13 +12,14 @@ from tgbot.handlers.manager.common import (
     current_manager, format_brief, password_link_text, show, show_error, site_url,
 )
 from tgbot.keyboards.manager import (
-    back_to_manager_menu, guide_keyboard, history_keyboard, manager_menu_keyboard, password_link_keyboard,
+    back_to_manager_menu, cancel_keyboard, fee_keyboard, guide_keyboard, history_keyboard, manager_menu_keyboard, password_link_keyboard,
     web_access_keyboard,
 )
 from tgbot.services import manager_service
 from tgbot.services.manager_guide import GUIDE, section as guide_section
 from tgbot.services.manager_receipts import fmt_money
-from tgbot.services.manager_service import ManagerError
+from tgbot.services.manager_service import SERVICE_FEE_MAX, ManagerError
+from tgbot.states.manager_states import ManagerFSM
 
 manager_router = Router(name="manager")
 manager_router.message.filter(F.chat.type == ChatType.PRIVATE, IsManager())
@@ -74,14 +75,18 @@ async def show_menu(event: Message | CallbackQuery, state: FSMContext):
         f"👔 <b>Панель менеджера</b> · {manager.display_name}",
         f"📅 Сегодня: <b>{today.count}</b> {_sales_word(today.count)} на {fmt_money(today.revenue)}",
     ]
+    if today.fees:
+        lines.append(f"💼 Ваш заработок сегодня: <b>{fmt_money(today.fees)}</b>")
     if manager.can_accept_cash:
         lines.append(f"💵 К сдаче: <b>{fmt_money(stats.cash_outstanding)}</b>")
+    if stats.fees_outstanding:
+        lines.append(f"💸 К выплате вам: <b>{fmt_money(stats.fees_outstanding)}</b>")
     if tariffs or manager.can_issue_custom:
         lines.append("\n⚡ <b>Новый клиент</b> — нажмите тариф, дальше выберете оплату.")
     lines.append("🔄 <b>Постоянный клиент</b> — «Продлить моему клиенту».")
     await show(event, "\n".join(lines), manager_menu_keyboard(
         tariffs=tariffs, can_custom=manager.can_issue_custom, can_temp=manager.can_issue_temp,
-        can_global_stats=manager.can_view_global_stats,
+        can_global_stats=manager.can_view_global_stats, service_fee=manager.service_fee,
     ))
 
 
@@ -117,7 +122,9 @@ def _stats_block(title: str, period) -> str:
         return f"<b>{title}:</b> —"
     kinds = ", ".join(f"{_TYPE_NAMES.get(k, k)} {v}" for k, v in period.by_type.items())
     methods = ", ".join(f"{_METHOD_NAMES.get(k, k)} {fmt_money(v)}" for k, v in period.by_method.items() if v)
-    return f"<b>{title}:</b> {period.count} оп. · {fmt_money(period.revenue)}\n   {kinds}" + (f"\n   {methods}" if methods else "")
+    fees = f"\n   💼 ваш заработок: {fmt_money(period.fees)}" if period.fees else ""
+    return (f"<b>{title}:</b> {period.count} оп. · {fmt_money(period.revenue)}\n   {kinds}"
+            + (f"\n   {methods}" if methods else "") + fees)
 
 
 def _stats_text(title: str, stats, *, with_clients: bool = True) -> str:
@@ -126,6 +133,7 @@ def _stats_text(title: str, stats, *, with_clients: bool = True) -> str:
     if with_clients:
         lines.append(f"👥 Клиентов: {stats.clients}")
         lines.append(f"💵 К сдаче: {fmt_money(stats.cash_outstanding)} ({stats.cash_operations} оп.)")
+        lines.append(f"💸 К выплате вам: {fmt_money(stats.fees_outstanding)} ({stats.fees_operations} оп.)")
     if stats.temp_total:
         lines.append(f"⏱ Пробных ключей за месяц: {stats.temp_total}, стали подпиской: {stats.temp_converted}")
     return "\n".join(lines)
@@ -153,6 +161,65 @@ async def global_stats_handler(call: CallbackQuery):
         await show_error(call, e)
         return
     await show(call, _stats_text("Общая статистика (все менеджеры)", stats, with_clients=False), back_to_manager_menu())
+
+
+# --- Цена своей услуги -------------------------------------------------------------
+
+def fee_text(manager, fees_due: float) -> str:
+    """Экран «Моя услуга»: одинаковый смысл в боте и на сайте."""
+    lines = [
+        "💼 <b>Ваша услуга — подключение и настройка VPN</b>\n",
+        f"Цена: <b>{fmt_money(manager.service_fee)}</b>",
+        "",
+        "Добавляется к каждой вашей продаже (тариф, любой срок, подписка на пробный ключ) "
+        "отдельной строкой — клиент видит её в чеке. Пробный ключ бесплатный, без услуги.",
+        "♻️ Автопродление списывает только стоимость подписки — без услуги.",
+        "💵 Наличные: услуга остаётся у вас, в «к сдаче» не входит.",
+        f"💳 Оплата по QR: деньги приходят магазину, услугу выплачивает администратор. К выплате: {fmt_money(fees_due)}.",
+    ]
+    if manager.service_fee_locked:
+        lines.append("\n🔒 Цену зафиксировал администратор — изменить её может только он.")
+    return "\n".join(lines)
+
+
+@manager_router.callback_query(F.data == "mgr:fee")
+async def fee_handler(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    await state.set_state(None)
+    manager = await current_manager(call)
+    fees_due, _ = await manager_service.fees_outstanding(manager.id)
+    await show(call, fee_text(manager, fees_due), fee_keyboard(locked=manager.service_fee_locked))
+
+
+@manager_router.callback_query(F.data == "mgr:fee:edit")
+async def fee_edit(call: CallbackQuery, state: FSMContext):
+    manager = await current_manager(call)
+    if manager.service_fee_locked:
+        await call.answer(ManagerError("fee_locked").message, show_alert=True)
+        return
+    await call.answer()
+    await state.set_state(ManagerFSM.edit_fee)
+    await show(call, f"✏️ Напишите новую цену услуги в рублях — целое число от 0 до {SERVICE_FEE_MAX}.\n\n"
+                     "0 — продавать без услуги.", cancel_keyboard("mgr:fee"))
+
+
+@manager_router.message(ManagerFSM.edit_fee)
+async def fee_entered(message: Message, state: FSMContext):
+    manager = await current_manager(message)
+    raw = (message.text or "").strip().replace("₽", "").strip()
+    try:
+        if not raw.isdigit():
+            raise ManagerError("bad_fee")
+        manager = await manager_service.set_service_fee(manager.id, int(raw))
+    except ManagerError as e:
+        await message.answer(f"❌ {e.message}", reply_markup=cancel_keyboard("mgr:fee"))
+        if e.code == "fee_locked":
+            await state.set_state(None)
+        return
+    await state.set_state(None)
+    fees_due, _ = await manager_service.fees_outstanding(manager.id)
+    await message.answer("✅ Цена услуги сохранена. Новые продажи — уже по ней.\n\n" + fee_text(manager, fees_due),
+                         reply_markup=fee_keyboard(locked=manager.service_fee_locked))
 
 
 @manager_router.callback_query(F.data == "mgr:web")

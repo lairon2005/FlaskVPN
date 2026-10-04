@@ -163,14 +163,17 @@ class IssueFlowTests(BotCase):
 
         history = await self.svc.history(manager.id)
         self.assertEqual((history[0].status, history[0].price, history[0].payment_method), ("completed", 149.0, "cash"))
-        done = self.session.texts()[0]
-        self.assertIn("Чек № M-000001", done)
-        self.assertIn("SECRET", done)                         # ссылка менеджеру
         photos = self.session.of("SendPhoto")
-        self.assertEqual(len(photos), 2)                      # QR кабинета клиента + QR установки
+        self.assertEqual(len(photos), 2)                      # QR кабинета клиента + чек
         self.assertIn("/c/", photos[0]["caption"])            # ссылка кабинета клиента
-        self.assertIn("Покажите клиенту", photos[-1]["caption"])
-        self.assertIn("mgr:menu", str(photos[-1]["reply_markup"]))  # «Новая продажа» — под последним сообщением
+        receipt = photos[-1]
+        # Чек — одним сообщением: картинка (с QR установки) и текст чека подписью.
+        self.assertEqual(receipt["photo"].filename, "check-M-000001.png")
+        self.assertTrue(receipt["photo"].data.startswith(b"\x89PNG"))
+        self.assertIn("Чек № M-000001", receipt["caption"])
+        self.assertIn("SECRET", receipt["caption"])           # ссылка менеджеру
+        self.assertIn("mgr:menu", str(receipt["reply_markup"]))  # «Новая продажа» — под последним сообщением
+        self.assertEqual(self.session.of("SendMessage"), [])  # отдельного текстового чека больше нет
         self.assertEqual((await self.svc.cash_outstanding(manager.id))[0], 149.0)
 
     async def test_double_tap_on_confirm_issues_one_key(self):
@@ -363,9 +366,10 @@ class TempKeyFlowTests(BotCase):
         self.session.clear()
         await self.bot.press(MANAGER_TG, "mgr:temp_go")
 
-        self.assertIn("Пробный ключ выдан", self.session.texts()[0])
         photos = self.session.of("SendPhoto")
-        self.assertEqual(len(photos), 1)
+        self.assertEqual(len(photos), 1)                      # чек с QR установки — одно сообщение
+        self.assertIn("Пробный ключ", photos[0]["caption"])
+        self.assertIn("SECRET", photos[0]["caption"])
         self.assertIn("mgr:conv:", str(photos[0]["reply_markup"]))
         self.assertEqual(len(self.env.panel.users), 1)
         keys = await self.svc.list_temp_keys(manager.id)
@@ -438,20 +442,22 @@ class RealNotifierTests(BotCase):
         await self.manager(can_accept_cash=True)
         await self.issue_cash_via_buttons()
 
-        group = [d for d in self.session.of("SendMessage") if d["chat_id"] == -100500]
-        self.assertEqual(len(group), 1)
+        self.assertEqual([d for d in self.session.of("SendMessage") if d["chat_id"] == -100500], [])
+        group = [d for d in self.session.of("SendPhoto") if d["chat_id"] == -100500]
+        self.assertEqual(len(group), 1)                       # картинка и текст — одним сообщением
         self.assertEqual(group[0]["message_thread_id"], 77)
         for secret in ("SECRET", "http", "7001"):
-            self.assertNotIn(secret, group[0]["text"])
-        self.assertIn("M-000001", group[0]["text"])
+            self.assertNotIn(secret, group[0]["caption"])
+        self.assertIn("M-000001", group[0]["caption"])
+        self.assertTrue(group[0]["photo"].data.startswith(b"\x89PNG"))
 
     async def test_temp_key_receipt_is_edited_in_place_when_the_key_dies(self):
         manager = await self.manager()
         await self.bot.press(MANAGER_TG, "mgr:temp")
         await self.bot.press(MANAGER_TG, "mgr:temp_go")
-        group_messages = [d for d in self.session.of("SendMessage") if d["chat_id"] == -100500]
+        group_messages = [d for d in self.session.of("SendPhoto") if d["chat_id"] == -100500]
         self.assertEqual(len(group_messages), 1)
-        self.assertIn("Пробный ключ", group_messages[0]["text"])
+        self.assertIn("Пробный ключ", group_messages[0]["caption"])
 
         from sqlalchemy import update
         from db import TempKey
@@ -463,14 +469,14 @@ class RealNotifierTests(BotCase):
 
         await self.svc.expire_temp_keys()
 
-        edits = self.session.of("EditMessageText")
-        self.assertEqual(len(edits), 1)
-        self.assertIn("🗑 Ключ удалён", edits[0]["text"])
+        edits = self.session.of("EditMessageMedia")
+        self.assertEqual(len(edits), 1)                       # та же картинка-чек, новые штамп и подпись
+        self.assertIn("🗑 Ключ удалён", edits[0]["media"]["caption"])
         self.assertEqual(edits[0]["chat_id"], -100500)
         # менеджеру — отдельное уведомление, но без ссылки удалённого ключа
-        to_manager = [d for d in self.session.of("SendMessage") if d["chat_id"] == MANAGER_TG]
+        to_manager = [d for d in self.session.of("SendPhoto") if d["chat_id"] == MANAGER_TG]
         self.assertEqual(len(to_manager), 1)
-        self.assertNotIn("SECRET", to_manager[0]["text"])
+        self.assertNotIn("SECRET", to_manager[0]["caption"])
 
     async def test_online_payment_notifies_manager_with_link_and_qr(self):
         manager = await self.manager()
@@ -483,14 +489,14 @@ class RealNotifierTests(BotCase):
         await self.env.payments.process_successful_payment("yk-1", 149.0)
         await self.svc.on_payment_succeeded("yk-1")
 
-        to_manager = [d for d in self.session.of("SendMessage") if d["chat_id"] == MANAGER_TG]
-        self.assertEqual(len(to_manager), 1)
-        self.assertIn("SECRET", to_manager[0]["text"])
-        self.assertEqual(len([d for d in self.session.of("SendPhoto") if d["chat_id"] == MANAGER_TG]), 1)
-        group_edit = [d for d in self.session.of("EditMessageText") if d["chat_id"] == -100500]
+        self.assertEqual([d for d in self.session.of("SendMessage") if d["chat_id"] == MANAGER_TG], [])
+        to_manager = [d for d in self.session.of("SendPhoto") if d["chat_id"] == MANAGER_TG]
+        self.assertEqual(len(to_manager), 1)                  # чек с QR установки — одно сообщение
+        self.assertIn("SECRET", to_manager[0]["caption"])
+        group_edit = [d for d in self.session.of("EditMessageMedia") if d["chat_id"] == -100500]
         self.assertEqual(len(group_edit), 1)
-        self.assertIn("Ключ выдан", group_edit[0]["text"])
-        self.assertNotIn("SECRET", group_edit[0]["text"])
+        self.assertIn("Ключ выдан", group_edit[0]["media"]["caption"])
+        self.assertNotIn("SECRET", group_edit[0]["media"]["caption"])
 
     async def test_receipt_failure_does_not_break_the_issue(self):
         await self.manager(can_accept_cash=True)

@@ -121,6 +121,44 @@
         return a;
     }
 
+    // ------------------------------------------------------------------ чек картинкой
+    // Тот же чек, что в Telegram: картинку можно скачать или переслать клиенту (Web Share с файлом).
+    function receiptBlock(parent, operationId) {
+        var src = '/manager/receipt/' + encodeURIComponent(operationId) + '.png';
+        var name = 'check-' + receipt(operationId) + '.png';
+        var wrap = document.createElement('div');
+        wrap.className = 'mt-5';
+        parent.appendChild(wrap);
+        line(wrap, 'Чек № ' + receipt(operationId), 'font-display font-extrabold', 'receipt', 'w-5 h-5 shrink-0 text-blue');
+        var img = document.createElement('img');
+        img.className = 'mt-2 w-full max-w-sm rounded-2xl border-2 border-blue/15';
+        img.alt = 'Чек № ' + receipt(operationId);
+        img.loading = 'lazy';
+        img.src = src + '?t=' + Date.now(); // статус в чеке меняется — без кэша
+        wrap.appendChild(img);
+        var actions = document.createElement('div');
+        actions.className = 'mt-2 grid gap-2 sm:flex sm:flex-wrap';
+        wrap.appendChild(actions);
+        var download = linkButton(actions, 'Скачать чек', 'btn-pop btn-pop-outline w-full sm:w-auto', src + '?download=1', 'download');
+        download.setAttribute('download', name);
+        if (navigator.share && window.File) {
+            button(actions, 'Отправить клиенту', 'btn-pop btn-pop-outline w-full sm:w-auto', function () {
+                fetch(src, { credentials: 'same-origin' }).then(function (response) {
+                    if (!response.ok) throw new Error('receipt');
+                    return response.blob();
+                }).then(function (blob) {
+                    var file = new File([blob], name, { type: 'image/png' });
+                    if (navigator.canShare && !navigator.canShare({ files: [file] })) throw new Error('share');
+                    return navigator.share({ files: [file], title: 'Чек ' + receipt(operationId) });
+                }).catch(function (error) {
+                    if (error && error.name === 'AbortError') return;
+                    toast('Не получилось отправить — скачайте чек и перешлите его', 'error');
+                });
+            }, 'share');
+        }
+        return wrap;
+    }
+
     // ------------------------------------------------------------------ «Покажите клиенту»
     // Экран на весь дисплей: большой QR и шаги. Вкладки — когда показать нужно два QR
     // (установка и личный кабинет нового клиента).
@@ -288,6 +326,8 @@
                 if (!r.ok) { toast(r.data.message || 'Не удалось выдать ключ', 'error'); return; }
                 $('tempResult').classList.remove('hidden');
                 $('tempOp').textContent = 'чек № ' + receipt(r.data.operation_id);
+                var receiptBox = $('tempReceipt');
+                if (receiptBox) { receiptBox.textContent = ''; receiptBlock(receiptBox, r.data.operation_id); }
                 $('tempUntil').textContent = r.data.expires_at;
                 $('tempLink').value = r.data.subscription_url;
                 $('tempConvert').href = '/manager/issue?temp=' + encodeURIComponent(r.data.key_id);
@@ -397,6 +437,10 @@
         if (q.breakdown) line(body, q.breakdown, 'text-muted italic');
         if (q.slots) line(body, '+ доп. устройства: ' + q.slots + ' шт. — ' + money(q.slots_cost));
         if (q.packs) line(body, '+ доп. трафик: +' + q.extra_traffic_gb + ' ГБ — ' + money(q.traffic_cost));
+        if (q.service_fee) {
+            line(body, '+ ваша услуга (подключение и настройка) — ' + money(q.service_fee), 'font-semibold text-blue',
+                 'briefcase', 'w-4 h-4 shrink-0');
+        }
         line(body, 'К оплате: ' + money(q.total), 'font-display font-black text-3xl mt-2');
         if (q.hint) {
             line(body, 'Выгоднее стандартный тариф «' + q.hint.name + '» — ' + q.hint.days + ' дн. за ' +
@@ -471,6 +515,7 @@
             line(box, money(data.price) + (method === 'cash' ? ' наличными' : '') +
                       (data.expires_at ? ' · подписка до ' + data.expires_at + ' МСК' : ''), 'text-sm text-subtle');
             showDone(box, data, data.subscription_url);
+            receiptBlock(box, data.operation_id);
             return;
         }
 
@@ -505,6 +550,7 @@
                     api('/link', { client_code: r.data.client_code || data.client_code }).then(function (l) {
                         if (l.ok) { showDone(box, data, l.data.subscription_url); }
                         else { line(box, 'QR для установки — в карточке клиента.', 'mt-2 text-sm'); }
+                        receiptBlock(box, data.operation_id);
                     });
                 } else if (r.data.status === 'cancelled' || r.data.status === 'failed') {
                     clearInterval(poll);

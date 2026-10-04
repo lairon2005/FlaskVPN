@@ -165,8 +165,9 @@ async def record_bot(out: Path) -> None:
 
 async def seed_site(env) -> dict:
     svc = env.service
+    # service_fee=None — как у настоящего менеджера: услуга по умолчанию (250 ₽).
     manager = await env.make_manager("Иван Петров", telegram_id=MANAGER_TG, login=LOGIN, password=PASSWORD,
-                                     can_accept_cash=True)
+                                     can_accept_cash=True, service_fee=None)
     sales = [
         dict(nonce="s1", product="tariff", tariff_id=2, label="Анна, кофейня на Ленина"),
         dict(nonce="s2", product="tariff", tariff_id=3, label="Пётр, шиномонтаж", slots=1),
@@ -186,9 +187,15 @@ async def seed_site(env) -> dict:
             subscription_end_date=datetime.datetime.now() - datetime.timedelta(days=3)))
         await session.commit()
     await svc.issue_temp(manager.id, "t1")
+    # Оплата по QR — чтобы на главной была услуга «к выплате».
+    await svc.issue(manager.id, method="online", idempotency_nonce="o1", product="tariff", tariff_id=2,
+                    label="Марат, автомойка")
+    payment_id = f"yk-{len(env.created_payments)}"   # так фейковая ЮKassa из manager_env называет платежи
+    await env.payments.process_successful_payment(payment_id, env.created_payments[-1]["amount"])
+    await svc.on_payment_succeeded(payment_id)
 
     # Второй менеджер — ещё без пароля: для снимка страницы «Задать пароль».
-    second = await env.make_manager("Саид", telegram_id=MANAGER_TG + 1, login="said")
+    second = await env.make_manager("Саид", telegram_id=MANAGER_TG + 1, login="said", service_fee=None)
     token = await svc.create_password_link(second.id)
     return {"login": LOGIN, "password": PASSWORD, "password_link": f"/manager/password?t={token}",
             "client_code": codes[0]}

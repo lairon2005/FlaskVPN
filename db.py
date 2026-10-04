@@ -287,6 +287,10 @@ class Manager(Base):
     temp_keys_per_day: Mapped[int] = mapped_column(Integer, default=5, server_default='5', nullable=False)
     # Потолок «к сдаче» по наличным, ₽. NULL — без ограничения.
     cash_limit: Mapped[int] = mapped_column(Integer, default=5000, server_default='5000', nullable=True)
+    # Цена услуги менеджера (подключение и настройка), ₽: входит в каждую его продажу
+    # отдельной позицией. Задаёт сам менеджер; если админ зафиксировал — менять нельзя.
+    service_fee: Mapped[int] = mapped_column(Integer, default=250, server_default='250', nullable=False)
+    service_fee_locked: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false', nullable=False)
 
     # Растёт при блокировке/смене прав — веб-сессии с прежним значением становятся недействительными.
     session_version: Mapped[int] = mapped_column(Integer, default=1, server_default='1', nullable=False)
@@ -343,7 +347,7 @@ class ManagerOperation(Base):
     # issue_tariff | issue_custom | issue_temp | convert_temp | access_grant | key_view
     # | autorenew_off | cabinet_link_reset
     op_type: Mapped[str] = mapped_column(String(24))
-    # processing | pending_payment | completed | failed | cancelled
+    # processing | pending_payment | completed | failed | cancelled | refunded
     status: Mapped[str] = mapped_column(String(16), default='processing', server_default='processing')
     client_user_id: Mapped[int] = mapped_column(BigInteger, nullable=True, index=True)
     client_code: Mapped[str] = mapped_column(String(8), nullable=True)   # снимок на момент операции
@@ -353,6 +357,11 @@ class ManagerOperation(Base):
     traffic_gb: Mapped[int] = mapped_column(Integer, nullable=True)       # лимит трафика на момент выдачи
     extra_devices: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
     price: Mapped[float] = mapped_column(Float, default=0, server_default='0')
+    # Сколько из price — услуга менеджера (снимок на момент продажи). Наличные: остаётся
+    # у менеджера, в «к сдаче» не входит. Онлайн: пришла магазину — к выплате менеджеру.
+    service_fee: Mapped[float] = mapped_column(Float, default=0, server_default='0', nullable=False)
+    fee_paid_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
+    fee_payout_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     price_details: Mapped[dict] = mapped_column(JSONB, nullable=True)     # из чего сложилась цена
     payment_method: Mapped[str] = mapped_column(String(8), nullable=True)  # cash | online | free
     payment_id: Mapped[str] = mapped_column(String, nullable=True)        # yookassa_payment_id
@@ -394,6 +403,17 @@ class TempKey(Base):
 class ManagerSettlement(Base):
     """Инкассация: админ принял у менеджера выручку наличными."""
     __tablename__ = 'manager_settlements'
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    manager_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('managers.id'), index=True)
+    amount: Mapped[float] = mapped_column(Float)
+    operations_count: Mapped[int] = mapped_column(Integer)
+    admin_id: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+
+
+class ManagerPayout(Base):
+    """Выплата менеджеру его услуг из онлайн-продаж (деньги пришли магазину через ЮKassa)."""
+    __tablename__ = 'manager_payouts'
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     manager_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('managers.id'), index=True)
     amount: Mapped[float] = mapped_column(Float)

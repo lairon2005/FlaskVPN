@@ -6,7 +6,7 @@ PAGE = 8
 
 
 def manager_menu_keyboard(*, tariffs=(), can_custom: bool = False, can_temp: bool = True,
-                          can_global_stats: bool = False) -> InlineKeyboardMarkup:
+                          can_global_stats: bool = False, service_fee: int | None = None) -> InlineKeyboardMarkup:
     """
     Главный экран: сверху — быстрая продажа новому клиенту (тариф одной кнопкой),
     ниже — продление своим клиентам и всё остальное.
@@ -29,6 +29,9 @@ def manager_menu_keyboard(*, tariffs=(), can_custom: bool = False, can_temp: boo
     builder.button(text="📊 Статистика", callback_data="mgr:stats")
     builder.button(text="🌐 Вход на сайт", callback_data="mgr:web")
     rows += [1, 1, 2, 2]
+    if service_fee is not None:
+        builder.button(text=f"💼 Моя услуга: {service_fee} ₽", callback_data="mgr:fee")
+        rows.append(1)
     if can_global_stats:
         builder.button(text="📈 Общая статистика", callback_data="mgr:gstats")
         rows.append(1)
@@ -36,6 +39,15 @@ def manager_menu_keyboard(*, tariffs=(), can_custom: bool = False, can_temp: boo
     builder.button(text="⬅️ Главное меню", callback_data="back_to_main_menu")
     rows += [1, 1]
     builder.adjust(*rows)
+    return builder.as_markup()
+
+
+def fee_keyboard(*, locked: bool) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if not locked:
+        builder.button(text="✏️ Изменить цену", callback_data="mgr:fee:edit")
+    builder.button(text="⬅️ Назад", callback_data="mgr:menu")
+    builder.adjust(1)
     return builder.as_markup()
 
 

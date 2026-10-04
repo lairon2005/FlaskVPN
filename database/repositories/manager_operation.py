@@ -4,7 +4,7 @@ import datetime
 from sqlalchemy import select, update, func
 from sqlalchemy.exc import IntegrityError
 
-from db import ManagerOperation, ManagerSettlement
+from db import ManagerOperation, ManagerPayout, ManagerSettlement
 
 # Поля, которые можно менять после создания: журнал — это история, а не рабочая
 # таблица, поэтому снимки (клиент, тариф, цена) намеренно не перезаписываются.
@@ -13,8 +13,11 @@ MUTABLE_FIELDS = {
     "key_fingerprint", "key_expires_at", "completed_at", "receipt_chat_id",
     "receipt_message_id", "client_user_id", "client_code", "price", "price_details",
     "traffic_gb", "days", "tariff_name", "tariff_id", "extra_devices",
-    "invoice_chat_id", "invoice_message_id",
+    "invoice_chat_id", "invoice_message_id", "service_fee",
 }
+
+# Сколько из цены операции — деньги магазина (без услуги менеджера).
+_SHOP_PART = ManagerOperation.price - ManagerOperation.service_fee
 
 
 class ManagerOperationRepository:
@@ -123,6 +126,16 @@ class ManagerOperationRepository:
             )
             return (await session.execute(stmt)).scalars().all()
 
+    async def list_for_client_any(self, client_user_id: int, limit: int = 10) -> list[ManagerOperation]:
+        """Операции по клиенту у любых менеджеров — для чеков в его кабинете."""
+        async with self._session_maker() as session:
+            stmt = (
+                select(ManagerOperation)
+                .where(ManagerOperation.client_user_id == client_user_id)
+                .order_by(ManagerOperation.id.desc()).limit(limit)
+            )
+            return (await session.execute(stmt)).scalars().all()
+
     async def list_all(self, limit: int = 50, offset: int = 0,
                        manager_id: int | None = None) -> list[ManagerOperation]:
         async with self._session_maker() as session:
@@ -150,9 +163,12 @@ class ManagerOperationRepository:
             return (await session.execute(stmt)).scalar_one()
 
     async def cash_outstanding(self, manager_id: int) -> tuple[float, int]:
-        """«К сдаче»: сумма и число проведённых наличных операций без инкассации."""
+        """
+        «К сдаче»: сумма и число проведённых наличных операций без инкассации.
+        Услуга менеджера в сумму не входит — её он оставляет себе.
+        """
         async with self._session_maker() as session:
-            stmt = select(func.coalesce(func.sum(ManagerOperation.price), 0), func.count()).where(
+            stmt = select(func.coalesce(func.sum(_SHOP_PART), 0), func.count()).where(
                 ManagerOperation.manager_id == manager_id,
                 ManagerOperation.payment_method == 'cash',
                 ManagerOperation.status == 'completed',
@@ -184,7 +200,7 @@ class ManagerOperationRepository:
                     ManagerOperation.settled_at.is_(None),
                 )
                 .values(settled_at=now, settlement_id=settlement.id)
-                .returning(ManagerOperation.price)
+                .returning(_SHOP_PART)
             )
             prices = [row[0] for row in result.all()]
             if not prices:
@@ -196,23 +212,70 @@ class ManagerOperationRepository:
             await session.refresh(settlement)
             return settlement
 
+    async def fees_outstanding(self, manager_id: int) -> tuple[float, int]:
+        """
+        «К выплате менеджеру»: его услуги из онлайн-продаж — деньги пришли магазину
+        через ЮKassa. Возвраты (status='refunded') не считаются.
+        """
+        async with self._session_maker() as session:
+            stmt = select(func.coalesce(func.sum(ManagerOperation.service_fee), 0), func.count()).where(
+                ManagerOperation.manager_id == manager_id,
+                ManagerOperation.payment_method == 'online',
+                ManagerOperation.status == 'completed',
+                ManagerOperation.service_fee > 0,
+                ManagerOperation.fee_paid_at.is_(None),
+            )
+            total, count = (await session.execute(stmt)).one()
+            return float(total), count
+
+    async def payout_fees(self, manager_id: int, admin_id: int) -> ManagerPayout | None:
+        """Выплата менеджеру: как инкассация, но в обратную сторону — одна транзакция, сумма из тех же строк."""
+        async with self._session_maker() as session:
+            now = datetime.datetime.now()
+            payout = ManagerPayout(manager_id=manager_id, amount=0, operations_count=0, admin_id=admin_id)
+            session.add(payout)
+            await session.flush()
+
+            result = await session.execute(
+                update(ManagerOperation)
+                .where(
+                    ManagerOperation.manager_id == manager_id,
+                    ManagerOperation.payment_method == 'online',
+                    ManagerOperation.status == 'completed',
+                    ManagerOperation.service_fee > 0,
+                    ManagerOperation.fee_paid_at.is_(None),
+                )
+                .values(fee_paid_at=now, fee_payout_id=payout.id)
+                .returning(ManagerOperation.service_fee)
+            )
+            fees = [row[0] for row in result.all()]
+            if not fees:
+                await session.rollback()
+                return None
+            payout.amount = float(sum(fees))
+            payout.operations_count = len(fees)
+            await session.commit()
+            await session.refresh(payout)
+            return payout
+
     async def stats(self, manager_id: int | None, since: datetime.datetime) -> list[tuple]:
         """
-        Сводка за период: [(op_type, payment_method, count, revenue)] только по
-        завершённым операциям. manager_id=None — по всем (для админа).
+        Сводка за период: [(op_type, payment_method, count, revenue, fees)] только по
+        завершённым операциям; fees — услуга менеджера внутри revenue. manager_id=None — по всем (для админа).
         """
         async with self._session_maker() as session:
             stmt = (
                 select(
                     ManagerOperation.op_type, ManagerOperation.payment_method,
                     func.count(), func.coalesce(func.sum(ManagerOperation.price), 0),
+                    func.coalesce(func.sum(ManagerOperation.service_fee), 0),
                 )
                 .where(ManagerOperation.status == 'completed', ManagerOperation.created_at >= since)
                 .group_by(ManagerOperation.op_type, ManagerOperation.payment_method)
             )
             if manager_id is not None:
                 stmt = stmt.where(ManagerOperation.manager_id == manager_id)
-            return [(t, m, c, float(r)) for t, m, c, r in (await session.execute(stmt)).all()]
+            return [(t, m, c, float(r), float(f)) for t, m, c, r, f in (await session.execute(stmt)).all()]
 
     async def settlements(self, manager_id: int, limit: int = 10) -> list[ManagerSettlement]:
         async with self._session_maker() as session:

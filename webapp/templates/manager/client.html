@@ -59,6 +59,5 @@
 </div>
 
 <h2 class="font-display font-extrabold text-lg mt-8 mb-3">Ваши операции по клиенту</h2>
-{% set rows = card.operations %}
-{% include "manager/_ops_table.html" %}
+{% with ops = card.operations %}{% include "manager/_ops_table.html" %}{% endwith %}
 {% endblock %}

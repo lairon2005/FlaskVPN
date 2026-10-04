@@ -181,14 +181,14 @@ FSM: `EmailLinkFSM` → запрашивает email → отправляет к
 
 | Файл | Что делает |
 |---|---|
-| `menu.py` | `/manager`: главный экран с быстрой продажей (тарифы кнопками), история, статистика, «Вход на сайт», памятка «Как продавать» (`mgr:help`) |
+| `menu.py` | `/manager`: главный экран с быстрой продажей (тарифы кнопками), история, статистика, «Вход на сайт», «💼 Моя услуга» (`mgr:fee`), памятка «Как продавать» (`mgr:help`) |
 | `issue.py` | Быстрая продажа (`mgr:q:*`) и мастер (кому → что) → предпросмотр с пометкой о клиенте → наличные/QR → «Покажите клиенту» (QR установки с шагами); счёт с живым статусом |
 | `clients.py` | Мои клиенты, карточка, ссылка для установки, выключить автопродление, новая ссылка кабинета |
 | `temp_keys.py` | Временный ключ, список живых, оформление подписки на такой ключ |
 | `invite.py` | Принятие приглашения + ссылка «задать пароль» |
 | `common.py` | Хелперы: `current_manager`, `show`, `quote_text`, QR |
 
-FSM: `ManagerFSM` (`enter_code`, `enter_days`, `enter_label`, `edit_label`); остальное — кнопки, выбор лежит в FSM-данных
+FSM: `ManagerFSM` (`enter_code`, `enter_days`, `enter_label`, `edit_label`, `edit_fee`); остальное — кнопки, выбор лежит в FSM-данных
 (клиент по коду, продукт, nonce подтверждения). Цена и права из FSM НЕ верятся: на «Подтвердить»
 сервис пересчитывает и проверяет заново.
 
@@ -235,8 +235,8 @@ FSM: `ManagerFSM` (`enter_code`, `enter_days`, `enter_label`, `edit_label`); о�
 | `manager_service` | `ManagerService` | репозитории менеджеров, `payment_service`, `subscription_service`, `traffic_service`, `device_slot_service`, `remnawave_client` | `quote`, `issue(…)`, `issue_temp`, `expire_temp_keys`, `on_payment_succeeded`, `sync_pending_operations`, `get_client_card`, `add_client_by_code`, `stats`, `settle`, … — см. `docs/managers.md` |
 
 Чистые модули без класса: `traffic_pricing.py`, `custom_pricing.py` (цена «своих дней»),
-`manager_receipts.py` (формат чеков), `manager_security.py` (коды, токены, отпечатки),
-`manager_notifier.py` (отправка чеков и уведомлений в Telegram).
+`manager_receipts.py` (формат чеков), `receipt_image.py` (чек картинкой, PNG), `manager_security.py`
+(коды, токены, отпечатки), `manager_notifier.py` (отправка чеков в Telegram: фото + текст подписью, одним сообщением).
 
 ### `services/payment.py` (не класс, а модуль)
 Низкоуровневая работа с YooKassa API:

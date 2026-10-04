@@ -6,7 +6,8 @@ from aiogram.types import BufferedInputFile, CallbackQuery, Message
 
 from loader import config
 from tgbot.services import manager_service
-from tgbot.services.manager_receipts import fmt_dt, fmt_money
+from tgbot.services.manager_notifier import fit_caption
+from tgbot.services.manager_receipts import fmt_dt, fmt_money, receipt_number
 from tgbot.services.manager_service import ManagerError, ManagerView
 from tgbot.services.qr_generator import create_qr_code
 from utils.telegram_ui import replace_message_text
@@ -16,7 +17,8 @@ OP_TITLES = {
     "convert_temp": "Подписка на пробный ключ", "access_grant": "Доступ к клиенту", "key_view": "Показан QR установки",
     "autorenew_off": "Автопродление выкл.", "cabinet_link_reset": "Новая ссылка на кабинет",
 }
-STATUS_ICONS = {"completed": "✅", "pending_payment": "⏳", "cancelled": "🚫", "failed": "❌", "processing": "⚙️"}
+STATUS_ICONS = {"completed": "✅", "pending_payment": "⏳", "cancelled": "🚫", "failed": "❌", "processing": "⚙️",
+                "refunded": "↩️"}
 
 
 def site_url(path: str) -> str:
@@ -65,6 +67,23 @@ def qr_file(data: str, name: str = "qr.png") -> BufferedInputFile:
     return BufferedInputFile(create_qr_code(data).getvalue(), filename=name)
 
 
+async def send_receipt(call: CallbackQuery, operation_id: int, text: str, image: bytes | None, markup=None):
+    """
+    Чек одним сообщением: картинка + текст подписью. Экран, с которого жали «Подтвердить»,
+    убираем — чек встаёт на его место последним сообщением, под ним кнопки «что дальше».
+    """
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+    if image:
+        return await call.message.answer_photo(
+            BufferedInputFile(image, filename=f"check-{receipt_number(operation_id)}.png"),
+            caption=fit_caption(text), reply_markup=markup,
+        )
+    return await call.message.answer(text, reply_markup=markup, disable_web_page_preview=True)
+
+
 def format_brief(op) -> str:
     icon = STATUS_ICONS.get(op.status, "•")
     title = OP_TITLES.get(op.op_type, op.op_type)
@@ -97,6 +116,8 @@ def quote_text(quote, *, client_label: str) -> str:
         lines.append(f"+ доп. устройства: {quote.slots} шт. — {fmt_money(quote.slots_cost)}")
     if quote.packs:
         lines.append(f"+ доп. трафик: +{quote.extra_traffic_gb} ГБ — {fmt_money(quote.traffic_cost)}")
+    if quote.service_fee:
+        lines.append(f"+ ваша услуга (подключение и настройка): {fmt_money(quote.service_fee)}")
     lines.append(f"\n💰 <b>К оплате: {fmt_money(quote.total)}</b>")
     if quote.hint:
         h = quote.hint

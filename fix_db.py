@@ -425,6 +425,23 @@ async def fix_database():
         await conn.execute(text("ALTER TABLE temp_keys ADD COLUMN IF NOT EXISTS reminded_at TIMESTAMP;"))
         print("  ✅ manager_operations.invoice_chat_id / invoice_message_id, temp_keys.reminded_at")
 
+        # ── 21. Менеджеры: цена услуги и выплаты ────────────────────────────
+        # Таблицу manager_payouts создаёт create_all в секции 18.
+        print("\n📋 Менеджеры: услуга менеджера...")
+        await conn.execute(text(
+            "ALTER TABLE managers ADD COLUMN IF NOT EXISTS service_fee INTEGER NOT NULL DEFAULT 250;"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE managers ADD COLUMN IF NOT EXISTS service_fee_locked BOOLEAN NOT NULL DEFAULT false;"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE manager_operations ADD COLUMN IF NOT EXISTS service_fee DOUBLE PRECISION NOT NULL DEFAULT 0;"
+        ))
+        await conn.execute(text("ALTER TABLE manager_operations ADD COLUMN IF NOT EXISTS fee_paid_at TIMESTAMP;"))
+        await conn.execute(text("ALTER TABLE manager_operations ADD COLUMN IF NOT EXISTS fee_payout_id BIGINT;"))
+        print("  ✅ managers.service_fee / service_fee_locked, manager_operations.service_fee / fee_paid_at / "
+              "fee_payout_id, manager_payouts")
+
     print("\n🎉 Миграция завершена успешно!")
 
 

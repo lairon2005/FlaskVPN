@@ -13,6 +13,7 @@
 {% set vpn_data = vpn_data | default(none, true) %}
 {% set saved_card = saved_card | default(none, true) %}
 {% set payments = payments | default([], true) %}
+{% set manager_receipts = manager_receipts | default([], true) %}
 {% set tariffs = tariffs | default([], true) %}
 
 {% block meta_title %}Личный кабинет | FlaskVPN{% endblock %}
@@ -411,6 +412,23 @@
             </section>
             {% endif %}
         </div>
+
+        <!-- ============ Чеки покупок у менеджера ============ -->
+        {% if manager_receipts %}
+        <section class="sticker p-6 animate-in [animation-delay:0.3s]" aria-labelledby="mgrReceiptsTitle">
+            <h2 id="mgrReceiptsTitle" class="font-display font-extrabold text-lg flex items-center gap-2">
+                {{ ic.icon('receipt', 'w-5 h-5 text-orange') }} Чеки покупок у менеджера
+            </h2>
+            <ul class="mt-3 divide-y-2 divide-blue/10">
+                {% for r in manager_receipts %}
+                <li class="py-2 flex items-center justify-between gap-3">
+                    <a class="font-bold text-blue hover:text-orange" href="/profile/receipt/{{ r.id }}.png" target="_blank" rel="noopener">Чек M-{{ '%06d' % r.id }}</a>
+                    <span class="text-sm text-subtle whitespace-nowrap">{{ r.created_at.strftime('%d.%m.%Y') if r.created_at else '' }} · <b class="tabular-nums text-ink">{{ "%.0f"|format(r.price) }} ₽</b>{% if r.status == 'refunded' %} · возврат{% endif %}</span>
+                </li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% endif %}
 
         <!-- ============ История платежей ============ -->
         {% if payments %}

@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import db_harness  # noqa: F401  (заглушки окружения до импорта db)
+from PIL import Image, PngImagePlugin  # noqa: F401  (до patch.dict: иначе он выгрузит плагины Pillow)
 from real_traffic_pricing import real_custom_pricing, real_traffic_pricing
 from remnawave.client import RemnawaveAPIError
 from test_stars_payment import load_payment_service_module
@@ -23,7 +24,7 @@ from test_stars_payment import load_payment_service_module
 ROOT = Path(__file__).resolve().parents[1]
 GIB = 1024 ** 3
 
-_PURE = ("device_pricing", "pricing", "manager_receipts", "manager_security", "manager_guide")
+_PURE = ("device_pricing", "pricing", "manager_receipts", "receipt_image", "manager_security", "manager_guide")
 
 
 def _load(name: str, path: Path):
@@ -109,8 +110,10 @@ class RecordingNotifier:
 
     def __init__(self):
         self.group: list[tuple[int, str]] = []
+        self.group_images: list[tuple[int, bytes | None]] = []
         self.manager_msgs: list[dict] = []
         self.client_msgs: list[tuple[int, str]] = []
+        self.client_images: list[tuple[int, bytes | None]] = []
         self.client_access: list[tuple[int, str]] = []
         self.manager_texts: list[tuple[int, str]] = []
         self.web_logins: list[dict] = []
@@ -118,18 +121,21 @@ class RecordingNotifier:
         self.temp_reminders: list[dict] = []
         self._next_message_id = 1000
 
-    async def post_group_receipt(self, op_id, text, existing):
+    async def post_group_receipt(self, op_id, text, existing, image=None):
         self.group.append((op_id, text))
+        self.group_images.append((op_id, image))
         if existing:
             return existing
         self._next_message_id += 1
         return (-100, self._next_message_id)
 
-    async def notify_manager(self, telegram_id, text, *, subscription_url=None, operation_id=None):
-        self.manager_msgs.append({"to": telegram_id, "text": text, "url": subscription_url, "op": operation_id})
+    async def notify_manager(self, telegram_id, text, *, image=None, has_key=False, client_code=None):
+        self.manager_msgs.append({"to": telegram_id, "text": text, "image": image, "has_key": has_key,
+                                  "client": client_code})
 
-    async def notify_client(self, user_id, text):
+    async def notify_client(self, user_id, text, image=None):
         self.client_msgs.append((user_id, text))
+        self.client_images.append((user_id, image))
 
     async def notify_client_access(self, user_id, manager_name):
         self.client_access.append((user_id, manager_name))
@@ -241,10 +247,17 @@ async def build_env(*, tariffs=None, settings=None, save_card=True, manager_righ
         create_payment=create_payment, config=config, notifier=notifier,
     )
 
-    async def make_manager(name="Иван Петров", telegram_id=1001, login=None, password=None, **rights):
-        """Активный менеджер. login/password — сразу с входом на сайт (пароль ставится через ссылку, как в жизни)."""
+    async def make_manager(name="Иван Петров", telegram_id=1001, login=None, password=None, service_fee=0,
+                           **rights):
+        """
+        Активный менеджер. login/password — сразу с входом на сайт (пароль ставится через ссылку, как в жизни).
+        service_fee — цена его услуги; по умолчанию 0, чтобы тесты цен считали чистый тариф
+        (умолчание для настоящих менеджеров — 250 ₽, его проверяет отдельный тест).
+        """
         manager, token = await service.invite(name, admin_id=1, login=login)
         await service.accept_invite(token, telegram_id)
+        if service_fee is not None:
+            await repos.managers.set_service_fee(manager.id, service_fee)
         merged = dict(manager_rights or {})
         merged.update(rights)
         if merged:
