@@ -221,7 +221,7 @@ FSM: `ManagerFSM` (`enter_code`, `enter_days`, `enter_label`, `edit_label`, `edi
 | Объект | Класс | Зависимости | Ключевые методы |
 |---|---|---|---|
 | `subscription_service` | `SubscriptionService` | `user_repo`, `remnawave_client` | `activate_trial(user_id, days)`, `extend(user_id, days, data_limit_gb)` |
-| `referral_service` | `ReferralService` | `user_repo`, `subscription_service` | `activate_new_user_referral(user_id, referrer_id, days)` |
+| `referral_service` | `ReferralService` | `user_repo`, `subscription_service` | `attach_referrer(user_id, referrer_id)` — при `/start` по ссылке (реферер сразу в БД, не в FSM); `activate_new_user_referral(user_id, referrer_id, days)` — триал другу + бонус рефереру, один раз (`has_received_trial`) |
 | `promo_service` | `PromoCodeService` | `promo_repo`, `user_repo` | `validate(code, user_id)`, `apply(user_id, promo)` |
 | `user_service` | `UserService` | `user_repo`, `stats_repo` | `register_or_get(...)`, `get_user(user_id)`, `get_referral_info(user_id)` |
 | `profile_service` | `ProfileService` | `user_repo`, `remnawave_client` | `get_profile(user_id) → ProfileData(db_user, vpn_user, error)` |

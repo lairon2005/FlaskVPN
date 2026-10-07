@@ -23,51 +23,76 @@ class ReferralService:
         """Активный партнёр: вместо бонусных дней получает процент с оплат друзей."""
         return self._partner_repo is not None and await self._partner_repo.is_active(user_id)
 
-    async def activate_new_user_referral(self, user_id: int, referrer_id: int, bonus_days: int = REFERRAL_TRIAL_DAYS,
+    async def attach_referrer(self, user_id: int, referrer_id: int) -> bool:
+        """
+        Привязка друга к рефереру сразу по переходу по ссылке — ДО выдачи триала.
+
+        Раньше referrer_id жил только в FSM (MemoryStorage) до нажатия «Проверить
+        подписку»: перезапуск бота или брошенный онбординг терял приглашение, и у
+        партнёра оставалось «Приглашено: 0». Теперь реферер сразу в БД.
+
+        Привязываем только «нетронутого» пользователя: без реферера, без триала,
+        без подписки и оплат — иначе по чужой ссылке можно было бы переманить
+        уже действующего клиента. True — привязали.
+        """
+        if referrer_id == user_id:
+            logger.warning(f"Referral: user {user_id} tried to refer themselves, skip")
+            return False
+        user = await self._user_repo.get(user_id)
+        if user is None:
+            logger.warning(f"Referral: user {user_id} not found, skip attach")
+            return False
+        if (user.referrer_id is not None or user.has_received_trial
+                or user.subscription_end_date is not None or user.is_first_payment_made):
+            logger.info(f"Referral: user {user_id} is not new (referrer={user.referrer_id}), skip attach to {referrer_id}")
+            return False
+        if await self._user_repo.get(referrer_id) is None:
+            logger.warning(f"Referral: referrer {referrer_id} not found, skip attach for {user_id}")
+            return False
+
+        await self._user_repo.set_referrer(user_id, referrer_id)
+        if await self.is_partner(referrer_id):
+            # Друг партнёра: партнёру дней не даём, с оплат друга капают проценты.
+            await self._user_repo.set_partner_referred(user_id)
+            logger.info(f"Referral: user {user_id} attributed to partner {referrer_id}")
+        else:
+            logger.info(f"Referral: user {user_id} attached to referrer {referrer_id}")
+        return True
+
+    async def activate_new_user_referral(self, user_id: int, referrer_id: int | None = None,
+                                          bonus_days: int = REFERRAL_TRIAL_DAYS,
                                           referrer_launch_bonus_days: int = REFERRER_LAUNCH_BONUS_DAYS):
         """
-        Регистрация нового реферала: установить реферера + выдать пробную подписку другу
-        (bonus_days) + начислить рефереру бонус за сам факт привлечения (§7.5,
-        referrer_launch_bonus_days — «+3 дня за запуск»).
+        Активация реферала: выдать другу пробную подписку (bonus_days) + начислить
+        рефереру бонус за сам факт привлечения (§7.5, «+3 дня за запуск»).
 
-        Анти-абуз / идемпотентность:
-          - self-referral (referrer_id == user_id) — бонус рефереру не начисляется;
-          - referrer должен существовать в БД;
-          - бонус рефереру за «запуск» начисляется только при ПЕРВИЧНОЙ установке
-            referrer_id у пользователя — если у user_id уже стоит referrer_id
-            (повторный вызов, например баг в вызывающем коде), повторного начисления
-            не будет — только продление триала другу.
+        Реферер берётся из БД (привязан в attach_referrer при /start). referrer_id
+        в аргументах — для входа без /start (Mini App): привязываем на месте.
+
+        Идемпотентность: триал по рефералке выдаётся один раз (has_received_trial) —
+        повторное нажатие «Проверить подписку» не даст ни второго триала, ни второго
+        бонуса рефереру.
         """
         user = await self._user_repo.get(user_id)
         if user is None:
             logger.warning(f"Referral: user {user_id} not found, skip referral activation")
             return None
+        if user.has_received_trial:
+            logger.info(f"Referral: user {user_id} already received trial, skip activation")
+            return None
 
-        already_had_referrer = user.referrer_id is not None
-        is_self_referral = referrer_id == user_id
-        referrer = None if (already_had_referrer or is_self_referral) else await self._user_repo.get(referrer_id)
+        if user.referrer_id is None and referrer_id is not None:
+            await self.attach_referrer(user_id, referrer_id)
+            user = await self._user_repo.get(user_id)
+        referrer_id = user.referrer_id
 
-        if is_self_referral:
-            logger.warning(f"Referral: user {user_id} tried to refer themselves, skip referrer bonus")
-        elif already_had_referrer:
-            logger.info(f"Referral: user {user_id} already has a referrer set, skip re-award")
-        elif referrer is None:
-            logger.warning(f"Referral: referrer {referrer_id} not found, skip referrer bonus")
-        else:
-            await self._user_repo.set_referrer(user_id, referrer_id)
-            if await self.is_partner(referrer_id):
-                # Друг партнёра: другу — тот же триал, партнёру дней не даём,
-                # а с оплат этого друга будут капать проценты.
-                await self._user_repo.set_partner_referred(user_id)
-                logger.info(f"Referral: user {user_id} attributed to partner {referrer_id}")
-                referrer = None
-
-        # Другу — пробная подписка (всегда, независимо от анти-абуз проверок выше)
+        # Другу — пробная подписка
         result = await self._subscription_service.extend(user_id, bonus_days)
+        await self._user_repo.set_trial_received(user_id)
         logger.info(f"Referral bonus: user {user_id} got {bonus_days} days via referrer {referrer_id}")
 
-        # Рефереру — бонус за сам факт привлечения друга (только если анти-абуз проверки пройдены)
-        if referrer is not None and not already_had_referrer and not is_self_referral:
+        # Рефереру — бонус за сам факт привлечения (партнёрам — не днями, а процентами)
+        if referrer_id is not None and not await self.is_partner(referrer_id):
             try:
                 await self._subscription_service.extend(referrer_id, referrer_launch_bonus_days, data_limit_gb=None)
                 await self._user_repo.add_bonus_days(referrer_id, days=referrer_launch_bonus_days)

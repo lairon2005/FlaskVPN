@@ -382,6 +382,38 @@ class ReferralIntegrationTests(PartnerCase):
         self.assertFalse((await self.env.repos.users.get(self.FRIEND)).partner_referred)
         self.assertEqual(self.extend.await_count, 2)            # триал другу + бонус рефереру
 
+    async def test_attach_at_start_survives_until_activation(self):
+        # /start по ссылке → реферер сразу в БД; триал выдаётся позже без аргумента
+        # (раньше реферер жил в FSM и пропадал при перезапуске бота).
+        await self.env.make_telegram_client(self.FRIEND)
+        svc = self.referral_service()
+        self.assertTrue(await svc.attach_referrer(self.FRIEND, self.PARTNER))
+        friend = await self.env.repos.users.get(self.FRIEND)
+        self.assertEqual((friend.referrer_id, friend.partner_referred), (self.PARTNER, True))
+        await svc.activate_new_user_referral(self.FRIEND, None, 3)
+        self.extend.assert_awaited_once_with(self.FRIEND, 3)
+        self.assertTrue((await self.env.repos.users.get(self.FRIEND)).has_received_trial)
+
+    async def test_attach_rejects_active_or_already_referred_users(self):
+        await self.env.make_telegram_client(300)
+        await self.env.make_telegram_client(201, has_received_trial=True)
+        await self.env.make_telegram_client(202, subscription_end_date=datetime.datetime.now())
+        await self.env.make_telegram_client(203, referrer_id=300)
+        svc = self.referral_service()
+        for uid in (201, 202, 203):
+            self.assertFalse(await svc.attach_referrer(uid, self.PARTNER), uid)
+        self.assertFalse(await svc.attach_referrer(300, 300))           # сам себя
+        self.assertFalse(await svc.attach_referrer(300, 999))           # реферера нет
+        self.assertEqual((await self.env.repos.users.get(203)).referrer_id, 300)
+
+    async def test_repeated_activation_gives_nothing(self):
+        await self.env.make_telegram_client(300)
+        await self.env.make_telegram_client(self.FRIEND)
+        svc = self.referral_service()
+        await svc.activate_new_user_referral(self.FRIEND, 300, 3)
+        await svc.activate_new_user_referral(self.FRIEND, 300, 3)
+        self.assertEqual(self.extend.await_count, 2)            # не 4
+
     async def test_leaderboard_skips_active_partners(self):
         from database.repositories.stats import StatsRepository
         stats = StatsRepository(self.env.session_maker)

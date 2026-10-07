@@ -99,24 +99,28 @@ async def process_start_command(message: Message, command: CommandObject, bot: B
     # 1. Регистрируем или получаем пользователя
     user, created = await user_service.register_or_get(user_id, full_name, username)
 
-    # 2. Обрабатываем реферальную ссылку
+    # 2. Обрабатываем реферальную ссылку. Аргумент логируем — без него потерянное
+    # приглашение не разобрать.
+    if command and command.args:
+        logger.info(f"/start user={user_id} created={created} args={command.args!r}")
+
+    # Реферер сразу пишется в БД (attach_referrer), а не в FSM: MemoryStorage
+    # теряется при перезапуске бота, а онбординг человек может бросить и вернуться.
+    # Существующего, но ни разу не активированного пользователя тоже привязываем —
+    # он мог нажать /start раньше, ещё без ссылки.
     referrer_id = None
     if command and command.args and command.args.startswith('ref'):
-        if created:
-            try:
-                potential_referrer_id = int(command.args[3:])
-                if potential_referrer_id != user_id and await user_service.get_user(potential_referrer_id):
-                    referrer_id = potential_referrer_id
-            except (ValueError, IndexError, TypeError):
-                pass
-
-            if referrer_id:
-                await state.update_data(referrer_id=referrer_id)
-        else:
+        try:
+            potential_referrer_id = int(command.args[3:])
+        except (ValueError, TypeError):
+            potential_referrer_id = None
+        if potential_referrer_id and await referral_service.attach_referrer(user_id, potential_referrer_id):
+            referrer_id = potential_referrer_id
+        elif not created:
             await message.answer("Вы уже зарегистрированы. Реферальная ссылка работает только для новых пользователей.")
 
-    # 3. Если пользователь новый — запускаем онбординг
-    if created:
+    # 3. Новый пользователь или только что привязанный по ссылке — онбординг
+    if created or referrer_id:
         await _start_onboarding(message, bot, state, referrer_id)
     else:
         # Существующий пользователь — главное меню со статусом подписки
@@ -171,9 +175,8 @@ async def onboarding_check_subscription(call: CallbackQuery, bot: Bot, state: FS
 
     await call.answer("✅ Отлично! Подписка подтверждена!")
 
-    # Получаем referrer_id из FSM
-    fsm_data = await state.get_data()
-    referrer_id = fsm_data.get("referrer_id")
+    # Реферер привязан в БД ещё при /start (attach_referrer)
+    referrer_id = user.referrer_id if user else None
 
     await _activate_and_show_connect(call, bot, state, referrer_id)
 
