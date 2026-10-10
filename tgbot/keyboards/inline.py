@@ -276,15 +276,21 @@ def winback_survey_keyboard() -> InlineKeyboardMarkup:
 
 def payment_method_choice_keyboard(tariff_id: int, slots: int = 0,
                                    back_callback: str | None = None,
-                                   packs: int = 0) -> InlineKeyboardMarkup:
+                                   packs: int = 0,
+                                   allow_sberpay: bool = True) -> InlineKeyboardMarkup:
     """Выбор способа оплаты (карта / СБП / SberPay) перед созданием платежа с автопродлением.
 
     `slots` и `packs` — сколько доп. устройств и пакетов трафика выбрано на
     предыдущем шаге; едут в callback_data, чтобы количество не потерялось при
     смене способа оплаты. Старые сообщения приходят без `packs` — это 0.
+
+    SberPay ЮKassa не разрешает сохранять для автоплатежей (403 на
+    `save_payment_method`), поэтому это разовая оплата без автопродления.
+    Вводному тарифу нужна сохранённая карта — ему `allow_sberpay=False`.
     """
     builder = InlineKeyboardBuilder()
-    builder.button(text="🟢 SberPay", callback_data=f"paymethod_sberpay_{tariff_id}_{slots}_{packs}")
+    if allow_sberpay:
+        builder.button(text="🟢 SberPay", callback_data=f"paymethod_sberpay_{tariff_id}_{slots}_{packs}")
     builder.button(text="🏦 СБП", callback_data=f"paymethod_sbp_{tariff_id}_{slots}_{packs}")
     builder.button(text="💳 Банковская карта", callback_data=f"paymethod_card_{tariff_id}_{slots}_{packs}")
     builder.button(text="⬅️ Назад", callback_data=back_callback or f"select_tariff_{tariff_id}")

@@ -132,7 +132,8 @@ def load_payment_handlers_module():
     loader_module = types.ModuleType("loader")
     loader_module.logger = Mock()
     loader_module.config = SimpleNamespace(
-        yookassa=SimpleNamespace(shop_id="x", secret_key="y", save_payment_method=False),
+        yookassa=SimpleNamespace(shop_id="x", secret_key="y", save_payment_method=False,
+                                 sberpay_recurring=False),
     )
 
     database_module = types.ModuleType("database")

@@ -54,6 +54,10 @@ class KeyboardTests(unittest.TestCase):
         self.assertIn("paymethod_card_5_2_3", found)
         self.assertIn("paymethod_sbp_5_2_3", found)
         self.assertIn("paymethod_sberpay_5_2_3", found)
+        # вводному тарифу нужна сохранённая карта, а SberPay не сохраняется
+        no_sber = [t for _, _, t in buttons(self.kb.payment_method_choice_keyboard(5, allow_sberpay=False))]
+        self.assertFalse(any("sberpay" in t for t in no_sber))
+        self.assertIn("paymethod_card_5_0_0", no_sber)
         # без packs (интро-тариф, старые вызовы) — нулевые пакеты, но формат единый
         self.assertIn("paymethod_card_5_0_0", [t for _, _, t in buttons(self.kb.payment_method_choice_keyboard(5))])
 
@@ -160,6 +164,33 @@ class CheckoutHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(sum(i["quantity"] * i["amount"] for i in items), 247.0)
         record = deps.payment_service.create_payment_record.await_args.kwargs
         self.assertEqual((record["extra_devices"], record["extra_traffic_gb"], record["final_amount"]), (1, 200, 247.0))
+
+    async def test_sberpay_is_paid_once_without_saving_the_method(self):
+        """ЮKassa отвечает 403 на save_payment_method для SberPay — платёж разовый."""
+        module, _, bot = self._setup()
+        call = _callback_query("paymethod_sberpay_5_0_0")
+        call.message.edit_text.return_value = SimpleNamespace(message_id=9)
+        await module.select_payment_method_handler(call, _fsm_state(), bot)
+
+        kwargs = module.payment.create_payment.call_args.kwargs
+        self.assertEqual(kwargs["payment_method_type"], "sberbank")
+        self.assertFalse(kwargs["save_payment_method"])
+
+    async def test_sberpay_saves_the_method_once_recurring_is_enabled(self):
+        module, _, bot = self._setup()
+        module.config.yookassa.sberpay_recurring = True
+        call = _callback_query("paymethod_sberpay_5_0_0")
+        call.message.edit_text.return_value = SimpleNamespace(message_id=9)
+        await module.select_payment_method_handler(call, _fsm_state(), bot)
+        self.assertTrue(module.payment.create_payment.call_args.kwargs["save_payment_method"])
+
+    async def test_card_and_sbp_still_save_the_method(self):
+        module, _, bot = self._setup()
+        for data in ("paymethod_card_5_0_0", "paymethod_sbp_5_0_0"):
+            call = _callback_query(data)
+            call.message.edit_text.return_value = SimpleNamespace(message_id=9)
+            await module.select_payment_method_handler(call, _fsm_state(), bot)
+            self.assertTrue(module.payment.create_payment.call_args.kwargs["save_payment_method"])
 
     async def test_old_payment_callback_means_no_packs(self):
         module, deps, bot = self._setup()

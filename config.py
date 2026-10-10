@@ -78,6 +78,9 @@ class YooKassa:
     shop_id: str
     secret_key: str
     save_payment_method: bool
+    # SberPay-автоплатежи ЮKassa подключает отдельно (регистрация у партнёра).
+    # Пока False — SberPay оплачивается разово: save_payment_method на нём даёт 403.
+    sberpay_recurring: bool = False
 
     @staticmethod
     def from_env(env: Env):
@@ -86,7 +89,8 @@ class YooKassa:
         # Сохранение карты (рекурренты) требует одобрения магазина в ЮKassa.
         # Пока не одобрено — держим False, иначе Payment.create упадёт и юзер не сможет оплатить.
         save_payment_method = env.bool("YOOKASSA_SAVE_PAYMENT_METHOD", default=False)
-        return YooKassa(shop_id=shop_id, secret_key=secret_key,
+        sberpay_recurring = env.bool("YOOKASSA_SBERPAY_RECURRING", default=False)
+        return YooKassa(shop_id=shop_id, secret_key=secret_key, sberpay_recurring=sberpay_recurring,
                         save_payment_method=save_payment_method)
 @dataclass
 class DataBase:

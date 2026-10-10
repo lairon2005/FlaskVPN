@@ -335,7 +335,10 @@ async def _show_intro_checkout(call: CallbackQuery, tariff) -> None:
         f"🎁 <b>{tariff.name}</b>\n\n"
         f"{consent_text(tariff, renew_tariff)}\n\n"
         "Выберите способ оплаты — он сохранится для автопродления.",
-        reply_markup=payment_method_choice_keyboard(tariff.id, 0, back_callback="buy_subscription"),
+        reply_markup=payment_method_choice_keyboard(
+            tariff.id, 0, back_callback="buy_subscription",
+            allow_sberpay=config.yookassa.sberpay_recurring,
+        ),
     )
 
 
@@ -714,8 +717,14 @@ async def tariff_to_payment_handler(call: CallbackQuery, state: FSMContext, bot:
             f"Срок: <b>{tariff.duration_days} дней</b>\n"
             f"Устройств: <b>{device_settings.base_limit + slots}</b>\n\n"
             f"Сумма к оплате: {price_text}{total_line}\n\n"
-            "Выберите способ оплаты. Он будет сохранён для автоматического "
-            "продления подписки — отключить можно в любой момент в профиле.",
+            + (
+                "Выберите способ оплаты. Он будет сохранён для автоматического "
+                "продления подписки — отключить можно в любой момент в профиле."
+                if config.yookassa.sberpay_recurring else
+                "Выберите способ оплаты. Карта и СБП сохранятся для автоматического "
+                "продления подписки — отключить можно в любой момент в профиле. "
+                "SberPay — разовая оплата, без автопродления."
+            ),
             reply_markup=payment_method_choice_keyboard(tariff_id, slots, packs=packs)
         )
         return
@@ -754,12 +763,20 @@ async def select_payment_method_handler(call: CallbackQuery, state: FSMContext, 
         await _show_pending_invoice(call, pending)
         return
 
+    sberpay_saves = config.yookassa.sberpay_recurring
+    if method == "sberpay" and tariff.is_intro and not sberpay_saves:
+        # Устаревшая кнопка: вводному тарифу нужна сохранённая карта, а SberPay
+        # ЮKassa для автоплатежей пока не сохраняет — показываем выбор без него.
+        await _show_intro_checkout(call, tariff)
+        return
+
     payment_method_type = {"sbp": "sbp", "sberpay": "sberbank"}.get(method, "bank_card")
 
     await _create_and_send_payment(
         call, state, bot, tariff,
         payment_method_type=payment_method_type,
-        save_card=True,
+        # Пока SberPay-рекурренты не подключены, ЮKassa отвечает 403 на сохранение — разовая оплата.
+        save_card=method != "sberpay" or sberpay_saves,
         slots=slots,
         packs=packs,
     )

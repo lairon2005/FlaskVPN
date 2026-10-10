@@ -93,6 +93,7 @@ python3 -m unittest tests.test_device_pricing -v                # то же че
 | `USE_WEBHOOK` / `DOMAIN` / `SERVER_URL` | обязательны | `False` = polling (dev); webhook требует непустой `DOMAIN` + SSL |
 | `YOOKASSA_SHOP_ID` / `YOOKASSA_SECRET_KEY` | обязательны | Магазин ЮKassa |
 | `YOOKASSA_SAVE_PAYMENT_METHOD` | опц., по умолч. `False` | Включать только после одобрения рекуррентов, иначе `Payment.create` падает |
+| `YOOKASSA_SBERPAY_RECURRING` | опц., по умолч. `False` | Включать, когда ЮKassa подключит автоплатежи SberPay: до этого SberPay — разовая оплата (сохранение даёт 403), на вводном тарифе его нет |
 | `DB_NAME/USER/PASSWORD/HOST/PORT` | обязательны | В Docker `DB_HOST=postgres` |
 | `REMNAWAVE_API_URL` / `REMNAWAVE_API_TOKEN` | обязательны | Адрес и токен панели |
 | `REMNAWAVE_DEFAULT_SQUAD_UUID` | опц. | Сквад для новых пользователей |
