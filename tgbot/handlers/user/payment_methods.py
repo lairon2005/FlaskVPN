@@ -42,6 +42,8 @@ async def _show_card(call: CallbackQuery) -> None:
     else:
         if card.card_type == "SBP":
             card_line = "СБП"
+        elif card.card_type == "SberPay":
+            card_line = "SberPay"
         else:
             card_line = f"{card.card_type or 'Карта'} •••• {card.card_last4 or '——'}"
 

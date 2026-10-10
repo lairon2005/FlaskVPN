@@ -33,6 +33,9 @@ class PaymentMethodService:
         if getattr(yk_payment_method, 'type', None) == 'sbp':
             card_type = 'SBP'
             card_last4 = None
+        elif getattr(yk_payment_method, 'type', None) == 'sberbank':
+            card_type = 'SberPay'
+            card_last4 = None
 
         try:
             await self._repo.upsert(

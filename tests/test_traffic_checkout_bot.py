@@ -53,6 +53,7 @@ class KeyboardTests(unittest.TestCase):
         found = [t for _, _, t in buttons(markup)]
         self.assertIn("paymethod_card_5_2_3", found)
         self.assertIn("paymethod_sbp_5_2_3", found)
+        self.assertIn("paymethod_sberpay_5_2_3", found)
         # без packs (интро-тариф, старые вызовы) — нулевые пакеты, но формат единый
         self.assertIn("paymethod_card_5_0_0", [t for _, _, t in buttons(self.kb.payment_method_choice_keyboard(5))])
 

@@ -118,6 +118,17 @@ class TrafficHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((record["kind"], record["tariff_id"], record["extra_traffic_gb"], record["final_amount"]),
                          ("traffic", None, 200, 98.0))
 
+    async def test_sberpay_button_maps_to_yookassa_sberbank_type(self):
+        module, deps = load_traffic_handler()
+        deps.traffic_service.quote.return_value = quote()
+        call = FakeCallbackQuery("traffic_pay:sberpay:2")
+        call.answer = AsyncMock()
+        call.message.message_id = 9
+
+        await module.pay_traffic_handler(call, _fsm_state(), bot())
+
+        self.assertEqual(deps.payment.create_payment.call_args.kwargs["payment_method_type"], "sberbank")
+
     async def test_price_is_recomputed_at_pay_time_not_taken_from_the_button(self):
         module, deps = load_traffic_handler()
         deps.traffic_service.quote.return_value = quote(price=147.0, packs=2, price_per_pack=73.5)

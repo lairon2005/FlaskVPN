@@ -733,7 +733,7 @@ async def select_payment_method_handler(call: CallbackQuery, state: FSMContext, 
     await call.answer()
 
     user_id = call.from_user.id
-    parts = call.data.split("_")  # ['paymethod', 'card'|'sbp', '<tariff_id>', '<slots>', '<packs>']
+    parts = call.data.split("_")  # ['paymethod', 'card'|'sbp'|'sberpay', '<tariff_id>', '<slots>', '<packs>']
     method = parts[1]
     tariff_id = int(parts[2])
     # Старые сообщения (до появления доп. устройств / трафика) приходят без них.
@@ -754,7 +754,7 @@ async def select_payment_method_handler(call: CallbackQuery, state: FSMContext, 
         await _show_pending_invoice(call, pending)
         return
 
-    payment_method_type = "sbp" if method == "sbp" else "bank_card"
+    payment_method_type = {"sbp": "sbp", "sberpay": "sberbank"}.get(method, "bank_card")
 
     await _create_and_send_payment(
         call, state, bot, tariff,

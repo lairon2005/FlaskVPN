@@ -135,7 +135,7 @@ async def pay_traffic_handler(call: CallbackQuery, state: FSMContext, bot: Bot):
     await call.answer()
 
     user_id = call.from_user.id
-    parts = call.data.split(":")  # ['traffic_pay', 'card'|'sbp', '<packs>']
+    parts = call.data.split(":")  # ['traffic_pay', 'card'|'sbp'|'sberpay', '<packs>']
     method = parts[1] if len(parts) > 1 else "card"
     try:
         packs = int(parts[2])
@@ -170,7 +170,7 @@ async def pay_traffic_handler(call: CallbackQuery, state: FSMContext, bot: Bot):
             metadata={'user_id': str(user_id), 'kind': 'traffic', 'gb': str(quote.added_gb)},
             shop_id=config.yookassa.shop_id,
             secret_key=config.yookassa.secret_key,
-            payment_method_type="sbp" if method == "sbp" else "bank_card",
+            payment_method_type={"sbp": "sbp", "sberpay": "sberbank"}.get(method, "bank_card"),
             items=[{
                 "description": description,
                 "quantity": quote.packs,

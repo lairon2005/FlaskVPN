@@ -92,7 +92,7 @@ callback_data ограничена 64 байтами, а длина hwid зав�
 |---|---|---|
 | `buy_slots_handler` | `buy_slots` | Карточка докупки: текущий лимит, будущий, цена по остатку дней |
 | `change_slots_quantity` | `slots_qty:<n>` | Степпер количества (пересчёт на сервере через `device_slot_service.quote`) |
-| `pay_slots_handler` | `slots_pay:<card\|sbp>:<n>` | Создаёт счёт `kind='devices'` (tariff_id=NULL) и отдаёт ссылку на оплату |
+| `pay_slots_handler` | `slots_pay:<card\|sbp\|sberpay>:<n>` | Создаёт счёт `kind='devices'` (tariff_id=NULL) и отдаёт ссылку на оплату |
 
 Цена пересчитывается на сервере при нажатии «Оплатить»: между показом экрана и
 нажатием могли пройти сутки или админ мог поменять цену.
@@ -123,7 +123,7 @@ callback_data ограничена 64 байтами, а длина hwid зав�
 | `select_tariff_handler` | `select_tariff_<id>` | Шаг «сколько устройств»: сумма тарифа + слотов, степпер |
 | `change_tariff_slots_handler` | `tslots_<tariff_id>_<n>` | Степпер доп. устройств на чекауте |
 | `tariff_to_payment_handler` | `tpay_<tariff_id>_<n>` | Переход к оплате (способ оплаты или сразу счёт) |
-| `select_payment_method_handler` | `paymethod_<card\|sbp>_<tariff_id>_<slots>` | Создаёт платёж в YooKassa, сохраняет в БД, отправляет ссылку оплаты |
+| `select_payment_method_handler` | `paymethod_<card\|sbp\|sberpay>_<tariff_id>_<slots>` | Создаёт платёж в YooKassa, сохраняет в БД, отправляет ссылку оплаты |
 
 **Доп. устройства на чекауте:** количество по умолчанию = `user.extra_devices` —
 при продлении уже оплаченные слоты должны сохраняться без лишних нажатий. Оно

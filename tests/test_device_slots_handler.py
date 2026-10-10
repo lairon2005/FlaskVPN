@@ -235,6 +235,7 @@ class CancelInvoiceTests(unittest.IsolatedAsyncioTestCase):
         callbacks = _callback_data(kwargs["reply_markup"])
         self.assertIn("slots_pay:card:3", callbacks)
         self.assertIn("slots_pay:sbp:3", callbacks)
+        self.assertIn("slots_pay:sberpay:3", callbacks)
 
     async def test_cancel_without_pending_does_not_crash(self):
         """Счёт мог оплатиться или отмениться сам, пока человек жал кнопку."""

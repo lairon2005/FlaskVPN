@@ -41,7 +41,7 @@ def create_payment(
     shop_id: str = None,     # Передаем явно
     secret_key: str = None,  # Передаем явно
     save_payment_method: bool = False,
-    payment_method_type: str = None,  # 'bank_card' | 'sbp' — фиксируем способ оплаты
+    payment_method_type: str = None,  # 'bank_card' | 'sbp' | 'sberbank' (SberPay) — фиксируем способ оплаты
     items: list[dict] = None,  # позиции чека; None → одна позиция на всю сумму
 ):
     """
@@ -89,7 +89,7 @@ def create_payment(
     if save_payment_method:
         payment_body["save_payment_method"] = True
 
-    # Фиксируем конкретный способ оплаты (карта / СБП). ЮKassa покажет только его
+    # Фиксируем конкретный способ оплаты (карта / СБП / SberPay). ЮKassa покажет только его
     # и привяжет именно этот метод для последующих автосписаний.
     if payment_method_type:
         payment_body["payment_method_data"] = {"type": payment_method_type}
