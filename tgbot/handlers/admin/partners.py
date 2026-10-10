@@ -100,8 +100,8 @@ async def partner_new(call: CallbackQuery, state: FSMContext):
     await call.answer()
     await state.set_state(AdminPartnerFSM.new_partner)
     await _edit(call.message,
-                "Кого сделать партнёром? Пришлите Telegram ID или @username.\n\n"
-                "Пользователь должен хотя бы раз запустить бота. Друзья, приглашённые им раньше, "
+                "Кого сделать партнёром? Пришлите Telegram ID, @username или email.\n\n"
+                "Пользователь должен быть в базе (бот или сайт); без Telegram уведомления ему не придут. Друзья, приглашённые им раньше, "
                 "в зачёт не пойдут — только новые.",
                 cancel_fsm_keyboard("admin_partners"))
 

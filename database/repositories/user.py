@@ -413,7 +413,7 @@ class UserRepository:
 
     async def get_by_email(self, email: str) -> User | None:
         async with self._session_maker() as session:
-            stmt = select(User).where(User.email == email)
+            stmt = select(User).where(func.lower(User.email) == email.lower())
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
 

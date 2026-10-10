@@ -314,10 +314,12 @@ class PartnerService:
     # --- админка -------------------------------------------------------------------
 
     async def resolve_user(self, ident: str):
-        """Пользователь по Telegram ID или @username."""
+        """Пользователь по ID (Telegram или сайт), email или @username."""
         ident = (ident or "").strip()
         if ident.lstrip("-").isdigit():
             user = await self._users.get(int(ident))
+        elif "@" in ident and "." in ident and not ident.startswith("@"):
+            user = await self._users.get_by_email(ident.lower())
         else:
             user = await self._users.get_by_username(ident.lstrip("@"))
         if user is None:
@@ -326,8 +328,6 @@ class PartnerService:
 
     async def add_partner(self, ident: str, admin_id: int):
         user = await self.resolve_user(ident)
-        if user.user_id <= 0:
-            raise PartnerError("not_telegram")
         partner = await self._repo.enable(user.user_id, admin_id)
         logger.info(f"[partner] партнёрка включена пользователю {user.user_id} админом {admin_id}")
         return partner, user
