@@ -145,7 +145,10 @@ def _rows(data: ReceiptData, audience: str) -> list[tuple[str, str]]:
         rows.append(("Действует до", f"{fmt_dt(data.expires_at)} МСК"))
 
     if data.kind != KIND_TEMP and data.payment_method:
-        rows.append(("Оплата", METHODS.get(data.payment_method, data.payment_method)))
+        method = METHODS.get(data.payment_method, data.payment_method)
+        if data.payment_method == "online" and data.fee_in_cash and data.service_fee:
+            method = "QR — подписка, наличные — услуга"
+        rows.append(("Оплата", method))
         if data.payment_method == "online" and data.autorenew is not None:
             rows.append(("Автопродление", "включено" if data.autorenew else "выключено"))
     if audience == "group" and data.key_username:
@@ -264,6 +267,8 @@ def _footer(c: _Canvas, data: ReceiptData):
         note = "Пробный ключ удаляется автоматически по окончании срока."
     elif data.payment_method == "online":
         note = "Не фискальный документ. Кассовый чек пришлёт ЮKassa."
+        if data.fee_in_cash and data.service_fee:
+            note = "Не фискальный документ. Кассовый чек на подписку пришлёт ЮKassa."
     else:
         note = "Не фискальный документ."
     if data.service_fee:

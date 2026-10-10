@@ -14,7 +14,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 
 from db import User
-from webapp.routers import auth, client_link, dashboard, legal, manager, payment, tma
+from webapp.routers import auth, client_link, dashboard, legal, manager, partner, payment, tma
 from webapp.dependencies import get_current_user
 from webapp.templating import templates
 from loader import logger, remnawave_client, shutdown_logging, config
@@ -65,6 +65,7 @@ app.include_router(payment.router)
 app.include_router(tma.router)
 app.include_router(manager.router)
 app.include_router(client_link.router)
+app.include_router(partner.router)
 
 # --- Главная ---
 @app.get("/", response_class=HTMLResponse)

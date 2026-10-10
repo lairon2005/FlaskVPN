@@ -9,17 +9,22 @@
 <section class="sticker p-5 animate-in">
     {% if partner %}
     <p class="text-sm text-subtle">
+        {% if partner.active %}
         Вы партнёр: с каждой оплаты приглашённого друга — <span class="font-bold text-blue">{{ partner.percent }}%</span>
-        вам на баланс. Баланс, вывод по СБП и оплата подписки с баланса — в боте.
+        вам на баланс.
+        {% else %}
+        Партнёрская программа отключена, но накопленный баланс можно вывести или оплатить им подписку.
+        {% endif %}
     </p>
     {% else %}
     <p class="text-sm text-subtle">
-        Приглашайте друзей — получайте <span class="font-bold text-blue">30 бонусных дней</span>
-        за каждую их первую оплату.
+        Приглашайте друзей: <span class="font-bold text-blue">+{{ referrer_launch_bonus }}</span> за каждого и
+        <span class="font-bold text-blue">+{{ referrer_payment_bonus }}</span> после его первой оплаты.
     </p>
     {% endif %}
 
-    {% if ref_link %}
+    {% if partner and not partner.active %}
+    {% elif ref_link %}
         <div class="copy-field mt-4">
             <label class="sr-only" for="refLink">Реферальная ссылка</label>
             <input type="text" id="refLink" value="{{ ref_link }}" readonly>
@@ -61,9 +66,9 @@
         </div>
         {% endif %}
     </dl>
-    {% if partner and bot_link %}
-        <a class="btn-pop w-full mt-4" href="{{ bot_link }}">
-            {{ ic.icon('telegram', 'w-5 h-5') }} Баланс и вывод — в боте
+    {% if partner %}
+        <a class="btn-pop w-full mt-4" href="/tma/partner">
+            {{ ic.icon('banknote', 'w-5 h-5') }} Баланс, вывод и оплата
         </a>
     {% endif %}
 </section>

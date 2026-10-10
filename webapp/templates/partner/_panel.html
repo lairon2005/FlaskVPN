@@ -1,0 +1,253 @@
+{# Кабинет партнёра — общее тело для сайта (partner.html) и Mini App (tma/partner.html).
+   Формы шлются на surface.base/<действие>, итог приезжает кодом в ?ok= / ?err= (PRG). #}
+{% import "_icons.html" as ic %}
+{% set base = surface.base %}
+
+{% if notice %}
+<div class="alert alert-success animate-in" role="status">{{ ic.icon('check-circle', 'w-5 h-5 shrink-0') }}<span>{{ notice }}</span></div>
+{% endif %}
+{% if error %}
+<div class="alert alert-error animate-in" role="alert">{{ ic.icon('alert', 'w-5 h-5 shrink-0') }}<span>{{ error }}</span></div>
+{% endif %}
+
+<!-- ============ Баланс ============ -->
+<section class="sticker p-5 sm:p-6 animate-in" aria-labelledby="ptBalanceTitle">
+    <div class="flex items-start justify-between gap-3">
+        <div>
+            <p id="ptBalanceTitle" class="font-mono text-[0.66rem] tracking-[0.14em] uppercase text-muted">Баланс</p>
+            <p class="font-display font-black text-4xl text-orange tabular-nums">{{ balance }}</p>
+        </div>
+        {% if ov.active %}
+            <span class="badge badge-active">{{ ov.percent }}% с оплат друзей</span>
+        {% else %}
+            <span class="badge badge-muted">Программа отключена</span>
+        {% endif %}
+    </div>
+    {% if ov.hold_kop %}
+    <p class="mt-2 text-sm text-subtle flex items-center gap-1.5">
+        {{ ic.icon('hourglass', 'w-4 h-4 shrink-0 text-blue') }}
+        <span>В холде: <b class="tabular-nums text-ink">{{ hold }}</b>{% if ov.next_release %}, ближайшее зачисление {{ ov.next_release.strftime('%d.%m') }}{% endif %}</span>
+    </p>
+    {% endif %}
+    {% if pending %}
+    <p class="mt-2 text-sm text-subtle flex items-center gap-1.5">
+        {{ ic.icon('timer', 'w-4 h-4 shrink-0 text-blue') }}
+        <span>Заявка на вывод №{{ pending.id }} на <b class="tabular-nums text-ink">{{ pending_amount }}</b> — на рассмотрении.</span>
+    </p>
+    {% endif %}
+
+    <dl class="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div>
+            <dt class="font-mono text-[0.66rem] tracking-[0.14em] uppercase text-muted">Приглашено</dt>
+            <dd class="font-display font-black text-2xl tabular-nums">{{ ov.invited }}</dd>
+        </div>
+        <div>
+            <dt class="font-mono text-[0.66rem] tracking-[0.14em] uppercase text-muted">Оплатили</dt>
+            <dd class="font-display font-black text-2xl tabular-nums">{{ ov.paid_friends }}</dd>
+        </div>
+        <div>
+            <dt class="font-mono text-[0.66rem] tracking-[0.14em] uppercase text-muted">Заработано</dt>
+            <dd class="font-display font-black text-xl tabular-nums">{{ earned }}</dd>
+        </div>
+        <div>
+            <dt class="font-mono text-[0.66rem] tracking-[0.14em] uppercase text-muted">Выведено</dt>
+            <dd class="font-display font-black text-xl tabular-nums">{{ withdrawn }}</dd>
+        </div>
+    </dl>
+
+    {% if not ov.active %}
+    <p class="mt-4 text-sm text-subtle">
+        Партнёрская программа отключена: новые начисления не поступают. Накопленный баланс можно вывести
+        или оплатить им подписку.
+    </p>
+    {% endif %}
+    <p class="mt-4 text-xs text-muted">
+        Начисление становится доступным через {{ ov.settings.hold_days }} дн. после оплаты друга.
+        Вывод — от {{ min_withdrawal }} по СБП.
+    </p>
+</section>
+
+<!-- ============ Ссылки для друзей ============ -->
+{% if ov.active %}
+<section class="sticker p-5 sm:p-6 animate-in [animation-delay:0.05s]" aria-labelledby="ptLinksTitle">
+    <h2 id="ptLinksTitle" class="font-display font-extrabold text-lg flex items-center gap-2">
+        {{ ic.icon('gift', 'w-5 h-5 text-orange') }} Приглашайте друзей
+    </h2>
+    <p class="mt-1 text-sm text-subtle">
+        С каждой оплаты приглашённого друга — <b class="text-blue">{{ ov.percent }}%</b> вам на баланс.
+        Другу — {{ trial_days_text }} бесплатно.
+    </p>
+
+    {% if links.bot %}
+    <label class="field-label mt-3" for="ptLinkBot">Ссылка на бота</label>
+    <div class="copy-field">
+        <input type="text" id="ptLinkBot" value="{{ links.bot }}" readonly>
+        <button class="copy-btn" type="button" data-copy="ptLinkBot" aria-label="Скопировать ссылку на бота">
+            {{ ic.icon('copy', 'w-5 h-5') }}
+        </button>
+    </div>
+    {% endif %}
+
+    <label class="field-label mt-3" for="ptLinkWeb">Ссылка на сайт</label>
+    <div class="copy-field">
+        <input type="text" id="ptLinkWeb" value="{{ links.web }}" readonly>
+        <button class="copy-btn" type="button" data-copy="ptLinkWeb" aria-label="Скопировать ссылку на сайт">
+            {{ ic.icon('copy', 'w-5 h-5') }}
+        </button>
+    </div>
+
+    <label class="field-label mt-3" for="ptShareText">Текст для друга</label>
+    <div class="copy-field">
+        <input type="text" id="ptShareText" value="{{ share_text }}" readonly>
+        <button class="copy-btn" type="button" data-copy="ptShareText" aria-label="Скопировать текст для друга">
+            {{ ic.icon('copy', 'w-5 h-5') }}
+        </button>
+    </div>
+
+    {% if surface.tma and links.bot %}
+    <button type="button" class="btn-pop w-full mt-3" id="tmaShareRefBtn"
+            data-ref-link="{{ links.bot }}" data-share-text="{{ share_text }}">
+        {{ ic.icon('telegram', 'w-5 h-5') }} Поделиться в Telegram
+    </button>
+    {% endif %}
+</section>
+{% endif %}
+
+<!-- ============ Вывод по СБП ============ -->
+<section id="withdraw" class="sticker p-5 sm:p-6 animate-in [animation-delay:0.1s] scroll-mt-20" aria-labelledby="ptWithdrawTitle">
+    <h2 id="ptWithdrawTitle" class="font-display font-extrabold text-lg flex items-center gap-2">
+        {{ ic.icon('banknote', 'w-5 h-5 text-orange') }} Вывод по СБП
+    </h2>
+
+    {% if ov.has_requisites %}
+    <p class="mt-2 text-sm text-subtle">
+        На: <b class="font-mono text-ink">{{ ov.sbp_phone }}</b>, {{ ov.sbp_bank }}
+    </p>
+    {% endif %}
+
+    {% if pending %}
+        <p class="mt-3 text-sm">Заявка №{{ pending.id }} на <b class="tabular-nums">{{ pending_amount }}</b> уже на рассмотрении — новую можно отправить после решения по ней.</p>
+    {% elif not ov.has_requisites %}
+        <p class="mt-2 text-sm text-subtle">Чтобы выводить деньги, укажите телефон и банк для перевода по СБП.</p>
+    {% elif ov.can_withdraw %}
+        <form action="{{ base }}/withdraw" method="post" class="mt-3 flex flex-wrap items-end gap-2">
+            <div>
+                <label class="field-label" for="ptAmount">Сумма, ₽</label>
+                <input type="text" id="ptAmount" name="amount" class="input !w-40 tabular-nums" value="{{ amount_default }}"
+                       inputmode="decimal" autocomplete="off" required>
+            </div>
+            <button type="submit" class="btn-pop">Отправить заявку</button>
+        </form>
+        <p class="mt-2 text-xs text-muted">
+            Доступно {{ balance }}, минимум — {{ min_withdrawal }}. Сумма сразу спишется с баланса; администратор переведёт
+            деньги вручную, а если заявку отклонят — они вернутся на баланс.
+        </p>
+    {% else %}
+        <p class="mt-3 text-sm text-subtle">Вывод — от {{ min_withdrawal }}. Сейчас на балансе {{ balance }}.</p>
+    {% endif %}
+
+    <details class="mt-4 panel p-4" {% if not ov.has_requisites %}open{% endif %}>
+        <summary class="cursor-pointer font-bold text-sm">{{ 'Изменить реквизиты' if ov.has_requisites else 'Указать реквизиты' }}</summary>
+        <form action="{{ base }}/requisites" method="post" class="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <div>
+                <label class="field-label" for="ptPhone">Телефон, привязанный к СБП</label>
+                <input type="tel" id="ptPhone" name="phone" class="input" value="{{ ov.sbp_phone or '' }}"
+                       placeholder="+7 999 123-45-67" autocomplete="tel" required>
+            </div>
+            <div>
+                <label class="field-label" for="ptBank">Банк</label>
+                <input type="text" id="ptBank" name="bank" class="input" value="{{ ov.sbp_bank or '' }}"
+                       placeholder="Т-Банк, Сбербанк…" maxlength="64" required>
+            </div>
+            <button type="submit" class="btn-pop btn-pop-outline">Сохранить</button>
+        </form>
+    </details>
+</section>
+
+<!-- ============ Оплата подписки с баланса ============ -->
+<section id="pay" class="sticker p-5 sm:p-6 animate-in [animation-delay:0.15s] scroll-mt-20" aria-labelledby="ptPayTitle">
+    <h2 id="ptPayTitle" class="font-display font-extrabold text-lg flex items-center gap-2">
+        {{ ic.icon('card', 'w-5 h-5 text-orange') }} Оплатить подписку с баланса
+    </h2>
+    <p class="mt-1 text-sm text-subtle">
+        Только целиком. В сумму входят уже подключённые доп. устройства и трафик — как при обычном продлении.
+    </p>
+
+    {% if confirm %}
+    <div class="mt-3 panel p-4">
+        <p class="font-bold">Тариф «{{ confirm.name }}» — {{ confirm.total }}</p>
+        <p class="mt-1 text-sm text-subtle">{{ confirm.breakdown }}</p>
+        <p class="mt-1 text-sm text-subtle">Баланс {{ balance }} → {{ confirm.balance_after }}. Подписка продлится на {{ confirm.days }} дн.</p>
+        <form action="{{ base }}/pay" method="post" class="mt-3 flex flex-wrap gap-2">
+            <input type="hidden" name="tariff_id" value="{{ confirm.tariff_id }}">
+            <input type="hidden" name="nonce" value="{{ nonce }}">
+            <button type="submit" class="btn-pop">Оплатить {{ confirm.total }}</button>
+            <a href="{{ base }}#pay" class="btn-pop btn-pop-outline">Отмена</a>
+        </form>
+    </div>
+    {% elif offers %}
+    <ul class="mt-3 divide-y-2 divide-blue/10">
+        {% for o in offers %}
+        <li class="py-2.5 flex items-center justify-between gap-3">
+            <div class="min-w-0">
+                <p class="font-bold">{{ o.name }} · {{ o.days }} дн.</p>
+                <p class="text-xs text-muted">{{ o.breakdown }}</p>
+            </div>
+            {% if o.affordable %}
+                <a href="{{ base }}?pay={{ o.tariff_id }}#pay" class="btn-pop !min-h-[40px] !py-1.5 !px-3 text-sm whitespace-nowrap">{{ o.total }}</a>
+            {% else %}
+                <span class="text-sm text-muted text-right whitespace-nowrap">{{ o.total }}<br><span class="text-xs">не хватает {{ o.missing }}</span></span>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="mt-3 text-sm text-muted">Сейчас нет тарифов для оплаты.</p>
+    {% endif %}
+</section>
+
+<!-- ============ История ============ -->
+<section class="sticker p-5 sm:p-6 animate-in [animation-delay:0.2s]" aria-labelledby="ptHistoryTitle">
+    <h2 id="ptHistoryTitle" class="font-display font-extrabold text-lg flex items-center gap-2">
+        {{ ic.icon('history', 'w-5 h-5 text-orange') }} Последние операции
+    </h2>
+    {% if history %}
+    <ul class="mt-3 divide-y-2 divide-blue/10">
+        {% for h in history %}
+        <li class="py-2 flex items-center justify-between gap-3 text-sm">
+            <span class="min-w-0">
+                <span class="text-muted tabular-nums">{{ h.date }}</span> · {{ h.title }}{% if h.status %} <span class="badge badge-muted">{{ h.status }}</span>{% endif %}
+            </span>
+            <b class="tabular-nums whitespace-nowrap {{ 'text-success' if h.positive else 'text-ink' }}">{{ h.amount }}</b>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="mt-3 text-sm text-muted">Пока нет ни одного движения по балансу.</p>
+    {% endif %}
+</section>
+
+<script>
+(function () {
+    // Копирование ссылок: в Mini App — tmaCopy (haptic + тост), на сайте — буфер обмена и тост, если он есть.
+    Array.prototype.forEach.call(document.querySelectorAll('[data-copy]'), function (btn) {
+        btn.addEventListener('click', function () {
+            var id = btn.getAttribute('data-copy');
+            if (window.tmaCopy) { window.tmaCopy(id, 'Скопировано!'); return; }
+            var input = document.getElementById(id);
+            if (!input || !navigator.clipboard) return;
+            navigator.clipboard.writeText(input.value).then(function () {
+                if (window.showToast) window.showToast('Скопировано!', 'success');
+            });
+        });
+    });
+    // Двойное нажатие «Оплатить»/«Отправить заявку» безопасно (nonce, одна заявка), но блокируем кнопку,
+    // чтобы не пугать человека вторым экраном «уже проведено».
+    Array.prototype.forEach.call(document.querySelectorAll('form[method="post"]'), function (form) {
+        form.addEventListener('submit', function () {
+            var btn = form.querySelector('button[type="submit"]');
+            if (btn) setTimeout(function () { btn.disabled = true; }, 0);
+        });
+    });
+})();
+</script>

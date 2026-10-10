@@ -334,10 +334,42 @@ class PartnerRepository:
             "paid_friends": int(paid_friends), "withdrawn_kop": int(withdrawn_kop), "invited": int(invited),
         }
 
+    async def debt_summary(self) -> dict:
+        """
+        Сколько магазин должен партнёрам (для админской статистики), в копейках:
+        balance_kop — на балансах (можно вывести или потратить), hold_kop — начисления в холде
+        (ещё могут сгореть при возврате), pending_kop — заявки на вывод, которые админ ещё
+        не выплатил (с баланса уже списаны). Долг — сумма всех трёх.
+        """
+        async with self._session_maker() as session:
+            balance_kop, partners = (await session.execute(
+                select(func.coalesce(func.sum(Partner.balance_kop), 0),
+                       func.count().filter(Partner.balance_kop > 0))
+            )).one()
+            hold_kop = (await session.execute(
+                select(func.coalesce(func.sum(PartnerLedger.amount_kop), 0))
+                .where(PartnerLedger.kind == "accrual", PartnerLedger.status == HOLD)
+            )).scalar_one()
+            pending_kop, pending_count = (await session.execute(
+                select(func.coalesce(func.sum(PartnerWithdrawal.amount_kop), 0), func.count())
+                .where(PartnerWithdrawal.status == PENDING)
+            )).one()
+        balance_kop, hold_kop, pending_kop = int(balance_kop), int(hold_kop), int(pending_kop)
+        return {
+            "total_kop": balance_kop + hold_kop + pending_kop, "balance_kop": balance_kop,
+            "hold_kop": hold_kop, "pending_kop": pending_kop, "pending_count": int(pending_count),
+            "partners_with_balance": int(partners),
+        }
+
     async def manager_fee_for_payment(self, payment_id: str) -> float:
-        """Услуга менеджера внутри оплаты (это деньги менеджера — процент с неё не считается)."""
+        """
+        Услуга менеджера внутри оплаты (это деньги менеджера — процент с неё не считается).
+        Если услугу взяли наличными мимо ЮKassa (fee_in_cash), в сумме оплаты её нет — 0.
+        """
         async with self._session_maker() as session:
             fee = (await session.execute(
-                select(ManagerOperation.service_fee).where(ManagerOperation.payment_id == payment_id).limit(1)
+                select(ManagerOperation.service_fee).where(
+                    ManagerOperation.payment_id == payment_id, ManagerOperation.fee_in_cash.is_(False),
+                ).limit(1)
             )).scalar_one_or_none()
             return float(fee or 0)

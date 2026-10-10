@@ -3,13 +3,17 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, update, func, case, or_, and_
 
-from db import Payment, Tariff
+from db import ManagerOperation, Payment, Tariff
 
 _MSK = ZoneInfo("Europe/Moscow")
 
 # Не рублёвая выручка: Stars считаются в XTR, а оплата с партнёрского баланса —
 # деньги, которые магазин уже отдал партнёру начислением (живых денег не пришло).
 NON_REVENUE_SOURCES = ("stars", "balance")
+# Продажи менеджеров (QR и наличные) считаются отдельным блоком статистики
+# (get_manager_sales) и в общий «Доход» не входят.
+MANAGER_SOURCES = ("manager", "cash")
+_NOT_IN_REVENUE = NON_REVENUE_SOURCES + MANAGER_SOURCES
 
 
 def _msk_period_start(kind: str, now_utc: datetime | None = None) -> datetime:
@@ -190,7 +194,8 @@ class PaymentRepository:
                 Payment.completed_at >= since,
                 # Stars-платежи (docs/tma-roadmap.md фаза 3.2) хранят сумму в XTR,
                 # а не в рублях — не смешиваем их с рублёвым доходом (см. get_stars_revenue_total).
-                Payment.source.notin_(NON_REVENUE_SOURCES),
+                # Продажи менеджеров — отдельно (get_manager_sales).
+                Payment.source.notin_(_NOT_IN_REVENUE),
             )
             result = await session.execute(stmt)
             row = result.one()
@@ -199,7 +204,8 @@ class PaymentRepository:
     async def get_revenue_for_period(self, kind: str) -> dict:
         """Доход за КАЛЕНДАРНЫЙ период (kind: 'day'|'week'|'month'|'year'),
         границы считаются по МСК. Возвращает {"count", "revenue", "since"}.
-        Stars-платежи исключены (сумма в XTR, не в рублях) — см. get_stars_revenue_total."""
+        Stars-платежи исключены (сумма в XTR, не в рублях) — см. get_stars_revenue_total.
+        Продажи менеджеров тоже исключены — они отдельным блоком (get_manager_sales)."""
         async with self._session_maker() as session:
             since = _msk_period_start(kind)
             stmt = select(
@@ -208,7 +214,7 @@ class PaymentRepository:
             ).where(
                 Payment.status == 'succeeded',
                 Payment.completed_at >= since,
-                Payment.source.notin_(NON_REVENUE_SOURCES),
+                Payment.source.notin_(_NOT_IN_REVENUE),
             )
             result = await session.execute(stmt)
             row = result.one()
@@ -219,10 +225,47 @@ class PaymentRepository:
             stmt = select(
                 func.count(Payment.id),
                 func.coalesce(func.sum(Payment.final_amount), 0)
-            ).where(Payment.status == 'succeeded', Payment.source.notin_(NON_REVENUE_SOURCES))
+            ).where(Payment.status == 'succeeded', Payment.source.notin_(_NOT_IN_REVENUE))
             result = await session.execute(stmt)
             row = result.one()
             return {"count": row[0], "revenue": float(row[1])}
+
+    async def get_manager_sales(self, kind: str | None = None) -> dict:
+        """
+        Продажи менеджеров за календарный период (kind как в get_revenue_for_period,
+        None — за всё время). Возвращает {"count", "revenue", "qr", "cash", "fees"}.
+
+        revenue/qr/cash — деньги магазина: без услуги менеджера (она его заработок).
+        Услуга сидит внутри оплаты у наличных и у старых QR-продаж, где её брали через
+        ЮKassa; сейчас по QR её берут наличными (ManagerOperation.fee_in_cash), и в оплате
+        только подписка. fees — все услуги менеджеров за период, для справки.
+        """
+        fee_in_payment = func.coalesce(
+            case((ManagerOperation.fee_in_cash.is_(False), ManagerOperation.service_fee), else_=0), 0,
+        )
+        shop_part = Payment.final_amount - fee_in_payment
+        async with self._session_maker() as session:
+            stmt = (
+                select(
+                    Payment.source, func.count(Payment.id),
+                    func.coalesce(func.sum(shop_part), 0),
+                    func.coalesce(func.sum(func.coalesce(ManagerOperation.service_fee, 0)), 0),
+                )
+                .select_from(Payment)
+                .outerjoin(ManagerOperation, ManagerOperation.payment_id == Payment.yookassa_payment_id)
+                .where(Payment.status == 'succeeded', Payment.source.in_(MANAGER_SOURCES))
+                .group_by(Payment.source)
+            )
+            if kind is not None:
+                stmt = stmt.where(Payment.completed_at >= _msk_period_start(kind))
+            rows = (await session.execute(stmt)).all()
+        result = {"count": 0, "revenue": 0.0, "qr": 0.0, "cash": 0.0, "fees": 0.0}
+        for source, count, shop, fees in rows:
+            result["count"] += count
+            result["revenue"] += float(shop)
+            result["qr" if source == "manager" else "cash"] += float(shop)
+            result["fees"] += float(fees)
+        return result
 
     async def get_stars_revenue_total(self) -> dict:
         """Доход Stars (XTR) за всё время — отдельно от рублёвого дохода

@@ -119,6 +119,9 @@ def quote_text(quote, *, client_label: str) -> str:
     if quote.service_fee:
         lines.append(f"+ ваша услуга (подключение и настройка): {fmt_money(quote.service_fee)}")
     lines.append(f"\n💰 <b>К оплате: {fmt_money(quote.total)}</b>")
+    if quote.service_fee:
+        lines.append(f"📱 По QR: онлайн {fmt_money(quote.subscription_total)} за подписку, "
+                     f"услугу {fmt_money(quote.service_fee)} клиент отдаёт вам наличными.")
     if quote.hint:
         h = quote.hint
         lines.append(

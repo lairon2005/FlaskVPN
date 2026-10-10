@@ -392,7 +392,7 @@ async def api_issue(body: IssueRequest, session: ManagerSession = Depends(requir
         return _error(e)
     return JSONResponse({
         "operation_id": result.operation_id, "status": result.status, "price": result.price,
-        "payment_url": result.payment_url, "subscription_url": result.subscription_url,
+        "fee_cash": result.fee_cash, "payment_url": result.payment_url, "subscription_url": result.subscription_url,
         "client_code": result.client_code, "cabinet_url": result.cabinet_url,
         "expires_at": fmt_dt(result.expires_at) if result.expires_at else None,
         "replayed": result.replayed,

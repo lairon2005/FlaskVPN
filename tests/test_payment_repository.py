@@ -22,6 +22,7 @@ def load_payment_repository_module():
     db_module = types.ModuleType("db")
     db_module.Payment = type("Payment", (), {})
     db_module.Tariff = type("Tariff", (), {})
+    db_module.ManagerOperation = type("ManagerOperation", (), {})
 
     module_name = "payment_repository_under_test"
     module_path = (

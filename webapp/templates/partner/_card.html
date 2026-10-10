@@ -1,0 +1,27 @@
+{# Карточка партнёра в кабинете (dashboard.html): баланс и вход в /profile/partner. #}
+{% import "_icons.html" as ic %}
+<section class="sticker p-6 animate-in [animation-delay:0.25s]" aria-labelledby="partnerCardTitle">
+    <h2 id="partnerCardTitle" class="font-display font-extrabold text-lg flex items-center gap-2">
+        {{ ic.icon('users', 'w-5 h-5 text-orange') }} Партнёрская программа
+    </h2>
+    <p class="mt-2 text-sm text-subtle">
+        {% if partner.active %}
+            С каждой оплаты приглашённого друга — <span class="font-bold text-blue">{{ partner.percent }}%</span> вам на баланс.
+        {% else %}
+            Программа отключена, но накопленный баланс можно вывести или оплатить им подписку.
+        {% endif %}
+    </p>
+    <dl class="mt-4 flex gap-8">
+        <div>
+            <dt class="font-mono text-[0.66rem] tracking-[0.14em] uppercase text-muted">Баланс</dt>
+            <dd class="font-display font-black text-2xl text-orange tabular-nums">{{ partner_balance }}</dd>
+        </div>
+        <div>
+            <dt class="font-mono text-[0.66rem] tracking-[0.14em] uppercase text-muted">Приглашено</dt>
+            <dd class="font-display font-black text-2xl tabular-nums">{{ partner.invited }}</dd>
+        </div>
+    </dl>
+    <a href="/profile/partner" class="btn-pop w-full mt-4">
+        {{ ic.icon('banknote', 'w-5 h-5') }} Баланс, вывод и ссылки
+    </a>
+</section>

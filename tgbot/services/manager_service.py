@@ -29,7 +29,7 @@ from tgbot.services.custom_pricing import (
 )
 from tgbot.services.device_pricing import build_checkout, days_left, receipt_items
 from tgbot.services.manager_receipts import (
-    KIND_CUSTOM, KIND_TARIFF, KIND_TEMP, SERVICE_FEE_TITLE, ReceiptData, fmt_dt, fmt_money, fmt_time,
+    KIND_CUSTOM, KIND_TARIFF, KIND_TEMP, ReceiptData, fmt_dt, fmt_money, fmt_time,
     format_client_receipt, format_group_receipt, format_manager_receipt,
 )
 from tgbot.services.manager_security import (
@@ -265,8 +265,9 @@ class IssueQuote:
 class IssueResult:
     operation_id: int
     status: str                     # completed | pending_payment
-    price: float
+    price: float                    # счёт ЮKassa (по QR — без услуги) или итог проведённой продажи
     payment_url: str | None = None
+    fee_cash: float = 0.0           # по QR: услуга, которую менеджер берёт с клиента наличными
     subscription_url: str | None = None
     client_code: str | None = None
     cabinet_url: str | None = None  # только для нового клиента — ссылка показывается один раз
@@ -1127,11 +1128,11 @@ class ManagerService:
             checkout = checkout.with_traffic(quote.packs, quote.traffic_cost, quote.extra_traffic_gb)
         kind = "custom" if quote.product == "custom" else "subscription"
         description = f"Подписка VPN: {quote.tariff_name}" + (f" ({quote.days} дн.)" if kind == "custom" else "")
+        # По QR через ЮKassa идёт только подписка: услугу менеджера клиент отдаёт ему наличными,
+        # в счёт и фискальный чек она не входит (в нашем чеке — отдельной строкой «наличными»).
         items = receipt_items(quote.tariff_name if kind == "subscription" else f"{quote.days} дн.",
                               checkout, quote.days)
-        if quote.service_fee:
-            # Отдельная позиция фискального чека: клиент видит, за что платит сверх тарифа.
-            items.append({"description": SERVICE_FEE_TITLE, "quantity": 1, "amount": quote.service_fee})
+        amount = quote.subscription_total
 
         cfg = self._config
         if cabinet_token:
@@ -1144,7 +1145,7 @@ class ManagerService:
         try:
             payment_url, yk_id = await asyncio.to_thread(
                 self._create_payment,
-                amount=quote.total, description=description, return_url=return_url,
+                amount=amount, description=description, return_url=return_url,
                 user_id=client.user_id, user_email=client.email,
                 shop_id=cfg.yookassa.shop_id, secret_key=cfg.yookassa.secret_key,
                 save_payment_method=quote.autorenew_available,
@@ -1157,15 +1158,16 @@ class ManagerService:
 
         await self._payments.create_payment_record(
             yookassa_payment_id=yk_id, user_id=client.user_id, tariff_id=quote.tariff_id,
-            original_amount=quote.total, final_amount=quote.total, source="manager", kind=kind,
+            original_amount=amount, final_amount=amount, source="manager", kind=kind,
             extra_devices=quote.slots, extra_traffic_gb=quote.extra_traffic_gb,
             manager_id=manager.id, days=quote.days if kind == "custom" else None,
         )
-        await self._ops.update(op.id, status="pending_payment", payment_id=yk_id, payment_method="online")
+        await self._ops.update(op.id, status="pending_payment", payment_id=yk_id, payment_method="online",
+                               fee_in_cash=True)
         await self._publish(op.id)
         return IssueResult(
-            operation_id=op.id, status="pending_payment", price=quote.total, payment_url=payment_url,
-            client_code=client.client_code, cabinet_url=self._cabinet_url(cabinet_token),
+            operation_id=op.id, status="pending_payment", price=amount, payment_url=payment_url,
+            fee_cash=quote.service_fee, client_code=client.client_code, cabinet_url=self._cabinet_url(cabinet_token),
         )
 
     def _cabinet_url(self, token: str | None) -> str | None:
@@ -1248,7 +1250,8 @@ class ManagerService:
         fresh = await self._ops.get(op.id)
         if self.notifier is None or not fresh or not fresh.invoice_message_id:
             return
-        text = template.format(price=fmt_money(fresh.price or 0))
+        paid = (fresh.price or 0) - ((fresh.service_fee or 0) if fresh.fee_in_cash else 0)
+        text = template.format(price=fmt_money(paid))
         try:
             await self.notifier.update_invoice(fresh.invoice_chat_id, fresh.invoice_message_id, text)
         except Exception as e:
@@ -1603,7 +1606,7 @@ class ManagerService:
             product_title=op.tariff_name or "", days=op.days, custom_note=custom_note,
             traffic_gb=op.traffic_gb, devices_limit=devices_limit,
             expires_at=op.key_expires_at, price=op.price or 0.0, service_fee=op.service_fee or 0.0,
-            payment_method=op.payment_method,
+            fee_in_cash=bool(op.fee_in_cash), payment_method=op.payment_method,
             autorenew=autorenew, cash_outstanding=outstanding, key_username=op.key_username,
             key_fingerprint=op.key_fingerprint,
             temp_deleted_at=_now() if temp_deleted else None,

@@ -13,7 +13,7 @@ MUTABLE_FIELDS = {
     "key_fingerprint", "key_expires_at", "completed_at", "receipt_chat_id",
     "receipt_message_id", "client_user_id", "client_code", "price", "price_details",
     "traffic_gb", "days", "tariff_name", "tariff_id", "extra_devices",
-    "invoice_chat_id", "invoice_message_id", "service_fee",
+    "invoice_chat_id", "invoice_message_id", "service_fee", "fee_in_cash",
 }
 
 # Сколько из цены операции — деньги магазина (без услуги менеджера).
@@ -214,8 +214,9 @@ class ManagerOperationRepository:
 
     async def fees_outstanding(self, manager_id: int) -> tuple[float, int]:
         """
-        «К выплате менеджеру»: его услуги из онлайн-продаж — деньги пришли магазину
-        через ЮKassa. Возвраты (status='refunded') не считаются.
+        «К выплате менеджеру»: его услуги из онлайн-продаж, которые пришли магазину
+        через ЮKassa. Сейчас по QR услугу берут наличными (fee_in_cash) — копятся только
+        старые продажи. Возвраты (status='refunded') не считаются.
         """
         async with self._session_maker() as session:
             stmt = select(func.coalesce(func.sum(ManagerOperation.service_fee), 0), func.count()).where(
@@ -223,6 +224,7 @@ class ManagerOperationRepository:
                 ManagerOperation.payment_method == 'online',
                 ManagerOperation.status == 'completed',
                 ManagerOperation.service_fee > 0,
+                ManagerOperation.fee_in_cash.is_(False),
                 ManagerOperation.fee_paid_at.is_(None),
             )
             total, count = (await session.execute(stmt)).one()
@@ -243,6 +245,7 @@ class ManagerOperationRepository:
                     ManagerOperation.payment_method == 'online',
                     ManagerOperation.status == 'completed',
                     ManagerOperation.service_fee > 0,
+                    ManagerOperation.fee_in_cash.is_(False),
                     ManagerOperation.fee_paid_at.is_(None),
                 )
                 .values(fee_paid_at=now, fee_payout_id=payout.id)

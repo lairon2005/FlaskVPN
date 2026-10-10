@@ -3,6 +3,7 @@ import asyncio
 from database.repositories.stats import StatsRepository
 from database.repositories.payment import PaymentRepository
 from database.repositories.lifecycle import LifecycleRepository
+from database.repositories.partner import PartnerRepository
 from remnawave.client import RemnawaveClient
 
 
@@ -17,11 +18,13 @@ async def _safe(coro, default):
 class AdminStatsService:
     def __init__(self, stats_repo: StatsRepository, remnawave: RemnawaveClient,
                  payment_repo: PaymentRepository,
-                 lifecycle_repo: LifecycleRepository | None = None):
+                 lifecycle_repo: LifecycleRepository | None = None,
+                 partner_repo: PartnerRepository | None = None):
         self._stats_repo = stats_repo
         self._remnawave = remnawave
         self._payment_repo = payment_repo
         self._lifecycle_repo = lifecycle_repo
+        self._partner_repo = partner_repo
 
     async def get_dashboard_stats(self) -> dict:
         """Агрегирует статистику из БД и Remnawave для админ-панели.
@@ -64,6 +67,14 @@ class AdminStatsService:
             "revenue_total": await self._payment_repo.get_total_revenue(),
             # Доход Stars (XTR) — отдельно от рублёвого, не смешивается в суммах выше.
             "stars_revenue_total": await self._payment_repo.get_stars_revenue_total(),
+            # Продажи менеджеров (QR и наличные) — отдельно, в «Доход» выше не входят.
+            "manager_sales": {
+                period: await self._payment_repo.get_manager_sales(kind)
+                for period, kind in (("today", "day"), ("week", "week"), ("month", "month"),
+                                     ("year", "year"), ("total", None))
+            },
+            # Долг партнёрам: балансы + холд + невыплаченные заявки на вывод.
+            "partner_debt": await self._partner_repo.debt_summary() if self._partner_repo else None,
         }
 
     async def get_cohort_metrics(self) -> dict:

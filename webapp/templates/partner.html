@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% import "_icons.html" as ic %}
+
+{% block meta_title %}Партнёрская программа | FlaskVPN{% endblock %}
+{% block meta_description %}Кабинет партнёра FlaskVPN: баланс, вывод по СБП и оплата подписки с баланса.{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+
+{% block content %}
+<div class="relative overflow-hidden">
+    <div class="pointer-events-none absolute -top-32 -right-28 w-96 h-80 blob bg-sky/25" aria-hidden="true"></div>
+
+    <div class="relative mx-auto max-w-3xl px-4 py-8 lg:py-12 space-y-5">
+        <header class="flex flex-wrap items-center justify-between gap-3 animate-in">
+            <h1 class="font-display font-black text-2xl sm:text-3xl flex items-center gap-2">
+                {{ ic.icon('users', 'w-7 h-7 text-orange') }} Партнёрская программа
+            </h1>
+            <a href="/profile/" class="btn-pop btn-pop-outline !min-h-[40px] !py-1.5 !px-3 text-sm">
+                {{ ic.icon('arrow-right', 'w-4 h-4 rotate-180') }} В кабинет
+            </a>
+        </header>
+
+        {% include "partner/_panel.html" %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/scripts.js" defer></script>
+{% endblock %}

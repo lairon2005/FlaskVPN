@@ -23,6 +23,9 @@ KIND_TEMP = "temp"
 
 # Услуга менеджера — так она называется в чеках (наших и фискальном ЮKassa).
 SERVICE_FEE_TITLE = "Подключение и настройка VPN"
+# Та же услуга, взятая наличными при оплате по QR. Короче — чтобы в картинке чека
+# название и сумма умещались в одну строку.
+SERVICE_FEE_CASH_TITLE = "Подключение VPN (наличными)"
 
 
 def receipt_number(op_id: int) -> str:
@@ -71,6 +74,7 @@ class ReceiptData:
     expires_at: datetime | None = None
     price: float = 0.0                # итого, вместе с услугой менеджера
     service_fee: float = 0.0          # услуга менеджера внутри price
+    fee_in_cash: bool = False         # оплата по QR: подписка через ЮKassa, услуга — наличными менеджеру
     payment_method: str | None = None  # cash | online | free
     autorenew: bool | None = None
     cash_outstanding: float | None = None
@@ -114,6 +118,8 @@ def _status_line(data: ReceiptData) -> str:
 def _payment_line(data: ReceiptData) -> str | None:
     if data.payment_method == "online":
         renew = " · автопродление ✅" if data.autorenew else (" · автопродление ❌" if data.autorenew is False else "")
+        if data.fee_in_cash and data.service_fee:
+            return f"💳 Подписка — онлайн (ЮKassa), услуга — наличными менеджеру{renew}"
         return f"💳 Онлайн (ЮKassa){renew}"
     if data.payment_method == "cash":
         outstanding = (
@@ -125,10 +131,15 @@ def _payment_line(data: ReceiptData) -> str | None:
 
 
 def money_lines(data: ReceiptData) -> list[tuple[str, float]]:
-    """Из чего сложилась сумма: [(название, ₽)]. Без услуги менеджера — пусто, хватает «Итого»."""
+    """
+    Из чего сложилась сумма: [(название, ₽)]. Без услуги менеджера — пусто, хватает «Итого».
+    При оплате по QR услугу клиент отдаёт наличными — так и подписываем, чтобы было видно,
+    почему счёт ЮKassa меньше итога.
+    """
     if not data.service_fee:
         return []
-    return [("Подписка", data.price - data.service_fee), (SERVICE_FEE_TITLE, data.service_fee)]
+    fee_title = SERVICE_FEE_CASH_TITLE if data.fee_in_cash else SERVICE_FEE_TITLE
+    return [("Подписка", data.price - data.service_fee), (fee_title, data.service_fee)]
 
 
 def _money_block(data: ReceiptData) -> list[str]:

@@ -332,7 +332,9 @@ async def _show_done(call: CallbackQuery, result):
 async def _show_invoice(call: CallbackQuery, result):
     caption = (
         f"💳 <b>Счёт на {fmt_money(result.price)}</b> · чек № {receipt_number(result.operation_id)}\n\n"
-        "📱 Разверните телефон к клиенту: он наводит камеру на QR и платит картой или через СБП.\n\n"
+        + (f"💵 <b>Возьмите с клиента наличными вашу услугу — {fmt_money(result.fee_cash)}.</b> "
+           "В счёт по QR она не входит.\n\n" if result.fee_cash else "")
+        + "📱 Разверните телефон к клиенту: он наводит камеру на QR и платит картой или через СБП.\n\n"
         "⏳ <b>Ждём оплату.</b> Это сообщение обновится само, а чек с QR для установки придёт сразу после оплаты.\n\n"
         f"<code>{result.payment_url}</code>"
     )

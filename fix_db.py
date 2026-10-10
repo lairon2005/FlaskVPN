@@ -450,6 +450,14 @@ async def fix_database():
         ))
         print("  ✅ users.partner_referred")
 
+        # ── 23. Менеджеры: услуга при оплате по QR — наличными, не через ЮKassa ──
+        # Старые онлайн-операции остаются с false: их услуга пришла магазину и ждёт выплаты.
+        print("\n📋 Менеджеры: услуга при QR-оплате наличными...")
+        await conn.execute(text(
+            "ALTER TABLE manager_operations ADD COLUMN IF NOT EXISTS fee_in_cash BOOLEAN NOT NULL DEFAULT false;"
+        ))
+        print("  ✅ manager_operations.fee_in_cash")
+
     print("\n🎉 Миграция завершена успешно!")
 
 

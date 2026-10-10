@@ -1,9 +1,11 @@
 """
 Услуга менеджера (подключение и настройка) и чек картинкой.
 
-Деньги: услуга входит в сумму продажи отдельной позицией (в том числе в фискальный чек
-ЮKassa), автопродление её не списывает; наличные — услуга остаётся у менеджера и не
-входит в «к сдаче»; онлайн — копится «к выплате менеджеру», возврат её снимает.
+Деньги: услуга входит в сумму продажи отдельной строкой, автопродление её не списывает;
+наличные — услуга остаётся у менеджера и не входит в «к сдаче»; по QR через ЮKassa идёт
+только подписка, услугу клиент отдаёт менеджеру наличными (в нашем чеке она есть, в счёте
+и фискальном чеке ЮKassa — нет). «К выплате менеджеру» копится только по старым онлайн-продажам,
+где услуга шла через ЮKassa; возврат её снимает.
 Чек: каждому адресату — картинка и текст одним сообщением, в группе нет QR и пометки.
 """
 import importlib.util
@@ -39,7 +41,8 @@ class FeeCase(unittest.IsolatedAsyncioTestCase):
         kwargs.setdefault("tariff_id", 2)
         return await self.svc.issue(manager.id, method=method, idempotency_nonce=nonce, **kwargs)
 
-    async def pay(self, n=1, amount=399.0, card=None):
+    async def pay(self, n=1, amount=149.0, card=None):
+        """Оплата QR-счёта: по QR приходит только подписка (149 ₽), услуга — наличными менеджеру."""
         await self.env.payments.process_successful_payment(f"yk-{n}", amount, payment_method=card)
         await self.svc.on_payment_succeeded(f"yk-{n}")
 
@@ -142,22 +145,38 @@ class CashTests(FeeCase):
 
 
 class OnlineTests(FeeCase):
-    async def test_fee_is_a_separate_line_of_the_fiscal_receipt(self):
+    async def test_qr_bills_only_the_subscription(self):
         manager = await self.manager()
-        await self.sell(manager, method="online")
+        result = await self.sell(manager, method="online")
         kwargs = self.env.created_payments[0]
-        self.assertEqual(kwargs["amount"], 399.0)
+        self.assertEqual(kwargs["amount"], 149.0)                  # услуга в счёт ЮKassa не входит
         items = kwargs["items"]
-        self.assertEqual(sum(i["amount"] * i["quantity"] for i in items), 399.0)
-        self.assertEqual(items[-1], {"description": "Подключение и настройка VPN", "quantity": 1, "amount": 250.0})
-        self.assertIn("Месяц", items[0]["description"])            # тариф — своей позицией
+        self.assertEqual(sum(i["amount"] * i["quantity"] for i in items), 149.0)
+        self.assertNotIn("Подключение и настройка VPN", [i["description"] for i in items])
+        self.assertIn("Месяц", items[0]["description"])
+        # менеджеру — счёт на подписку и напоминание взять услугу наличными
+        self.assertEqual((result.price, result.fee_cash), (149.0, 250.0))
+        op = await self.env.repos.ops.get(result.operation_id)
+        self.assertEqual((op.price, op.service_fee, op.fee_in_cash), (399.0, 250.0, True))
+        payment = await self.env.repos.payments.get_by_yookassa_id(op.payment_id)
+        self.assertEqual((payment.original_amount, payment.final_amount), (149.0, 149.0))
         self.assertIn("Услуга менеджера при продлении не списывается",
                       (await self.svc.quote(manager.id, product="tariff", tariff_id=2)).renew_text)
 
-    async def test_no_fee_no_extra_line(self):
+    async def test_no_fee_no_cash_part(self):
         manager = await self.manager(fee=0)
-        await self.sell(manager, method="online")
+        result = await self.sell(manager, method="online")
         self.assertEqual(len(self.env.created_payments[0]["items"]), 1)
+        self.assertEqual((result.price, result.fee_cash), (149.0, 0.0))
+
+    async def test_payment_of_the_subscription_completes_the_sale(self):
+        manager = await self.manager()
+        result = await self.sell(manager, method="online")
+        await self.pay()
+        op = await self.env.repos.ops.get(result.operation_id)
+        self.assertEqual(op.status, "completed")
+        payment = await self.env.repos.payments.get_by_yookassa_id(op.payment_id)
+        self.assertEqual(payment.status, "succeeded")
 
     async def test_autorenew_charges_only_the_tariff(self):
         manager = await self.manager()
@@ -170,20 +189,43 @@ class OnlineTests(FeeCase):
         self.assertEqual(tariff.price, 149)
         self.assertEqual(op.service_fee, 250.0)
 
-    async def test_paid_fees_wait_for_payout_and_payout_clears_them(self):
+    async def test_cash_fee_of_qr_sale_is_not_owed_to_the_manager(self):
         manager = await self.manager()
         await self.sell(manager, method="online")
+        await self.pay()
+        # услугу менеджер уже взял наличными — выплачивать нечего, в «к сдаче» её тоже нет
+        self.assertEqual(await self.svc.fees_outstanding(manager.id), (0.0, 0))
+        self.assertEqual(await self.svc.cash_outstanding(manager.id), (0.0, 0))
+        self.assertIsNone(await self.svc.payout_fees(manager.id, admin_id=9))
+        stats = await self.svc.stats(manager.id)
+        self.assertEqual((stats.today.revenue, stats.today.fees, stats.fees_outstanding), (399.0, 250.0, 0.0))
+
+    async def test_old_qr_fees_still_wait_for_payout(self):
+        """Продажи до перехода: услуга пришла магазину через ЮKassa (fee_in_cash=false) — её выплачивают."""
+        manager = await self.manager()
+        result = await self.sell(manager, method="online")
+        await self.env.repos.ops.update(result.operation_id, fee_in_cash=False)
         self.assertEqual(await self.svc.fees_outstanding(manager.id), (0.0, 0))   # не оплачено — не долг
         await self.pay()
         self.assertEqual(await self.svc.fees_outstanding(manager.id), (250.0, 1))
-        stats = await self.svc.stats(manager.id)
-        self.assertEqual((stats.today.revenue, stats.today.fees, stats.fees_outstanding), (399.0, 250.0, 250.0))
 
         payout = await self.svc.payout_fees(manager.id, admin_id=9)
         self.assertEqual((payout.amount, payout.operations_count), (250.0, 1))
         self.assertEqual(await self.svc.fees_outstanding(manager.id), (0.0, 0))
         self.assertIsNone(await self.svc.payout_fees(manager.id, admin_id=9))
         self.assertIn("выплатил вам 250 ₽", self.env.notifier.manager_texts[-1][1])
+
+    async def test_receipt_shows_the_fee_paid_in_cash(self):
+        manager = await self.manager()
+        result = await self.sell(manager, method="online")
+        await self.pay()
+        text = self.env.notifier.group[-1][1]
+        self.assertIn("Подписка: 149 ₽", text)
+        self.assertIn("Подключение VPN (наличными): 250 ₽", text)
+        self.assertIn("Итого: 399 ₽", text)
+        self.assertIn("услуга — наличными менеджеру", text)
+        image = await self.svc.receipt_image(manager.id, result.operation_id)
+        self.assertTrue(image.startswith(b"\x89PNG"))
 
     async def test_refund_takes_the_fee_out(self):
         manager = await self.manager()
@@ -218,7 +260,7 @@ class DeliveryTests(FeeCase):
         self.assertTrue(notifier.manager_msgs[-1]["has_key"])
         self.assertEqual(notifier.client_images[-1][0], 555)
         self.assertTrue(notifier.client_images[-1][1].startswith(b"\x89PNG"))
-        self.assertIn("Подключение и настройка VPN: 250 ₽", notifier.client_msgs[-1][1])
+        self.assertIn("Подключение VPN (наличными): 250 ₽", notifier.client_msgs[-1][1])
 
     async def test_cash_result_carries_the_image_for_the_handler(self):
         manager = await self.manager(can_accept_cash=True)
@@ -461,8 +503,10 @@ class BotFeeTests(unittest.IsolatedAsyncioTestCase):
         view = await self.svc.view(manager.id)
         self.assertEqual((view.service_fee, view.service_fee_locked), (200, True))
 
-        await self.svc.issue(manager.id, product="tariff", tariff_id=2, method="online", idempotency_nonce="o1")
-        await self.env.payments.process_successful_payment("yk-1", 349.0)
+        result = await self.svc.issue(manager.id, product="tariff", tariff_id=2, method="online", idempotency_nonce="o1")
+        # продажа до перехода на «услугу наличными»: услуга шла через ЮKassa и ждёт выплаты
+        await self.env.repos.ops.update(result.operation_id, fee_in_cash=False)
+        await self.env.payments.process_successful_payment("yk-1", 149.0)
         await self.svc.on_payment_succeeded("yk-1")
         await self.bot.press(ADMIN, f"admin_mgr:{manager.id}")
         self.assertIn(f"admin_mgr_payout:{manager.id}", str(self.session.of("EditMessageText")[-1]["reply_markup"]))

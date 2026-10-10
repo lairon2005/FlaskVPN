@@ -362,8 +362,11 @@ class ManagerOperation(Base):
     extra_devices: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
     price: Mapped[float] = mapped_column(Float, default=0, server_default='0')
     # Сколько из price — услуга менеджера (снимок на момент продажи). Наличные: остаётся
-    # у менеджера, в «к сдаче» не входит. Онлайн: пришла магазину — к выплате менеджеру.
+    # у менеджера, в «к сдаче» не входит. Онлайн: клиент отдаёт её менеджеру наличными
+    # (fee_in_cash) — в счёт ЮKassa она не входит. Старые онлайн-продажи (fee_in_cash=false)
+    # брали услугу через ЮKassa — она к выплате менеджеру.
     service_fee: Mapped[float] = mapped_column(Float, default=0, server_default='0', nullable=False)
+    fee_in_cash: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false', nullable=False)
     fee_paid_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)
     fee_payout_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     price_details: Mapped[dict] = mapped_column(JSONB, nullable=True)     # из чего сложилась цена

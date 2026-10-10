@@ -6,6 +6,7 @@ from aiogram.exceptions import TelegramBadRequest
 from tgbot.filters.admin import IsAdmin
 from tgbot.keyboards.inline import admin_main_menu_keyboard
 from tgbot.services import admin_stats_service
+from tgbot.services.partner_rules import fmt_rub
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from loader import logger
 
@@ -19,6 +20,36 @@ async def admin_start(message: Message):
 @admin_main_router.callback_query(F.data == "admin_main_menu")
 async def admin_main_menu(call: CallbackQuery):
     await call.message.edit_text("Добро пожаловать в админ-панель!", reply_markup=admin_main_menu_keyboard())
+
+_PERIODS = (("today", "Сегодня"), ("week", "Неделя"), ("month", "Месяц"), ("year", "Год"), ("total", "Всего"))
+
+
+def manager_sales_lines(sales: dict) -> list[str]:
+    """Продажи менеджеров по периодам: деньги магазина (без услуги менеджера), QR и наличные отдельно."""
+    lines = ["<b>Продажи менеджеров (в доход выше не входят):</b>"]
+    for i, (key, title) in enumerate(_PERIODS):
+        row = sales[key]
+        prefix = "└" if i == len(_PERIODS) - 1 else "├"
+        split = f" · QR {row['qr']:.0f} ₽ · нал. {row['cash']:.0f} ₽" if row["count"] else ""
+        lines.append(f"{prefix} {title}: <b>{row['revenue']:.2f} ₽</b> ({row['count']}){split}")
+    fees = sales["total"]["fees"]
+    if fees:
+        lines.append(f"<i>Услуги менеджеров (их деньги, не входят): {fees:.0f} ₽ за всё время</i>")
+    return lines
+
+
+def partner_debt_lines(debt: dict | None) -> list[str]:
+    """Сколько должны партнёрам: балансы + холд + невыплаченные заявки на вывод."""
+    if debt is None:
+        return []
+    return [
+        f"<b>Долг партнёрам: {fmt_rub(debt['total_kop'])}</b>",
+        f"├ На балансах: {fmt_rub(debt['balance_kop'])}",
+        f"├ В холде: {fmt_rub(debt['hold_kop'])}",
+        f"└ Заявки на вывод: {fmt_rub(debt['pending_kop'])} ({debt['pending_count']})",
+        "",
+    ]
+
 
 @admin_main_router.callback_query(F.data == "admin_stats")
 async def admin_stats_handler(call: CallbackQuery):
@@ -56,7 +87,7 @@ async def admin_stats_handler(call: CallbackQuery):
         f"├ Сейчас на пробной: <b>{stats['intro_funnel']['on_trial']}</b>",
         f"└ Отвалились: <b>{stats['intro_funnel']['dropped']}</b>",
         "",
-        "<b>Доход (календарь, МСК):</b>",
+        "<b>Доход (календарь, МСК, без продаж менеджеров):</b>",
         f"├ Сегодня: <b>{stats['revenue_today']['revenue']:.2f} ₽</b> ({stats['revenue_today']['count']})",
         f"├ Неделя: <b>{stats['revenue_week']['revenue']:.2f} ₽</b> ({stats['revenue_week']['count']})",
         f"├ Месяц: <b>{stats['revenue_month']['revenue']:.2f} ₽</b> ({stats['revenue_month']['count']})",
@@ -64,6 +95,9 @@ async def admin_stats_handler(call: CallbackQuery):
         f"└ Всего: <b>{stats['revenue_total']['revenue']:.2f} ₽</b> ({stats['revenue_total']['count']})",
         f"⭐ Stars: <b>{stats['stars_revenue_total']['stars']:.0f} ⭐</b> ({stats['stars_revenue_total']['count']})",
         "",
+        *manager_sales_lines(stats["manager_sales"]),
+        "",
+        *partner_debt_lines(stats["partner_debt"]),
         "<b>Сервер VPN:</b>",
         f"└ 🖥️ Онлайн сейчас: <b>{stats['online_now']}</b>\n",
         "<b>Подключенные узлы (Nodes):</b>",

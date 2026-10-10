@@ -129,6 +129,17 @@ class MainMenuModeTests(unittest.TestCase):
         self.assertTrue(targets["👥 Пригласить друга"].endswith("/tma/referral"))
         self.assertTrue(targets["💬 Поддержка"].endswith("/tma/support"))
 
+    def test_partner_goes_to_partner_cabinet_in_mini_app(self):
+        # Баланс, вывод и оплата с баланса партнёра есть в Mini App (/tma/partner) — не только в боте.
+        module = load_inline_module(ui_mode="tma")
+        targets = {t: (kind, url) for t, kind, url in buttons(module.main_menu_keyboard(is_partner=True))}
+        self.assertEqual(targets["👥 Пригласить друга"][0], "web_app")
+        self.assertTrue(targets["👥 Пригласить друга"][1].endswith("/tma/partner"))
+
+        bot_mode = load_inline_module(ui_mode="bot")
+        found = {t: url for t, _, url in buttons(bot_mode.main_menu_keyboard(is_partner=True))}
+        self.assertEqual(found["👥 Пригласить друга"], "referral_program")
+
     def test_bot_only_scenarios_stay_callbacks_in_tma_mode(self):
         # Триал требует проверки подписки на каналы через Bot API, привязка email —
         # FSM бота. Из Mini App их не сделать, поэтому они остаются callback-кнопками.

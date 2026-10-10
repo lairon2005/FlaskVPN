@@ -1,0 +1,12 @@
+{% extends "tma/base.html" %}
+{% import "_icons.html" as ic %}
+
+{% block content %}
+<h1 class="font-display font-black text-xl mb-3 flex items-center gap-2 animate-in">
+    {{ ic.icon('users', 'w-5 h-5 text-orange') }} Партнёрская программа
+</h1>
+
+<div class="space-y-3">
+    {% include "partner/_panel.html" %}
+</div>
+{% endblock %}

@@ -22,13 +22,13 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
 from jose import JWTError, jwt
 
 from tgbot.services import manager_service
 from tgbot.services.manager_service import ManagerView
+from webapp.core.origin import origin_allowed  # noqa: F401  (реэкспорт: роутер панели берёт отсюда)
 from webapp.core.security import ALGORITHM, SECRET_KEY
 
 COOKIE_NAME = "mgr_session"
@@ -150,15 +150,6 @@ async def require_session(request: Request) -> ManagerSession:
     if session is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return session
-
-
-def origin_allowed(request: Request) -> bool:
-    """Origin (или Referer) запроса должен совпадать с хостом сайта. Нет заголовка — отказ."""
-    source = request.headers.get("origin") or request.headers.get("referer")
-    if not source:
-        return False
-    host = urlparse(source).netloc
-    return bool(host) and host == request.headers.get("host", "")
 
 
 def verify_csrf(request: Request, session: ManagerSession, supplied: str | None) -> None:

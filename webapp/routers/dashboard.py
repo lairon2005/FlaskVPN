@@ -18,12 +18,20 @@ from tgbot.services import (
     device_slot_service,
     key_service,
     manager_service,
+    partner_service,
     traffic_service,
 )
+from tgbot.services.partner_rules import fmt_rub
+from tgbot.services.referral_service import REFERRER_LAUNCH_BONUS_DAYS, REFERRER_PAYMENT_BONUS_DAYS
+from tgbot.services.utils import decline_word
 from tgbot.services.key_service import CODE_OK, REVOKE_NOTICES
 from webapp.routers.tma import intro_consents
 
 router = APIRouter(prefix="/profile")
+
+
+def _days(n: int) -> str:
+    return f"{n} {decline_word(n, ('день', 'дня', 'дней'))}"
 
 # Фильтр даты
 
@@ -102,6 +110,12 @@ async def dashboard_page(
     # Referral info
     referral_count = await stats_repo.count_user_referrals(user.user_id)
     referral_bonus = user.referral_bonus_days or 0
+    # Партнёр (денежная рефералка): вместо блока бонусных дней — баланс и вход в кабинет
+    # партнёра. Отключённому показываем, только пока у него есть деньги в программе.
+    partner = await partner_service.overview(user.user_id)
+    if partner is not None and not partner.active and not (
+            partner.balance_kop or partner.hold_kop or partner.pending_withdrawal):
+        partner = None
 
     # Payment history
     payments_list = await payment_service.get_user_payments(user.user_id, limit=10)
@@ -130,6 +144,10 @@ async def dashboard_page(
         "intro_consents": await intro_consents(tariffs_list),
         "referral_count": referral_count,
         "referral_bonus": referral_bonus,
+        "referrer_launch_bonus": _days(REFERRER_LAUNCH_BONUS_DAYS),
+        "referrer_payment_bonus": _days(REFERRER_PAYMENT_BONUS_DAYS),
+        "partner": partner,
+        "partner_balance": fmt_rub(partner.balance_kop) if partner else None,
         "payments": payments_list,
         "manager_receipts": manager_receipts,
         "saved_card": saved_card,

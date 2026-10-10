@@ -442,6 +442,10 @@
                  'briefcase', 'w-4 h-4 shrink-0');
         }
         line(body, 'К оплате: ' + money(q.total), 'font-display font-black text-3xl mt-2');
+        if (q.service_fee) {
+            line(body, 'По QR: онлайн ' + money(q.total - q.service_fee) + ' за подписку, услугу ' +
+                       money(q.service_fee) + ' клиент отдаёт вам наличными.', 'text-sm text-subtle', 'qr', 'w-4 h-4 shrink-0 self-start mt-0.5');
+        }
         if (q.hint) {
             line(body, 'Выгоднее стандартный тариф «' + q.hint.name + '» — ' + q.hint.days + ' дн. за ' +
                        money(q.hint.price) + ' (на ' + money(q.hint.saving) + ' дешевле) и с автопродлением.',
@@ -520,6 +524,10 @@
         }
 
         line(box, 'Счёт на ' + money(data.price) + ' · чек № ' + receipt(data.operation_id), 'font-display font-extrabold text-xl', 'card', 'w-6 h-6 shrink-0 text-blue');
+        if (data.fee_cash) {
+            line(box, 'Возьмите с клиента наличными вашу услугу — ' + money(data.fee_cash) + '. В счёт по QR она не входит.',
+                 'mt-1 font-bold text-orange', 'banknote', 'w-5 h-5 shrink-0 self-start');
+        }
         line(box, 'Разверните телефон к клиенту: он наводит камеру на QR и платит картой или через СБП.', 'mt-1 text-sm');
         var img = document.createElement('img');
         img.className = 'mt-3 w-64 h-64 max-w-full rounded-2xl border-2 border-blue/20 bg-white'; img.alt = 'QR для оплаты';

@@ -15,6 +15,7 @@
 {% set payments = payments | default([], true) %}
 {% set manager_receipts = manager_receipts | default([], true) %}
 {% set tariffs = tariffs | default([], true) %}
+{% set partner = partner | default(none, true) %}
 
 {% block meta_title %}Личный кабинет | FlaskVPN{% endblock %}
 {% block meta_description %}Личный кабинет FlaskVPN: подписка, ключ подключения, устройства и платежи.{% endblock %}
@@ -381,14 +382,17 @@
                 {% endif %}
             </section>
 
-            <!-- Реферальная программа -->
-            {% if user.vpn_username %}
+            <!-- Реферальная программа: партнёру — баланс и вход в кабинет партнёра -->
+            {% if partner %}
+            {% include "partner/_card.html" %}
+            {% elif user.vpn_username %}
             <section class="sticker p-6 animate-in [animation-delay:0.25s]">
                 <h2 class="font-display font-extrabold text-lg flex items-center gap-2">
                     {{ ic.icon('gift', 'w-5 h-5 text-orange') }} Приглашайте друзей
                 </h2>
                 <p class="mt-2 text-sm text-subtle">
-                    <span class="font-bold text-blue">30 бонусных дней</span> за каждую первую оплату друга.
+                    <span class="font-bold text-blue">+{{ referrer_launch_bonus | default('3 дня') }}</span> за каждого друга и
+                    <span class="font-bold text-blue">+{{ referrer_payment_bonus | default('7 дней') }}</span> после его первой оплаты.
                 </p>
 
                 <div class="copy-field mt-3">
@@ -486,6 +490,7 @@
                 </button>
             </form>
         </section>
+        {% if partner %}{% include "partner/_card.html" %}{% endif %}
         {% endif %}
 
     </div>

@@ -31,7 +31,7 @@
     <ul class="mt-4 space-y-1.5 text-sm">
         <li class="flex gap-2">{{ ic.icon('rotate', 'w-4 h-4 shrink-0 mt-0.5 text-blue') }}<span>Автопродление списывает только стоимость подписки — без услуги.</span></li>
         <li class="flex gap-2">{{ ic.icon('banknote', 'w-4 h-4 shrink-0 mt-0.5 text-blue') }}<span>Наличные: услуга остаётся у вас, в «к сдаче» не входит.</span></li>
-        <li class="flex gap-2">{{ ic.icon('qr', 'w-4 h-4 shrink-0 mt-0.5 text-blue') }}<span>Оплата по QR: деньги приходят магазину, услугу выплачивает администратор. К выплате сейчас: <b class="tabular-nums whitespace-nowrap">{{ fmt_money(fees_due) }}</b>{% if fee_ops %} (продаж: {{ fee_ops }}){% endif %}.</span></li>
+        <li class="flex gap-2">{{ ic.icon('qr', 'w-4 h-4 shrink-0 mt-0.5 text-blue') }}<span>Оплата по QR: клиент платит онлайн только подписку, а услугу отдаёт вам наличными.{% if fees_due %} За прошлые продажи по QR к выплате: <b class="tabular-nums whitespace-nowrap">{{ fmt_money(fees_due) }}</b>{% if fee_ops %} (продаж: {{ fee_ops }}){% endif %}.{% endif %}</span></li>
     </ul>
 </section>
 

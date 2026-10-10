@@ -1,11 +1,33 @@
 """Счётчик попыток сброса пароля (webapp/routers/auth.py::process_reset_password)."""
 import asyncio
+import importlib.util
+import sys
+import types
 import unittest
 from datetime import datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from webapp.routers import auth
+import db_harness  # noqa: F401  (заглушки окружения до импорта db)
+
+
+def _load_auth():
+    """auth.py без production-синглтонов: tgbot.services (loader, бот) подменён заглушкой."""
+    tgbot = types.ModuleType("tgbot")
+    tgbot.__path__ = []
+    services = types.ModuleType("tgbot.services")
+    services.__path__ = []
+    services.referral_service = None
+    path = Path(__file__).resolve().parents[1] / "webapp" / "routers" / "auth.py"
+    spec = importlib.util.spec_from_file_location("auth_reset_under_test", path)
+    module = importlib.util.module_from_spec(spec)
+    with patch.dict(sys.modules, {"tgbot": tgbot, "tgbot.services": services}):
+        spec.loader.exec_module(module)
+    return module
+
+
+auth = _load_auth()
 
 
 class FakeResult:
@@ -36,9 +58,8 @@ class FakeDB:
         self.commits += 1
 
 
-class FakeTemplates:
-    def TemplateResponse(self, name, ctx):
-        return SimpleNamespace(name=name, ctx=ctx)
+def fake_render(request, name, context=None, status_code=200):
+    return SimpleNamespace(name=name, ctx=context or {})
 
 
 def _user(code="123456", attempts=0, expire_in=timedelta(minutes=10)):
@@ -49,7 +70,7 @@ def _user(code="123456", attempts=0, expire_in=timedelta(minutes=10)):
 
 
 def _reset(db, code, password="newpass1"):
-    with patch.object(auth, "templates", FakeTemplates()), \
+    with patch.object(auth, "render", fake_render), \
             patch.object(auth, "get_password_hash", lambda p: f"hash:{p}"):
         return asyncio.run(auth.process_reset_password(
             request=None, email="a@b.ru", code=code, new_password=password, db=db))

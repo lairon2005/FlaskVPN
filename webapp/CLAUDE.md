@@ -39,11 +39,13 @@ webapp/
 ├── core/
 │   ├── security.py      # get_password_hash(), verify_password(), create_access_token()
 │   ├── site.py          # SiteInfo: домен, ссылки на бота/поддержку, реквизиты из .env
+│   ├── origin.py        # origin_allowed(request) — проверка Origin/Referer для POST (панель менеджера, кабинет партнёра)
 │   └── mail.py          # send_verification_email(), send_reset_code(), MailSendError
 ├── routers/
 │   ├── auth.py          # /login /register /verify-email /logout /forgot-password /reset-password
 │   ├── dashboard.py     # /profile/ …
 │   ├── legal.py         # /offer /privacy /refund
+│   ├── partner.py       # кабинет партнёра: /profile/partner и /tma/partner (+ /requisites, /withdraw, /pay)
 │   └── payment.py       # /payment/create /payment/device-slots /payment/cancel-pending /payment/validate-promo /payment/apply-bonus-promo
 ├── static/
 │   ├── css/src/app.css  # ИСХОДНИК Tailwind: @theme-токены бренда + дофаминовые компоненты
@@ -203,6 +205,21 @@ python3 tools/make_collage.py  # пересобрать коллажную ка�
 
 > Для новых роутов используйте `webapp.templating.render(request, name, ctx, status_code)` — он работает
 > на любой версии Starlette (старая форма `TemplateResponse(name, ctx)` в новых версиях удалена).
+
+### `partner.py` — кабинет партнёра (денежная рефералка)
+Подробно — `docs/partners.md`. Один роутер на две поверхности: сайт (`/profile/partner`, база `base.html`)
+и Mini App (`/tma/partner`, база `tma/base.html`), тело — `templates/partner/_panel.html`. Всё через
+`partner_service`; POST — обычные формы с PRG (`?ok=`/`?err=` → текст из словарей) и проверкой Origin.
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/profile/partner`, `/tma/partner` | Баланс, холд, ссылки, вывод, оплата с баланса, история. `?pay=<тариф>` — подтверждение оплаты с nonce. Не партнёр → `/profile/` / `/tma/referral`; аноним → `/login` / сплэш TMA |
+| POST | `…/partner/requisites` | `phone`, `bank` — реквизиты СБП |
+| POST | `…/partner/withdraw` | `amount` («1500», «1500,50») — заявка на вывод |
+| POST | `…/partner/pay` | `tariff_id`, `nonce` (12 hex) — оплата подписки с баланса, повтор с тем же nonce ничего не спишет |
+
+В `/profile/` партнёру вместо блока бонусных дней — карточка `partner/_card.html` (и в ветке «нет подписки»).
+`auth.py` при регистрации привязывает реферера через `referral_service.attach_referrer` — как `/start` в боте.
 
 ### `legal.py`
 | Метод | Путь | Описание |

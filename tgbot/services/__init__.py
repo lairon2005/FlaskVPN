@@ -38,7 +38,8 @@ profile_service = ProfileService(user_repo, remnawave_client)
 device_service = DeviceService(user_repo, remnawave_client)
 device_slot_service = DeviceSlotService(user_repo, settings_repo, remnawave_client)
 key_service = KeyService(user_repo, remnawave_client)
-admin_stats_service = AdminStatsService(stats_repo, remnawave_client, payment_repo, lifecycle_repo)
+admin_stats_service = AdminStatsService(stats_repo, remnawave_client, payment_repo, lifecycle_repo,
+                                         partner_repo=partner_repo)
 # payment_method_service создаётся ДО payment_service — тот принимает его зависимостью
 payment_method_service = PaymentMethodService(payment_method_repo)
 payment_service = PaymentService(

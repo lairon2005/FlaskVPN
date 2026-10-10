@@ -204,6 +204,19 @@ class AccrualTests(PartnerCase):
         await self.pay(self.FRIEND, 399, yk_id="cash:1", source="cash", manager_id=manager.id)
         self.assertEqual((await self.service.overview(self.PARTNER)).hold_kop, 4470)   # 30% от 149
 
+    async def test_qr_sale_with_fee_in_cash_counts_the_whole_payment(self):
+        """По QR услуга идёт наличными мимо ЮKassa: в оплате только подписка — вычитать нечего."""
+        from db import ManagerOperation
+        await self.make_friend()
+        manager = await self.env.make_manager(service_fee=250)
+        async with self.env.session_maker() as session:
+            session.add(ManagerOperation(manager_id=manager.id, op_type="issue_tariff", status="pending_payment",
+                                         client_user_id=self.FRIEND, price=399, service_fee=250, fee_in_cash=True,
+                                         payment_method="online", payment_id="yk-qr"))
+            await session.commit()
+        await self.pay(self.FRIEND, 149, yk_id="yk-qr", source="manager", manager_id=manager.id)
+        self.assertEqual((await self.service.overview(self.PARTNER)).hold_kop, 4470)   # 30% от 149, не от −101
+
     async def test_zero_hold_goes_straight_to_balance(self):
         await self.env.repos.settings.set("partner_hold_days", 0)
         await self.make_friend()

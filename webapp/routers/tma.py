@@ -33,7 +33,10 @@ from tgbot.services import (
 )
 from tgbot.services import support_service
 from tgbot.services.key_service import CODE_OK, REVOKE_NOTICES
-from tgbot.services.referral_service import REFERRAL_TRIAL_DAYS
+from tgbot.services.referral_service import (
+    REFERRAL_TRIAL_DAYS, REFERRER_LAUNCH_BONUS_DAYS, REFERRER_PAYMENT_BONUS_DAYS,
+)
+from tgbot.services.utils import decline_word
 from tgbot.services.partner_rules import fmt_rub
 from tgbot.services.intro_offer import consent_text, conversion_price, is_in_intro
 from tgbot.services.pricing import effective_price
@@ -53,6 +56,10 @@ from webapp.templating import templates
 router = APIRouter(prefix="/tma")
 logger = logging.getLogger(__name__)
 config = load_config()
+
+
+def _days(n: int) -> str:
+    return f"{n} {decline_word(n, ('день', 'дня', 'дней'))}"
 
 
 def _auth_splash(request: Request) -> HTMLResponse:
@@ -174,9 +181,11 @@ async def tma_referral(request: Request, user: User | None = Depends(get_current
         return _auth_splash(request)
 
     info = await user_service.get_referral_info(user.user_id)
-    # Активный партнёр: денежная рефералка, баланс и вывод — только в боте.
+    # Партнёр (денежная рефералка): баланс и ставка здесь, вывод и оплата с баланса —
+    # в кабинете партнёра /tma/partner. Отключённому — только пока у него есть деньги в программе.
     partner = await partner_service.overview(user.user_id)
-    if partner is not None and not partner.active:
+    if partner is not None and not partner.active and not (
+            partner.balance_kop or partner.hold_kop or partner.pending_withdrawal):
         partner = None
 
     bot_username = config.tg_bot.tg_bot_username
@@ -192,7 +201,8 @@ async def tma_referral(request: Request, user: User | None = Depends(get_current
         "ref_link": ref_link,
         "partner": partner,
         "partner_balance": fmt_rub(partner.balance_kop) if partner else None,
-        "bot_link": f"https://t.me/{bot_username}" if bot_username else None,
+        "referrer_launch_bonus": _days(REFERRER_LAUNCH_BONUS_DAYS),
+        "referrer_payment_bonus": _days(REFERRER_PAYMENT_BONUS_DAYS),
         "title": "Реферальная программа",
         "active_tab": "referral",
     })

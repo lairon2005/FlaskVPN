@@ -78,11 +78,9 @@ def main_menu_keyboard(
     if tma_mode_enabled():
         builder.button(text='💎 Оплатить', web_app=WebAppInfo(url=build_tma_url('/tma/tariffs')))
         builder.button(text='🛜 Подключиться', web_app=WebAppInfo(url=build_tma_url('/tma/import')))
-        if is_partner:
-            # Партнёрский баланс и вывод живут только в боте.
-            builder.button(text='👥 Пригласить друга', callback_data='referral_program')
-        else:
-            builder.button(text='👥 Пригласить друга', web_app=WebAppInfo(url=build_tma_url('/tma/referral')))
+        # Партнёру — сразу кабинет партнёра: баланс, вывод и оплата с баланса есть и в Mini App.
+        referral_path = '/tma/partner' if is_partner else '/tma/referral'
+        builder.button(text='👥 Пригласить друга', web_app=WebAppInfo(url=build_tma_url(referral_path)))
         builder.button(text="💬 Поддержка", web_app=WebAppInfo(url=build_tma_url('/tma/support')))
     else:
         builder.button(text='💎 Оплатить', callback_data='buy_subscription')
