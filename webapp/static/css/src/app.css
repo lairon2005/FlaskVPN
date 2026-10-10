@@ -539,6 +539,9 @@
        Bootstrap JS на новой базе нет. <dialog> даёт бесплатно фокус-трап,
        закрытие по Esc и инертность фона — самому это не воспроизвести. */
     .modal {
+        /* Tailwind preflight обнуляет margin у <dialog> — без auto окно липнет влево-вверх */
+        margin: auto;
+        inset: 0;
         width: min(64rem, calc(100vw - 2rem));
         max-height: calc(100dvh - 3rem);
         padding: 0;
