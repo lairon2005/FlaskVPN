@@ -284,9 +284,9 @@ def payment_method_choice_keyboard(tariff_id: int, slots: int = 0,
     смене способа оплаты. Старые сообщения приходят без `packs` — это 0.
     """
     builder = InlineKeyboardBuilder()
-    builder.button(text="💳 Банковская карта", callback_data=f"paymethod_card_{tariff_id}_{slots}_{packs}")
-    builder.button(text="🏦 СБП", callback_data=f"paymethod_sbp_{tariff_id}_{slots}_{packs}")
     builder.button(text="🟢 SberPay", callback_data=f"paymethod_sberpay_{tariff_id}_{slots}_{packs}")
+    builder.button(text="🏦 СБП", callback_data=f"paymethod_sbp_{tariff_id}_{slots}_{packs}")
+    builder.button(text="💳 Банковская карта", callback_data=f"paymethod_card_{tariff_id}_{slots}_{packs}")
     builder.button(text="⬅️ Назад", callback_data=back_callback or f"select_tariff_{tariff_id}")
     builder.adjust(1)
     return builder.as_markup()
@@ -331,9 +331,9 @@ def slot_purchase_keyboard(slots: int, max_slots: int, total_limit: int) -> Inli
         stepper.append(InlineKeyboardButton(text="➕", callback_data=f"slots_qty:{slots + 1}"))
     builder.row(*stepper)
 
-    builder.row(InlineKeyboardButton(text="💳 Оплатить картой", callback_data=f"slots_pay:card:{slots}"))
-    builder.row(InlineKeyboardButton(text="🏦 Оплатить через СБП", callback_data=f"slots_pay:sbp:{slots}"))
     builder.row(InlineKeyboardButton(text="🟢 Оплатить через SberPay", callback_data=f"slots_pay:sberpay:{slots}"))
+    builder.row(InlineKeyboardButton(text="🏦 Оплатить через СБП", callback_data=f"slots_pay:sbp:{slots}"))
+    builder.row(InlineKeyboardButton(text="💳 Оплатить картой", callback_data=f"slots_pay:card:{slots}"))
     builder.row(InlineKeyboardButton(text="⬅️ Назад к устройствам", callback_data="my_devices"))
     return builder.as_markup()
 
@@ -367,9 +367,9 @@ def traffic_purchase_keyboard(packs: int, max_packs: int, total_gb: int) -> Inli
         stepper.append(InlineKeyboardButton(text="➕", callback_data=f"traffic_qty:{packs + 1}"))
     builder.row(*stepper)
 
-    builder.row(InlineKeyboardButton(text="💳 Оплатить картой", callback_data=f"traffic_pay:card:{packs}"))
-    builder.row(InlineKeyboardButton(text="🏦 Оплатить через СБП", callback_data=f"traffic_pay:sbp:{packs}"))
     builder.row(InlineKeyboardButton(text="🟢 Оплатить через SberPay", callback_data=f"traffic_pay:sberpay:{packs}"))
+    builder.row(InlineKeyboardButton(text="🏦 Оплатить через СБП", callback_data=f"traffic_pay:sbp:{packs}"))
+    builder.row(InlineKeyboardButton(text="💳 Оплатить картой", callback_data=f"traffic_pay:card:{packs}"))
     builder.row(InlineKeyboardButton(text="⬅️ Назад в профиль", callback_data="my_profile"))
     return builder.as_markup()
 
