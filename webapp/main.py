@@ -16,7 +16,7 @@ from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from db import User
 from webapp.routers import auth, client_link, dashboard, legal, manager, partner, payment, tma
 from webapp.dependencies import get_current_user
-from webapp.templating import templates
+from webapp.templating import render
 from loader import logger, remnawave_client, shutdown_logging, config
 from typing import Optional
 from db import Tariff
@@ -72,6 +72,7 @@ app.include_router(partner.router)
 async def read_root(request: Request, user: User = Depends(get_current_user)):
     if user:
         return RedirectResponse(url="/profile/", status_code=302)
+    ref = request.query_params.get("ref")
     # Гость — потенциально новый клиент: вводный тариф показываем как новичку.
     # Право на него всё равно проверит /payment/create после входа.
     guest = SimpleNamespace(is_first_payment_made=False, intro_used=False)
@@ -81,8 +82,7 @@ async def read_root(request: Request, user: User = Depends(get_current_user)):
     # Базовый лимит устройств правится из админки — на лендинге он не должен
     # расходиться с тем, что человек получит после оплаты.
     device_settings = await device_slot_service.settings()
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    response = render(request, "index.html", {
         "title": "Главная",
         "user": user,
         "tariffs": tariffs,
@@ -91,3 +91,6 @@ async def read_root(request: Request, user: User = Depends(get_current_user)):
         # Базовая квота правится из админки — лендинг не должен обещать другую.
         "traffic_settings": await traffic_service.settings(),
     })
+    if ref:
+        auth.set_ref_cookie(response, request, ref)
+    return response

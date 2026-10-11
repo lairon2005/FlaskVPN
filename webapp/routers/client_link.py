@@ -14,7 +14,7 @@ from fastapi.responses import RedirectResponse
 
 from database import user_repo
 from tgbot.services.manager_security import hash_token
-from webapp.core.security import ACCESS_TOKEN_EXPIRE_MINUTES, create_access_token
+from webapp.core.security import ACCESS_TOKEN_EXPIRE_MINUTES, create_access_token, set_session_cookie
 from webapp.templating import render
 
 router = APIRouter()
@@ -40,9 +40,6 @@ async def open_cabinet(request: Request, token: str):
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
     )
     response = RedirectResponse("/profile/", status_code=303)
-    response.set_cookie(
-        "access_token", f"Bearer {access_token}", httponly=True,
-        secure=request.url.scheme == "https", samesite="lax",
-    )
+    set_session_cookie(response, access_token, request)
     response.headers.update(_HEADERS)
     return response

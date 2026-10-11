@@ -132,7 +132,8 @@ python3 tools/make_collage.py  # пересобрать коллажную ка�
 | Метод | Путь | Описание |
 |-------|------|----------|
 | GET | `/login` | Страница входа |
-| GET | `/register` | Страница регистрации (`?ref=` для реферала) |
+| GET | `/` (`?ref=<id>`) | Главная. Реферальная ссылка ведёт сюда: валидный `ref` пишется в cookie `ref` (30 дней, `auth.set_ref_cookie`), «Начать» открывает `/register` без параметров, и реферер берётся из cookie (`auth.resolve_ref`; явный `?ref=`/поле формы приоритетнее). После регистрации cookie удаляется |
+| GET | `/register` | Страница регистрации (`?ref=` — легаси-ссылки, работают как раньше) |
 | GET | `/logout` | Удалить cookie, редирект на `/login` |
 | GET | `/forgot-password` | Форма сброса пароля |
 | GET | `/reset-password` | Форма ввода кода + нового пароля |
@@ -240,9 +241,9 @@ python3 tools/make_collage.py  # пересобрать коллажную ка�
 
 ## Аутентификация (JWT)
 
-**Cookie:** `access_token` = `"Bearer {JWT}"`, `httponly=True`
+**Cookie:** `access_token` = `"Bearer {JWT}"`, `httponly`, `SameSite=Lax`, `Max-Age` = сроку JWT (`security.set_session_cookie`) — переживает закрытие браузера
 **Алгоритм:** HS256, ключ: `SECRET_KEY` из env
-**Срок:** 7 дней (`ACCESS_TOKEN_EXPIRE_MINUTES = 60*24*7`)
+**Срок:** 90 дней (`ACCESS_TOKEN_EXPIRE_MINUTES = 60*24*90`)
 
 ### Два типа токенов
 
@@ -250,7 +251,7 @@ python3 tools/make_collage.py  # пересобрать коллажную ка�
 Хранит: `email, full_name, password_hash, code, code_expire, attempts`
 Живёт между `POST /register` и `POST /verify-email` — данные не в БД.
 
-**2. Access Token** (7 дней)
+**2. Access Token** (90 дней)
 Хранит: `sub` (user_id как строка), `email`, `exp`
 `get_current_user` проверяет `type != "registration"` перед запросом в БД.
 
@@ -359,7 +360,7 @@ fixed-слой с блендом роняет плавность прокрут�
 | `updateTariffPrices(discount%)` | Обновить цены на всех `.tariff-price` |
 | `copyLink()` | Скопировать `#subLink` |
 | `copyRefLink()` | Скопировать реферальную ссылку |
-| `initRefLink()` | Построить ref URL: `window.location.origin + /register?ref={data-ref}` |
+| `initRefLink()` | Построить ref URL: `window.location.origin + /?ref={data-ref}` |
 | `detectOSAndSetLink()` | Определить OS → подставить ссылку на скачивание |
 | `initPasswordStrength()` | Strength bar при вводе пароля |
 | `initFormLoading()` | `.btn-loading` на submit кнопки при отправке форм |

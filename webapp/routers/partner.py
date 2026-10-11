@@ -97,7 +97,7 @@ def _links(request: Request, user_id: int) -> dict:
     return {
         "bot": f"https://t.me/{bot}?start=ref{user_id}" if bot else None,
         "tma": f"https://t.me/{bot}/{app}?startapp={user_id}" if bot and app else None,
-        "web": f"{str(request.base_url).rstrip('/')}/register?ref={user_id}",
+        "web": f"{str(request.base_url).rstrip('/')}/?ref={user_id}",
     }
 
 

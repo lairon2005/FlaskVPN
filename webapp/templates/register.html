@@ -12,12 +12,14 @@
     {% if ref %}<input type="hidden" name="ref" value="{{ ref }}">{% endif %}
 
     <div>
-        <label class="field-label" for="regName">Ваше имя</label>
+        <label class="field-label" for="regName">Имя или никнейм</label>
         <div class="input-wrap">
             <span class="input-icon">{{ ic.icon('user', 'w-5 h-5') }}</span>
             <input type="text" id="regName" name="full_name" class="input"
-                   placeholder="Иван Иванов" required autocomplete="name">
+                   placeholder="Например, ivan_petrov" required autocomplete="nickname"
+                   maxlength="64">
         </div>
+        <p class="mt-1.5 text-xs text-muted">Как к вам обращаться — можно настоящее имя или придуманный ник.</p>
     </div>
 
     <div>

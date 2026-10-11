@@ -13,7 +13,7 @@ from db import async_session_maker, User
 from tgbot.services import referral_service
 from webapp.core.mail import send_reset_code, send_verification_email, MailSendError
 from webapp.core.verification import generate_code, hash_code, check_code
-from webapp.core.security import get_password_hash, verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, SECRET_KEY, ALGORITHM
+from webapp.core.security import get_password_hash, verify_password, create_access_token, set_session_cookie, ACCESS_TOKEN_EXPIRE_MINUTES, SECRET_KEY, ALGORITHM
 from webapp.dependencies import get_current_user
 from webapp.templating import render
 from datetime import timedelta, datetime
@@ -34,6 +34,29 @@ def parse_ref(value) -> int | None:
     except (TypeError, ValueError):
         return None
     return ref or None
+
+
+REF_COOKIE = "ref"
+REF_COOKIE_MAX_AGE = 30 * 24 * 3600
+
+
+def set_ref_cookie(response, request: Request, value) -> None:
+    """
+    Запомнить реферера из `/?ref=<id>`: ссылка ведёт на главную, а регистрация — отдельная
+    страница, на которую человек попадёт позже. Невалидное значение молча игнорируем.
+    """
+    ref = parse_ref(value)
+    if ref is None or len(str(ref)) > 15:
+        return
+    response.set_cookie(
+        REF_COOKIE, str(ref), max_age=REF_COOKIE_MAX_AGE, httponly=True, samesite="lax",
+        secure=request.url.scheme == "https",
+    )
+
+
+def resolve_ref(request: Request, value=None):
+    """Реферер для регистрации: явный (?ref= / поле формы), иначе запомненный в cookie."""
+    return value or request.cookies.get(REF_COOKIE) or None
 
 
 # --- ГЕНЕРАЦИЯ ID ДЛЯ WEB ---
@@ -61,7 +84,7 @@ async def login_page(request: Request, user: User = Depends(get_current_user)):
 async def register_page(request: Request, user: User = Depends(get_current_user)):
     if user:
         return RedirectResponse(url="/profile/", status_code=302)
-    ref = request.query_params.get("ref")
+    ref = resolve_ref(request, request.query_params.get("ref"))
     return render(request, "register.html", {"ref": ref})
 
 @router.get("/logout")
@@ -89,6 +112,7 @@ async def register_user(
     db: AsyncSession = Depends(get_db)
 ):
     logging.info(f"Attempting to register user with email: {email}")
+    ref = resolve_ref(request, ref)
 
     # Валидация пароля
     if len(password) < 6:
@@ -227,7 +251,8 @@ async def verify_email(
     )
 
     response = RedirectResponse(url="/profile/", status_code=302)
-    response.set_cookie(key="access_token", value=f"Bearer {access_token}", httponly=True)
+    set_session_cookie(response, access_token, request)
+    response.delete_cookie(REF_COOKIE)  # приглашение использовано
     return response
 
 
@@ -310,8 +335,8 @@ async def login_user(
     )
     
     response = RedirectResponse(url="/", status_code=302)
-    # httponly=True защищает от кражи кук через JS
-    response.set_cookie(key="access_token", value=f"Bearer {access_token}", httponly=True)
+    # httponly=True защищает от кражи кук через JS; max_age — вход переживает закрытие браузера
+    set_session_cookie(response, access_token, request)
     return response
 
 

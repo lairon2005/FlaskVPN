@@ -483,7 +483,7 @@ function initRefLink() {
     const input = document.getElementById("refLink");
     if (!input) return;
     const ref = input.dataset.ref;
-    if (ref) input.value = window.location.origin + "/register?ref=" + ref;
+    if (ref) input.value = window.location.origin + "/?ref=" + ref;
 }
 
 function copyRefLink() {

@@ -2,7 +2,7 @@
 Реферальная система и кабинет партнёра на сайте — по HTTP, на настоящей БД (SQLite),
 настоящих PartnerService, ReferralService и PaymentService.
 
-Регистрация: `/register?ref=<id>` → код из письма → `/verify-email` → друг привязан к
+Регистрация: `/?ref=<id>` (главная) → `/register` → код из письма → `/verify-email` → друг привязан к
 рефереру тем же referral_service.attach_referrer, что и /start в боте; друг активного
 партнёра помечен partner_referred, и с его оплат партнёру идут проценты.
 
@@ -118,6 +118,7 @@ class WebEnv(unittest.IsolatedAsyncioTestCase):
             p.start()
             self.addCleanup(p.stop)
         self.partner_module = partner
+        self.auth_module = auth
 
         app = FastAPI()
         app.include_router(auth.router)
@@ -307,7 +308,7 @@ class PageTests(WebEnv):
                 self.assertIn("300 ₽", text)                    # холд
                 self.assertIn("30% с оплат друзей", text)
                 self.assertIn("https://t.me/flaskbot?start=ref100", text)
-                self.assertIn(f"{BASE}/register?ref=100", text)
+                self.assertIn(f"{BASE}/?ref=100", text)
                 self.assertIn("3 дня бесплатно", text)
                 self.assertIn("С оплаты друга", text)
                 self.assertIn("в холде", text)
