@@ -56,7 +56,7 @@ class RenewalQuote:
 
     def receipt_items(self) -> list[dict]:
         """Позиции чека: тариф, устройства и трафик — разные услуги (54-ФЗ)."""
-        items = [{"description": f"Подписка VPN: {self.tariff.name}", "quantity": 1, "amount": self.tariff_amount}]
+        items = [{"description": f"Подписка: {self.tariff.name}", "quantity": 1, "amount": self.tariff_amount}]
         if self.slots_amount:
             items.append({
                 "description": f"Дополнительные устройства ({self.tariff.duration_days} дн.)",

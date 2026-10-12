@@ -1127,7 +1127,7 @@ class ManagerService:
         if quote.packs:
             checkout = checkout.with_traffic(quote.packs, quote.traffic_cost, quote.extra_traffic_gb)
         kind = "custom" if quote.product == "custom" else "subscription"
-        description = f"Подписка VPN: {quote.tariff_name}" + (f" ({quote.days} дн.)" if kind == "custom" else "")
+        description = f"Подписка: {quote.tariff_name}" + (f" ({quote.days} дн.)" if kind == "custom" else "")
         # По QR через ЮKassa идёт только подписка: услугу менеджера клиент отдаёт ему наличными,
         # в счёт и фискальный чек она не входит (в нашем чеке — отдельной строкой «наличными»).
         items = receipt_items(quote.tariff_name if kind == "subscription" else f"{quote.days} дн.",

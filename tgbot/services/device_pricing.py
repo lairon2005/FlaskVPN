@@ -163,7 +163,7 @@ def build_checkout(settings: DeviceSettings, tariff_price: float, duration_days:
 def receipt_items(tariff_name: str, checkout: Checkout, duration_days: int) -> list[dict]:
     """Позиции чека YooKassa: тариф и доп. устройства раздельно (54-ФЗ)."""
     items = [{
-        "description": f"Подписка VPN: {tariff_name}",
+        "description": f"Подписка: {tariff_name}",
         "quantity": 1,
         "amount": checkout.tariff_final,
     }]
