@@ -910,7 +910,7 @@ class PaymentService:
         try:
             yk_payment_id, status = create_recurring_payment(
                 amount=charge_amount,
-                description=f"Автопродление VPN: {tariff.name}",
+                description=f"Автопродление тарифа: {tariff.name}",
                 payment_method_id=card.yookassa_payment_method_id,
                 user_id=user_id,
                 user_email=email,
